@@ -13,6 +13,8 @@
 
 #include "form.hh"
 
+#include "styleengine.hh"
+
 /*
  * Macros 
  */
@@ -36,6 +38,7 @@
  * Change one toplevel attribute. var should be an identifier. val is
  * only evaluated once, so you can safely use a function call for it.
  */
+#if 0
 #define HTML_SET_TOP_ATTR(html, var, val) \
    do { \
       StyleAttrs style_attrs; \
@@ -48,7 +51,9 @@
          Style::create (HT2LT(html), &style_attrs); \
       old_style->unref (); \
    } while (FALSE)
-
+#else
+#define HTML_SET_TOP_ATTR(html, var, val) 
+#endif
 /*
  * Typedefs 
  */
@@ -109,7 +114,7 @@ struct _DilloLinkImage {
 };
 
 struct _DilloHtmlState {
-   dw::core::style::Style *style, *table_cell_style;
+   CssPropertyList *table_cell_props;
    DilloHtmlParseMode parse_mode;
    DilloHtmlTableMode table_mode;
    bool cell_text_align_set;
@@ -174,6 +179,7 @@ public:  //BUG: for now everything is public
    float DocTypeVersion;          /* HTML or XHTML version number */
 
    lout::misc::SimpleVector<DilloHtmlState> *stack;
+   StyleEngine *styleEngine;
 
    int InFlags; /* tracks which elements we are in */
 
@@ -233,6 +239,8 @@ public:
  * Parser functions 
  */
 
+int a_Html_tag_index(const char *tag);
+
 const char *a_Html_get_attr(DilloHtml *html,
                             const char *tag,
                             int tagsize,
@@ -260,11 +268,11 @@ int32_t a_Html_color_parse(DilloHtml *html,
                            const char *subtag, int32_t default_color);
 dw::core::style::Length a_Html_parse_length (DilloHtml *html,
                                              const char *attr);
-void a_Html_tag_set_align_attr(DilloHtml *html,
+void a_Html_tag_set_align_attr(DilloHtml *html, CssPropertyList *props,
                                const char *tag, int tagsize);
 bool a_Html_tag_set_valign_attr(DilloHtml *html,
                                 const char *tag, int tagsize,
-                                dw::core::style::StyleAttrs *style_attrs);
+                                CssPropertyList *props);
 void a_Html_set_top_font(DilloHtml *html, const char *name, int size,
                          int BI, int BImask);
 
