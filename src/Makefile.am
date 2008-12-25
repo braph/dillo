@@ -67,6 +67,13 @@ dillo_SOURCES = \
 	dicache.h \
 	capi.c \
 	capi.h \
+	css.cc \
+	css.hh \
+	cssparser.cc \
+	cssparser.hh \
+	doctree.hh \
+	styleengine.cc \
+	styleengine.hh \
 	plain.cc \
 	html.cc \
 	html.hh \
