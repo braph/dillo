@@ -295,31 +295,6 @@ static int Html_add_new_linkimage(DilloHtml *html,
 }
 
 /*
- * Set the font at the top of the stack. BImask specifies which
- * attributes in BI should be changed.
- */
-void a_Html_set_top_font(DilloHtml *html, const char *name, int size,
-                         int BI, int BImask)
-{
-#if 0
-   FontAttrs font_attrs;
-
-   font_attrs = *html->styleEngine->style ()->font;
-   if (name)
-      font_attrs.name = name;
-   if (size)
-      font_attrs.size = size;
-   if (BImask & 1)
-      font_attrs.weight = (BI & 1) ? 700 : 400;
-   if (BImask & 2)
-      font_attrs.style = (BI & 2) ? FONT_STYLE_ITALIC : FONT_STYLE_NORMAL;
-
-   HTML_SET_TOP_ATTR (html, font,
-                      Font::create (HT2LT(html), &font_attrs));
-#endif
-}
-
-/*
  * Evaluates the ALIGN attribute (left|center|right|justify) and
  * sets the style at the top of the stack.
  */
@@ -1793,9 +1768,8 @@ static void Html_tag_open_frame (DilloHtml *html, const char *tag, int tagsize)
    char *src;
    DilloUrl *url;
    Textblock *textblock;
-   StyleAttrs style_attrs;
-   Style *link_style;
    Widget *bullet;
+   CssPropertyList props;
 
    textblock = DW2TB(html->dw);
 
@@ -1807,18 +1781,14 @@ static void Html_tag_open_frame (DilloHtml *html, const char *tag, int tagsize)
 
    src = dStrdup(attrbuf);
 
-   style_attrs = *(html->styleEngine->style ());
-
    if (a_Capi_get_flags(url) & CAPI_IsCached) { /* visited frame */
-      style_attrs.color =
-         Color::create (HT2LT(html), html->visited_color);
+      html->styleEngine->setPseudoVisited ();
    } else {                                    /* unvisited frame */
-      style_attrs.color = Color::create (HT2LT(html), html->link_color);
+      html->styleEngine->setPseudoLink ();
    }
-   style_attrs.textDecoration |= TEXT_DECORATION_UNDERLINE;
-   style_attrs.x_link = Html_set_new_link(html, &url);
-   style_attrs.cursor = CURSOR_POINTER;
-   link_style = Style::create (HT2LT(html), &style_attrs);
+
+   props.set (CssProperty::PROPERTY_X_LINK, Html_set_new_link(html, &url));
+   html->styleEngine->setNonCssHints (&props);
 
    textblock->addParbreak (5, html->styleEngine->wordStyle ());
 
@@ -1832,21 +1802,20 @@ static void Html_tag_open_frame (DilloHtml *html, const char *tag, int tagsize)
    if (tolower(tag[1]) == 'i') {
       /* IFRAME usually comes with very long advertising/spying URLS,
        * to not break rendering we will force name="IFRAME" */
-      textblock->addText ("IFRAME", link_style);
+      textblock->addText ("IFRAME", html->styleEngine->wordStyle ());
 
    } else {
       /* FRAME:
        * If 'name' tag is present use it, if not use 'src' value */
       if (!(attrbuf = a_Html_get_attr(html, tag, tagsize, "name"))) {
-         textblock->addText (src, link_style);
+         textblock->addText (src, html->styleEngine->wordStyle ());
       } else {
-         textblock->addText (attrbuf, link_style);
+         textblock->addText (attrbuf, html->styleEngine->wordStyle ());
       }
    }
 
    textblock->addParbreak (5, html->styleEngine->wordStyle ());
 
-   link_style->unref ();
    dFree(src);
 }
 
@@ -1893,14 +1862,6 @@ static void Html_tag_close_h(DilloHtml *html, int TagIdx)
 {
    a_Menu_pagemarks_set_text(html->bw, html->Stash->str);
    DW2TB(html->dw)->addParbreak (9, html->styleEngine->wordStyle ());
-}
-
-/*
- * <BIG> | <SMALL>
- */
-static void Html_tag_open_big_small(DilloHtml *html,
-                                    const char *tag, int tagsize)
-{
 }
 
 static void Html_tag_open_span(DilloHtml *html,
@@ -1961,41 +1922,6 @@ static void Html_tag_open_abbr(DilloHtml *html, const char *tag, int tagsize)
 }
 
 /*
- * <B>
- */
-static void Html_tag_open_b(DilloHtml *html, const char *tag, int tagsize)
-{
-}
-
-/*
- * <STRONG>
- */
-static void Html_tag_open_strong(DilloHtml *html, const char *tag, int tagsize)
-{
-}
-
-/*
- * <I>
- */
-static void Html_tag_open_i(DilloHtml *html, const char *tag, int tagsize)
-{
-}
-
-/*
- * <EM>
- */
-static void Html_tag_open_em(DilloHtml *html, const char *tag, int tagsize)
-{
-}
-
-/*
- * <CITE>
- */
-static void Html_tag_open_cite(DilloHtml *html, const char *tag, int tagsize)
-{
-}
-
-/*
  * <CENTER>
  */
 static void Html_tag_open_center(DilloHtml *html, const char *tag, int tagsize)
@@ -2010,13 +1936,6 @@ static void Html_tag_open_address(DilloHtml *html,
                                   const char *tag, int tagsize)
 {
    DW2TB(html->dw)->addParbreak (9, html->styleEngine->wordStyle ());
-}
-
-/*
- * <TT>
- */
-static void Html_tag_open_tt(DilloHtml *html, const char *tag, int tagsize)
-{
 }
 
 /*
@@ -2361,10 +2280,9 @@ static void Html_tag_open_area(DilloHtml *html, const char *tag, int tagsize)
  */
 static void Html_tag_open_object(DilloHtml *html, const char *tag, int tagsize)
 {
-   StyleAttrs style_attrs;
-   Style *style;
    DilloUrl *url, *base_url = NULL;
    const char *attrbuf;
+   CssPropertyList props;
 
    if ((attrbuf = a_Html_get_attr(html, tag, tagsize, "codebase"))) {
       base_url = a_Html_url_new(html, attrbuf, NULL, 0);
@@ -2375,31 +2293,16 @@ static void Html_tag_open_object(DilloHtml *html, const char *tag, int tagsize)
                            URL_STR(base_url), (base_url != NULL));
       dReturn_if_fail ( url != NULL );
 
-      style_attrs = *html->styleEngine->style ();
-
       if (a_Capi_get_flags(url) & CAPI_IsCached) {
-         style_attrs.color = Color::create (
-            HT2LT(html),
-            html->visited_color
-/*
-            a_Color_vc(html->visited_color,
-                       html->styleEngine->style()->color->getColor(),
-                       html->link_color,
-                       html->styleEngine->style()->backgroundColor->getColor()
-                      );
-*/
-            );
+         html->styleEngine->setPseudoVisited ();
       } else {
-         style_attrs.color = Color::create (HT2LT(html), html->link_color);
+         html->styleEngine->setPseudoLink ();
       }
+   
+      props.set(CssProperty::PROPERTY_X_LINK, Html_set_new_link(html, &url));
+      html->styleEngine->setNonCssHints (&props);
 
-      style_attrs.textDecoration |= TEXT_DECORATION_UNDERLINE;
-      style_attrs.x_link = Html_set_new_link(html, &url);
-      style_attrs.cursor = CURSOR_POINTER;
-
-      style = Style::create (HT2LT(html), &style_attrs);
-      DW2TB(html->dw)->addText("[OBJECT]", style);
-      style->unref ();
+      DW2TB(html->dw)->addText("[OBJECT]", html->styleEngine->wordStyle ());
    }
    a_Url_free(base_url);
 }
@@ -2502,20 +2405,6 @@ static void Html_tag_close_a(DilloHtml *html, int TagIdx)
 }
 
 /*
- * Insert underlined text in the page.
- */
-static void Html_tag_open_u(DilloHtml *html, const char *tag, int tagsize)
-{
-}
-
-/*
- * Insert strike-through text. Used by <S>, <STRIKE> and <DEL>.
- */
-static void Html_tag_open_strike(DilloHtml *html, const char *tag, int tagsize)
-{
-}
-
-/*
  * <BLOCKQUOTE>
  */
 static void Html_tag_open_blockquote(DilloHtml *html, 
@@ -2558,10 +2447,9 @@ static void Html_tag_open_ul(DilloHtml *html, const char *tag, int tagsize)
    const char *attrbuf;
    ListStyleType list_style_type;
 
-   DW2TB(html->dw)->addParbreak (9, html->styleEngine->wordStyle ());
-   Html_add_textblock(html, 9);
-
    if ((attrbuf = a_Html_get_attr(html, tag, tagsize, "type"))) {
+      CssPropertyList props;
+
       /* list_style_type explicitly defined */
       if (dStrncasecmp(attrbuf, "disc", 4) == 0)
          list_style_type = LIST_STYLE_TYPE_DISC;
@@ -2572,33 +2460,15 @@ static void Html_tag_open_ul(DilloHtml *html, const char *tag, int tagsize)
       else
          /* invalid value */
          list_style_type = LIST_STYLE_TYPE_DISC;
-   } else {
-      if (S_TOP(html)->list_type == HTML_LIST_UNORDERED) {
-         /* Nested <UL>'s. */
-         /* --EG :: I changed the behavior here : types are cycling instead of
-          * being forced to square. It's easier for mixed lists level counting.
-          */
-         switch (html->styleEngine->style ()->listStyleType) {
-         case LIST_STYLE_TYPE_DISC:
-            list_style_type = LIST_STYLE_TYPE_CIRCLE;
-            break;
-         case LIST_STYLE_TYPE_CIRCLE:
-            list_style_type = LIST_STYLE_TYPE_SQUARE;
-            break;
-         case LIST_STYLE_TYPE_SQUARE:
-         default: /* this is actually a bug */
-            list_style_type = LIST_STYLE_TYPE_DISC;
-            break;
-         }
-      } else {
-         /* Either first <UL>, or a <OL> before. */
-         list_style_type = LIST_STYLE_TYPE_DISC;
-      }
-   }
 
-   HTML_SET_TOP_ATTR(html, listStyleType, list_style_type);
+      props.set(CssProperty::CSS_PROPERTY_LIST_STYLE_TYPE, list_style_type);
+      html->styleEngine->setNonCssHints (&props);
+   } 
+
+   DW2TB(html->dw)->addParbreak (9, html->styleEngine->wordStyle ());
+   Html_add_textblock(html, 9);
+
    S_TOP(html)->list_type = HTML_LIST_UNORDERED;
-
    S_TOP(html)->list_number = 0;
    S_TOP(html)->ref_list_item = NULL;
 }
@@ -2673,13 +2543,16 @@ static void Html_tag_open_ol(DilloHtml *html, const char *tag, int tagsize)
  */
 static void Html_tag_open_li(DilloHtml *html, const char *tag, int tagsize)
 {
-   StyleAttrs style_attrs;
-   Style *item_style, *word_style;
+   Style *style = html->styleEngine->style ();
+   Style *wordStyle = html->styleEngine->wordStyle ();
    Widget **ref_list_item;
    ListItem *list_item;
    int *list_number;
    const char *attrbuf;
    char buf[16];
+   
+   if (S_TOP(html)->list_type == HTML_LIST_NONE)
+      BUG_MSG("<li> outside <ul> or <ol>\n");
 
    html->InFlags |= IN_LI;
    html->WordAfterLI = false;
@@ -2688,45 +2561,33 @@ static void Html_tag_open_li(DilloHtml *html, const char *tag, int tagsize)
    list_number = &html->stack->getRef(html->stack->size()-2)->list_number;
    ref_list_item = &html->stack->getRef(html->stack->size()-2)->ref_list_item;
 
-   /* set the item style */
-   word_style = html->styleEngine->wordStyle ();
-   style_attrs = *word_style;
- //style_attrs.backgroundColor = Color::createShaded (HT2LT(html), 0xffff40);
- //style_attrs.setBorderColor (Color::createSimple (HT2LT(html), 0x000000));
- //style_attrs.setBorderStyle (BORDER_SOLID);
- //style_attrs.borderWidth.setVal (1);
-   item_style = Style::create (HT2LT(html), &style_attrs);
-
-   DW2TB(html->dw)->addParbreak (2, word_style);
+   DW2TB(html->dw)->addParbreak (2, wordStyle);
 
    list_item = new ListItem ((ListItem*)*ref_list_item,prefs.limit_text_width);
-   DW2TB(html->dw)->addWidget (list_item, item_style);
-   DW2TB(html->dw)->addParbreak (2, word_style);
+   DW2TB(html->dw)->addWidget (list_item, style);
+   DW2TB(html->dw)->addParbreak (2, wordStyle);
    *ref_list_item = list_item;
    S_TOP(html)->textblock = html->dw = list_item;
-   item_style->unref();
    /* Handle it when the user clicks on a link */
    html->connectSignals(list_item);
 
-   switch (S_TOP(html)->list_type) {
-   case HTML_LIST_ORDERED:
+   if (style->listStyleType == LIST_STYLE_TYPE_NONE) {
+      // none
+   } else if (style->listStyleType >= LIST_STYLE_TYPE_DECIMAL) {
+      // ordered
       if ((attrbuf = a_Html_get_attr(html, tag, tagsize, "value")) &&
           (*list_number = strtol(attrbuf, NULL, 10)) < 0) {
          BUG_MSG("illegal negative LIST VALUE attribute; Starting from 0\n");
          *list_number = 0;
       }
-      numtostr((*list_number)++, buf, 16,
-               html->styleEngine->style ()->listStyleType);
-      list_item->initWithText (dStrdup(buf), word_style);
-      list_item->addSpace (word_style);
+      numtostr((*list_number)++, buf, 16, style->listStyleType);
+      list_item->initWithText (dStrdup(buf), wordStyle);
+      list_item->addSpace (wordStyle);
       html->PrevWasSPC = true;
-      break;
-   case HTML_LIST_NONE:
-      BUG_MSG("<li> outside <ul> or <ol>\n");
-   default:
-      list_item->initWithWidget (new Bullet(), word_style);
-      list_item->addSpace (word_style);
-      break;
+   } else {
+      // unordered
+      list_item->initWithWidget (new Bullet(), wordStyle);
+      list_item->addSpace (wordStyle);
    }
 }
 
@@ -2807,7 +2668,6 @@ static void Html_tag_open_dl(DilloHtml *html, const char *tag, int tagsize)
 static void Html_tag_open_dt(DilloHtml *html, const char *tag, int tagsize)
 {
    DW2TB(html->dw)->addParbreak (9, html->styleEngine->wordStyle ());
-   a_Html_set_top_font(html, NULL, 0, 1, 1);
 }
 
 /*
@@ -3074,54 +2934,7 @@ static void Html_tag_open_base(DilloHtml *html, const char *tag, int tagsize)
    }
 }
 
-/*
- * <CODE>
- */
-static void Html_tag_open_code(DilloHtml *html, const char *tag, int tagsize)
-{
-}
-
-/*
- * <DFN>
- */
-static void Html_tag_open_dfn(DilloHtml *html, const char *tag, int tagsize)
-{
-   a_Html_set_top_font(html, NULL, 0, 2, 3);
-}
-
-/*
- * <KBD>
- */
-static void Html_tag_open_kbd(DilloHtml *html, const char *tag, int tagsize)
-{
-}
-
-/*
- * <SAMP>
- */
-static void Html_tag_open_samp(DilloHtml *html, const char *tag, int tagsize)
-{
-}
-
-/*
- * <VAR>
- */
-static void Html_tag_open_var(DilloHtml *html, const char *tag, int tagsize)
-{
-   a_Html_set_top_font(html, NULL, 0, 2, 2);
-}
-
-/*
- * <SUB>
- */
-static void Html_tag_open_sub(DilloHtml *html, const char *tag, int tagsize)
-{
-}
-
-/*
- * <SUP>
- */
-static void Html_tag_open_sup(DilloHtml *html, const char *tag, int tagsize)
+static void Html_tag_open_default(DilloHtml *html, const char *tag, int tagsize)
 {
 }
 
@@ -3196,30 +3009,30 @@ const TagInfo Tags[] = {
  /* acronym 010101 */
  {"address", B8(010110),'R',2, Html_tag_open_address, Html_tag_close_par},
  {"area", B8(010001),'F',0, Html_tag_open_area, Html_tag_close_default},
- {"b", B8(010101),'R',2, Html_tag_open_b, Html_tag_close_default},
+ {"b", B8(010101),'R',2, Html_tag_open_default, Html_tag_close_default},
  {"base", B8(100001),'F',0, Html_tag_open_base, Html_tag_close_default},
  /* basefont 010001 */
  /* bdo 010101 */
- {"big", B8(010101),'R',2, Html_tag_open_big_small, Html_tag_close_default},
+ {"big", B8(010101),'R',2, Html_tag_open_default, Html_tag_close_default},
  {"blockquote", B8(011110),'R',2,Html_tag_open_blockquote,Html_tag_close_par},
  {"body", B8(011110),'O',1, Html_tag_open_body, Html_tag_close_body},
  {"br", B8(010001),'F',0, Html_tag_open_br, Html_tag_close_default},
  {"button", B8(011101),'R',2, Html_tag_open_button, Html_tag_close_button},
  /* caption */
  {"center", B8(011110),'R',2, Html_tag_open_center, Html_tag_close_div},
- {"cite", B8(010101),'R',2, Html_tag_open_cite, Html_tag_close_default},
- {"code", B8(010101),'R',2, Html_tag_open_code, Html_tag_close_default},
+ {"cite", B8(010101),'R',2, Html_tag_open_default, Html_tag_close_default},
+ {"code", B8(010101),'R',2, Html_tag_open_default, Html_tag_close_default},
  /* col 010010 'F' */
  /* colgroup */
  {"dd", B8(011110),'O',1, Html_tag_open_dd, Html_tag_close_par},
- {"del", B8(011101),'R',2, Html_tag_open_strike, Html_tag_close_default},
- {"dfn", B8(010101),'R',2, Html_tag_open_dfn, Html_tag_close_default},
+ {"del", B8(011101),'R',2, Html_tag_open_default, Html_tag_close_default},
+ {"dfn", B8(010101),'R',2, Html_tag_open_default, Html_tag_close_default},
  {"dir", B8(011010),'R',2, Html_tag_open_dir, Html_tag_close_par},
  /* TODO: complete <div> support! */
  {"div", B8(011110),'R',2, Html_tag_open_div, Html_tag_close_div},
  {"dl", B8(011010),'R',2, Html_tag_open_dl, Html_tag_close_par},
  {"dt", B8(010110),'O',1, Html_tag_open_dt, Html_tag_close_par},
- {"em", B8(010101),'R',2, Html_tag_open_em, Html_tag_close_default},
+ {"em", B8(010101),'R',2, Html_tag_open_default, Html_tag_close_default},
  /* fieldset */
  {"font", B8(010101),'R',2, Html_tag_open_font, Html_tag_close_default},
  {"form", B8(011110),'R',2, Html_tag_open_form, Html_tag_close_form},
@@ -3234,13 +3047,13 @@ const TagInfo Tags[] = {
  {"head", B8(101101),'O',1, Html_tag_open_head, Html_tag_close_head},
  {"hr", B8(010010),'F',0, Html_tag_open_hr, Html_tag_close_default},
  {"html", B8(001110),'O',1, Html_tag_open_html, Html_tag_close_html},
- {"i", B8(010101),'R',2, Html_tag_open_i, Html_tag_close_default},
+ {"i", B8(010101),'R',2, Html_tag_open_default, Html_tag_close_default},
  {"iframe", B8(011110),'R',2, Html_tag_open_frame, Html_tag_close_default},
  {"img", B8(010001),'F',0, Html_tag_open_img, Html_tag_close_default},
  {"input", B8(010001),'F',0, Html_tag_open_input, Html_tag_close_default},
  /* ins */
  {"isindex", B8(110001),'F',0, Html_tag_open_isindex, Html_tag_close_default},
- {"kbd", B8(010101),'R',2, Html_tag_open_kbd, Html_tag_close_default},
+ {"kbd", B8(010101),'R',2, Html_tag_open_default, Html_tag_close_default},
  /* label 010101 */
  /* legend 01?? */
  {"li", B8(011110),'O',1, Html_tag_open_li, Html_tag_close_li},
@@ -3259,17 +3072,17 @@ const TagInfo Tags[] = {
  /* param 010001 'F' */
  {"pre", B8(010110),'R',2, Html_tag_open_pre, Html_tag_close_pre},
  {"q", B8(010101),'R',2, Html_tag_open_q, Html_tag_close_q},
- {"s", B8(010101),'R',2, Html_tag_open_strike, Html_tag_close_default},
- {"samp", B8(010101),'R',2, Html_tag_open_samp, Html_tag_close_default},
+ {"s", B8(010101),'R',2, Html_tag_open_default, Html_tag_close_default},
+ {"samp", B8(010101),'R',2, Html_tag_open_default, Html_tag_close_default},
  {"script", B8(111001),'R',2, Html_tag_open_script, Html_tag_close_script},
  {"select", B8(010101),'R',2, Html_tag_open_select, Html_tag_close_select},
- {"small", B8(010101),'R',2, Html_tag_open_big_small, Html_tag_close_default},
+ {"small", B8(010101),'R',2, Html_tag_open_default, Html_tag_close_default},
  {"span", B8(010101),'R',2, Html_tag_open_span, Html_tag_close_default},
- {"strike", B8(010101),'R',2, Html_tag_open_strike, Html_tag_close_default},
- {"strong", B8(010101),'R',2, Html_tag_open_strong, Html_tag_close_default},
+ {"strike", B8(010101),'R',2, Html_tag_open_default, Html_tag_close_default},
+ {"strong", B8(010101),'R',2, Html_tag_open_default, Html_tag_close_default},
  {"style", B8(100101),'R',2, Html_tag_open_style, Html_tag_close_style},
- {"sub", B8(010101),'R',2, Html_tag_open_sub, Html_tag_close_default},
- {"sup", B8(010101),'R',2, Html_tag_open_sup, Html_tag_close_default},
+ {"sub", B8(010101),'R',2, Html_tag_open_default, Html_tag_close_default},
+ {"sup", B8(010101),'R',2, Html_tag_open_default, Html_tag_close_default},
  {"table", B8(011010),'R',5, Html_tag_open_table, Html_tag_close_div},
  /* tbody */
  {"td", B8(011110),'O',3, Html_tag_open_td, Html_tag_close_default},
@@ -3279,10 +3092,10 @@ const TagInfo Tags[] = {
  /* thead */
  {"title", B8(100101),'R',2, Html_tag_open_title, Html_tag_close_title},
  {"tr", B8(011010),'O',4, Html_tag_open_tr, Html_tag_close_default},
- {"tt", B8(010101),'R',2, Html_tag_open_tt, Html_tag_close_default},
- {"u", B8(010101),'R',2, Html_tag_open_u, Html_tag_close_default},
+ {"tt", B8(010101),'R',2, Html_tag_open_default, Html_tag_close_default},
+ {"u", B8(010101),'R',2, Html_tag_open_default, Html_tag_close_default},
  {"ul", B8(011010),'R',2, Html_tag_open_ul, Html_tag_close_par},
- {"var", B8(010101),'R',2, Html_tag_open_var, Html_tag_close_default}
+ {"var", B8(010101),'R',2, Html_tag_open_default, Html_tag_close_default}
 
 };
 #define NTAGS (sizeof(Tags)/sizeof(Tags[0]))
