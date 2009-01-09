@@ -41,6 +41,8 @@ StyleEngine::StyleEngine (dw::core::Layout *layout) {
    n->style = Style::create (layout, &style_attrs);
    n->wordStyle = NULL;
    n->pseudo = NULL;
+   n->styleAttribute = NULL;
+   n->inheritBackgroundColor = false;
 }
 
 StyleEngine::~StyleEngine () {
@@ -66,7 +68,7 @@ void StyleEngine::startElement (int element) {
    n->element = element;
    n->id = NULL;
    n->klass = NULL;
-   n->pseudo = stack->getRef (stack->size () - 2)->pseudo; // inherit pseudo
+   n->pseudo = NULL;
    n->styleAttribute = NULL;
    n->inheritBackgroundColor = false;
 }
