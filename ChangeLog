@@ -49,7 +49,8 @@ dillo-2.1
  ? Trying a new iconv() test in configure.in.
  - Allowed the rc parser to skip whitespace around the equal sign.
  - Fixed the parser not to call Html_tag_close_* functions twice.
-!- Started code cleanup of the image code mainly in dicache.c.
+ - Implemented CSS Stylesheet loading.
+ - Made a big cleanup of cache.c WRT charset decoding (fixes bugs).
    Patches: Jorge Arellano Cid
 
 dw

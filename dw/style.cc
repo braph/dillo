@@ -64,11 +64,9 @@ void StyleAttrs::initValues ()
  */
 void StyleAttrs::resetValues ()
 {
-   x_link = -1;
    x_img = -1;
    x_tooltip = NULL;
 
-   textAlign = TEXT_ALIGN_LEFT; /* ??? */
    valign = VALIGN_MIDDLE;
    textAlignChar = '.';
    backgroundColor = NULL;
@@ -84,8 +82,6 @@ void StyleAttrs::resetValues ()
    vBorderSpacing = 0;
 
    display = DISPLAY_INLINE;
-   whiteSpace = WHITE_SPACE_NORMAL;
-   cursor = CURSOR_DEFAULT; /** \todo Check CSS specification again. */
 }
 
 /**
@@ -338,12 +334,12 @@ Font *Font::createFromList (Layout *layout, FontAttrs *attrs,
 bool ColorAttrs::equals(object::Object *other)
 {
    ColorAttrs *oc = (ColorAttrs*)other;
-   return this == oc || (color == oc->color && type == oc->type);
+   return this == oc || (color == oc->color);
 }
 
 int ColorAttrs::hashValue()
 {
-   return color ^ type;
+   return color;
 }
 
 Color::~Color ()
@@ -407,21 +403,11 @@ int Color::shadeColor (int color, Shading shading)
 }
 
   
-Color *Color::create (Layout *layout, int col, Type type)
+Color *Color::create (Layout *layout, int col)
 {
-   ColorAttrs attrs(col, type);
-   Color *color = NULL;
+   ColorAttrs attrs(col);
 
-   switch (type) {
-      case TYPE_SIMPLE:
-         color = layout->createSimpleColor (col);
-         break;
-      case TYPE_SHADED:
-         color = layout->createShadedColor (col);
-         break;
-   }
-
-   return color;
+   return layout->createColor (col);
 }
 
 // ----------------------------------------------------------------------
@@ -488,9 +474,6 @@ void drawBorder (View *view, Rectangle *area,
    Color::Shading top, right, bottom, left;
    int xb1, yb1, xb2, yb2, xp1, yp1, xp2, yp2;
 
-   if (style->borderStyle.top == BORDER_NONE)
-      return;
-
    xb1 = x + style->margin.left;
    yb1 = y + style->margin.top;
    xb2 = xb1 + width - style->margin.left - style->margin.right;
@@ -521,18 +504,25 @@ void drawBorder (View *view, Rectangle *area,
       break;
    }
 
-   drawPolygon (view, style->borderColor.top, top, xb1, yb1, xb2, yb1,
-                style->borderWidth.top, style->borderWidth.left,
-                - style->borderWidth.right);
-   drawPolygon (view, style->borderColor.right, right, xb2, yb1, xb2, yb2,
-                - style->borderWidth.right, style->borderWidth.top,
-                - style->borderWidth.bottom);
-   drawPolygon (view, style->borderColor.bottom, bottom, xb1, yb2, xb2, yb2,
-                - style->borderWidth.bottom, style->borderWidth.left,
-                - style->borderWidth.right);
-   drawPolygon (view, style->borderColor.left, left, xb1, yb1, xb1, yb2,
-                style->borderWidth.left, style->borderWidth.top,
-                - style->borderWidth.bottom);
+   if (style->borderStyle.top != BORDER_NONE && style->borderColor.top)
+      drawPolygon (view, style->borderColor.top, top, xb1, yb1, xb2, yb1,
+                   style->borderWidth.top, style->borderWidth.left,
+                   - style->borderWidth.right);
+
+   if (style->borderStyle.right != BORDER_NONE && style->borderColor.right)
+      drawPolygon (view, style->borderColor.right, right, xb2, yb1, xb2, yb2,
+                   - style->borderWidth.right, style->borderWidth.top,
+                   - style->borderWidth.bottom);
+
+   if (style->borderStyle.bottom != BORDER_NONE && style->borderColor.bottom)
+      drawPolygon (view, style->borderColor.bottom, bottom, xb1, yb2, xb2, yb2,
+                   - style->borderWidth.bottom, style->borderWidth.left,
+                   - style->borderWidth.right);
+
+   if (style->borderStyle.left != BORDER_NONE && style->borderColor.left)
+      drawPolygon (view, style->borderColor.left, left, xb1, yb1, xb1, yb2,
+                   style->borderWidth.left, style->borderWidth.top,
+                   - style->borderWidth.bottom);
 }
 
 
