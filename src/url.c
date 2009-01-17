@@ -1,8 +1,8 @@
 /*
  * File: url.c
  *
- * Copyright (C) 2001 Jorge Arellano Cid <jcid@dillo.org>
- *               2001 Livio Baldini Soares <livio@linux.ime.usp.br>
+ * Copyright (C) 2001 Livio Baldini Soares <livio@linux.ime.usp.br>
+ * Copyright (C) 2001-2007 Jorge Arellano Cid <jcid@dillo.org>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -49,14 +49,19 @@
 #include <ctype.h>
 
 #include "url.h"
+#include "msg.h"
 
-//#define DEBUG_LEVEL 2
-#include "debug.h"
+static const char *HEX = "0123456789ABCDEF";
 
+/* URL-field compare methods */
+#define URL_STR_FIELD_CMP(s1,s2) \
+   (s1) && (s2) ? strcmp(s1,s2) : !(s1) && !(s2) ? 0 : (s1) ? 1 : -1
+#define URL_STR_FIELD_I_CMP(s1,s2) \
+   (s1) && (s2) ? dStrcasecmp(s1,s2) : !(s1) && !(s2) ? 0 : (s1) ? 1 : -1
 
 /*
  * Return the url as a string.
- * (initializing 'url_string' camp if necessary)
+ * (initializing 'url_string' field if necessary)
  */
 char *a_Url_str(const DilloUrl *u)
 {
@@ -87,7 +92,7 @@ char *a_Url_str(const DilloUrl *u)
 
 /*
  * Return the hostname as a string.
- * (initializing 'hostname' and 'port' camps if necessary)
+ * (initializing 'hostname' and 'port' fields if necessary)
  * Note: a similar approach can be taken for user:password auth.
  */
 const char *a_Url_hostname(const DilloUrl *u)
@@ -97,11 +102,23 @@ const char *a_Url_hostname(const DilloUrl *u)
    DilloUrl *url = (DilloUrl *) u;
 
    if (!url->hostname && url->authority) {
-      if ((p = strchr(url->authority, ':'))) {
-         url->port = strtol(p + 1, NULL, 10);
-         url->hostname = dStrndup(url->authority,(uint_t)(p - url->authority));
-      } else
-         url->hostname = url->authority;
+      if (url->authority[0] == '[' && (p = strchr(url->authority, ']'))) {
+         /* numeric ipv6 address, strip the brackets */
+         url->hostname = dStrndup(url->authority + 1,
+                                  (uint_t)(p - url->authority - 1));
+         if ((p = strchr(p, ':'))) {
+            url->port = strtol(p + 1, NULL, 10);
+         }
+      } else {
+         /* numeric ipv4 or hostname */
+         if ((p = strchr(url->authority, ':'))) {
+            url->port = strtol(p + 1, NULL, 10);
+            url->hostname = dStrndup(url->authority,
+				     (uint_t)(p - url->authority));
+         } else {
+            url->hostname = url->authority;
+         }
+      }
    }
 
    return url->hostname;
@@ -160,6 +177,7 @@ static DilloUrl *Url_object_new(const char *uri_str)
       s = p + 1;
       url->query = s;
       p = strpbrk(s, "#");
+      url->flags |= URL_Get;
    }
    if (p && p[0] == '#') {                         /* fragment */
       *p = 0;
@@ -181,7 +199,7 @@ void a_Url_free(DilloUrl *url)
       if (url->hostname != url->authority)
          dFree((char *)url->hostname);
       dFree((char *)url->buffer);
-      dFree((char *)url->data);
+      dStr_free(url->data, 1);
       dFree((char *)url->alt);
       dFree(url);
    }
@@ -331,17 +349,15 @@ done:
  *     fragment           = "part2"
  *     hostname           = "dillo.sf.net"
  *     port               = 8080
- *     flags              = 0
- *     data               = NULL
+ *     flags              = URL_Get
+ *     data               = Dstr * ("")
  *     alt                = NULL
  *     ismap_url_len      = 0
- *     scrolling_position = 0
  *  }
  *
  *  Return NULL if URL is badly formed.
  */
-DilloUrl* a_Url_new(const char *url_str, const char *base_url,
-                    int flags, int32_t posx, int32_t posy)
+DilloUrl* a_Url_new(const char *url_str, const char *base_url)
 {
    DilloUrl *url;
    char *urlstr = (char *)url_str;  /* auxiliar variable, don't free */
@@ -358,12 +374,17 @@ DilloUrl* a_Url_new(const char *url_str, const char *base_url,
       n_ic += (*p != ' ' && *p > 0x1F && *p != 0x7F) ? 0 : 1;
    }
    if (n_ic) {
-      /* Strip illegal characters (they could also be encoded).
-       * There's no standard for illegal chars; we chose to strip. */
-      p = str1 = dNew(char, strlen(url_str));  /* Yes, enough memory! */
+      /* Encode illegal characters (they could also be stripped).
+       * There's no standard for illegal chars; we chose to encode. */
+      p = str1 = dNew(char, strlen(url_str) + 2*n_ic + 1);
       for (i = 0; url_str[i]; ++i)
          if (url_str[i] > 0x1F && url_str[i] != 0x7F && url_str[i] != ' ')
             *p++ = url_str[i];
+         else  {
+           *p++ = '%';
+           *p++ = HEX[(url_str[i] >> 4) & 15];
+           *p++ = HEX[url_str[i] & 15];
+         }
       *p = 0;
       urlstr = str1;
    }
@@ -381,14 +402,12 @@ DilloUrl* a_Url_new(const char *url_str, const char *base_url,
 
    /* Resolve the URL */
    SolvedUrl = Url_resolve_relative(urlstr, NULL, base_url);
-   DEBUG_MSG(2, "SolvedUrl = %s\n", SolvedUrl->str);
+   _MSG("SolvedUrl = %s\n", SolvedUrl->str);
 
    /* Fill url data */
    url = Url_object_new(SolvedUrl->str);
+   url->data = dStr_new("");
    url->url_string = SolvedUrl;
-   url->flags = flags;
-   url->scrolling_position_x = posx;
-   url->scrolling_position_y = posy;
    url->illegal_chars = n_ic;
    url->illegal_chars_spc = n_ic_spc;
 
@@ -411,14 +430,12 @@ DilloUrl* a_Url_dup(const DilloUrl *ori)
    url->url_string           = dStr_new(URL_STR(ori));
    url->port                 = ori->port;
    url->flags                = ori->flags;
-   url->data                 = dStrdup(ori->data);
    url->alt                  = dStrdup(ori->alt);
    url->ismap_url_len        = ori->ismap_url_len;
-   url->scrolling_position_x = ori->scrolling_position_x;
-   url->scrolling_position_y = ori->scrolling_position_y;
    url->illegal_chars        = ori->illegal_chars;
    url->illegal_chars_spc    = ori->illegal_chars_spc;
-
+   url->data                 = dStr_sized_new(URL_DATA(ori)->len);
+   dStr_append_l(url->data, URL_DATA(ori)->str, URL_DATA(ori)->len);
    return url;
 }
 
@@ -440,13 +457,13 @@ int a_Url_cmp(const DilloUrl *A, const DilloUrl *B)
    dReturn_val_if_fail(A && B, 1);
 
    if (A == B ||
-       ((st = URL_STRCAMP_I_CMP(A->authority, B->authority)) == 0 &&
+       ((st = URL_STR_FIELD_I_CMP(A->authority, B->authority)) == 0 &&
         (st = strcmp(A->path ? A->path + (*A->path == '/') : "",
                      B->path ? B->path + (*B->path == '/') : "")) == 0 &&
-        //(st = URL_STRCAMP_CMP(A->path, B->path)) == 0 &&
-        (st = URL_STRCAMP_CMP(A->query, B->query)) == 0 &&
-        (st = URL_STRCAMP_CMP(A->data, B->data)) == 0 &&
-        (st = URL_STRCAMP_I_CMP(A->scheme, B->scheme) == 0)))
+        //(st = URL_STR_FIELD_CMP(A->path, B->path)) == 0 &&
+        (st = URL_STR_FIELD_CMP(A->query, B->query)) == 0 &&
+        (st = dStr_cmp(A->data, B->data)) == 0 &&
+        (st = URL_STR_FIELD_I_CMP(A->scheme, B->scheme)) == 0))
       return 0;
    return st;
 }
@@ -463,11 +480,12 @@ void a_Url_set_flags(DilloUrl *u, int flags)
 /*
  * Set DilloUrl data (like POST info, etc.)
  */
-void a_Url_set_data(DilloUrl *u, char *data)
+void a_Url_set_data(DilloUrl *u, Dstr **data)
 {
    if (u) {
-      dFree((char *)u->data);
-      u->data = dStrdup(data);
+      dStr_free(u->data, 1);
+      u->data = *data;
+      *data = NULL;
    }
 }
 
@@ -479,17 +497,6 @@ void a_Url_set_alt(DilloUrl *u, const char *alt)
    if (u) {
       dFree((char *)u->alt);
       u->alt = dStrdup(alt);
-   }
-}
-
-/*
- * Set DilloUrl scrolling position
- */
-void a_Url_set_pos(DilloUrl *u, int32_t posx, int32_t posy)
-{
-   if (u) {
-      u->scrolling_position_x = posx;
-      u->scrolling_position_y = posy;
    }
 }
 
@@ -572,7 +579,6 @@ char *a_Url_decode_hex_str(const char *str)
 char *a_Url_encode_hex_str(const char *str)
 {
    static const char *verbatim = "-_.*";
-   static const char *hex = "0123456789ABCDEF";
    char *newstr, *c;
 
    if (!str)
@@ -595,8 +601,8 @@ char *a_Url_encode_hex_str(const char *str)
          *c++ = 'A';
       } else {
          *c++ = '%';
-         *c++ = hex[(*str >> 4) & 15];
-         *c++ = hex[*str & 15];
+         *c++ = HEX[(*str >> 4) & 15];
+         *c++ = HEX[*str & 15];
       }
    *c = 0;
 

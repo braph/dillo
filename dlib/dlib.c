@@ -1,7 +1,7 @@
 /*
  * File: dlib.c
  *
- * Copyright (C) 2006 Jorge Arellano Cid <jcid@dillo.org>
+ * Copyright (C) 2006-2007 Jorge Arellano Cid <jcid@dillo.org>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -189,8 +189,7 @@ static void dStr_resize(Dstr *ds, int n_sz, int keep)
          ds->str = (Dstr_char_t*) dRealloc (ds->str, n_sz*sizeof(Dstr_char_t));
          ds->sz = n_sz;
       } else {
-         if (ds->str)
-            free(ds->str);
+         dFree(ds->str);
          ds->str = dNew(Dstr_char_t, n_sz);
          ds->sz = n_sz;
          ds->len = 0;
@@ -205,12 +204,13 @@ static void dStr_resize(Dstr *ds, int n_sz, int keep)
  */
 Dstr *dStr_sized_new (int sz)
 {
+   Dstr *ds;
    if (sz < 2)
       sz = 2;
 
-   Dstr *ds = dNew(Dstr, 1);
+   ds = dNew(Dstr, 1);
    ds->str = NULL;
-   dStr_resize(ds, sz, 0);
+   dStr_resize(ds, sz + 1, 0); /* (sz + 1) for the extra '\0' */
    return ds;
 }
 
@@ -276,7 +276,7 @@ void dStr_append (Dstr *ds, const char *s)
 Dstr *dStr_new (const char *s)
 {
    Dstr *ds = dStr_sized_new(0);
-   if (s)
+   if (s && *s)
       dStr_append(ds, s);
    return ds;
 }
@@ -288,9 +288,9 @@ Dstr *dStr_new (const char *s)
 void dStr_free (Dstr *ds, int all)
 {
    if (ds) {
-      if (all && ds->str)
-         free(ds->str);
-      free(ds);
+      if (all)
+         dFree(ds->str);
+      dFree(ds);
    }
 }
 
@@ -345,8 +345,11 @@ void dStr_vsprintfa (Dstr *ds, const char *format, va_list argp)
    int n, n_sz;
 
    if (ds && format) {
+      va_list argp2;         /* Needed in case of looping on non-32bit arch */
       while (1) {
-         n = vsnprintf(ds->str + ds->len, ds->sz - ds->len, format, argp);
+         va_copy(argp2, argp);
+         n = vsnprintf(ds->str + ds->len, ds->sz - ds->len, format, argp2);
+         va_end(argp2);
          if (n > -1 && n < ds->sz - ds->len) {
             ds->len += n;      /* Success! */
             break;
@@ -400,6 +403,72 @@ void dStr_sprintfa (Dstr *ds, const char *format, ...)
 }
 
 /*
+ * Compare two dStrs.
+ */
+int dStr_cmp(Dstr *ds1, Dstr *ds2)
+{
+   int ret = 0;
+
+   if (ds1 && ds2)
+      ret = memcmp(ds1->str, ds2->str, MIN(ds1->len+1, ds2->len+1));
+   return ret;
+}
+
+/*
+ * Return a pointer to the first occurrence of needle in haystack.
+ */
+char *dStr_memmem(Dstr *haystack, Dstr *needle)
+{
+   int i;
+
+   if (needle && haystack) {
+      if (needle->len == 0)
+         return haystack->str;
+
+      for (i = 0; i <= (haystack->len - needle->len); i++) {
+         if (haystack->str[i] == needle->str[0] &&
+             !memcmp(haystack->str + i, needle->str, needle->len))
+            return haystack->str + i;
+      }
+   }
+   return NULL;
+}
+
+/*
+ * Return a printable representation of the provided Dstr, limited to a length
+ * of roughly maxlen.
+ *
+ * This is NOT threadsafe.
+ */
+const char *dStr_printable(Dstr *in, int maxlen)
+{
+   int i;
+   static const char *const HEX = "0123456789ABCDEF";
+   static Dstr *out = NULL;
+
+   if (in == NULL)
+      return NULL;
+
+   if (out)
+      dStr_truncate(out, 0);
+   else
+      out = dStr_sized_new(in->len);
+
+   for (i = 0; (i < in->len) && (out->len < maxlen); ++i) {
+      if (isprint(in->str[i]) || (in->str[i] == '\n')) {
+         dStr_append_c(out, in->str[i]);
+      } else {
+         dStr_append_l(out, "\\x", 2);
+         dStr_append_c(out, HEX[(in->str[i] >> 4) & 15]);
+         dStr_append_c(out, HEX[in->str[i] & 15]);
+      }
+   }
+   if (out->len >= maxlen)
+      dStr_append(out, "...");
+   return out->str;
+}
+
+/*
  *- dList ---------------------------------------------------------------------
  */
 
@@ -408,10 +477,11 @@ void dStr_sprintfa (Dstr *ds, const char *format, ...)
  */
 Dlist *dList_new(int size)
 {
+   Dlist *l;
    if (size <= 0)
       return NULL;
 
-   Dlist *l = dNew(Dlist, 1);
+   l = dNew(Dlist, 1);
    l->len = 0;
    l->sz = size;
    l->list = dNew(void*, l->sz);
@@ -672,6 +742,54 @@ void *dList_find_sorted (Dlist *lp, const void *data, dCompareFunc func)
             ret = lp->list[i];
             break;
          }
+      }
+   }
+
+   return ret;
+}
+
+/*
+ *- Parse function ------------------------------------------------------------
+ */
+
+/*
+ * Take a dillo rc line and return 'name' and 'value' pointers to it.
+ * Notes:
+ *    - line is modified!
+ *    - it skips blank lines and lines starting with '#'
+ *
+ * Return value: 0 on successful value/pair, -1 otherwise
+ */
+int dParser_get_rc_pair(char **line, char **name, char **value)
+{
+   char *eq, *p;
+   int len, ret = -1;
+
+   dReturn_val_if_fail(*line, ret);
+
+   *name = NULL;
+   *value = NULL;
+   dStrstrip(*line);
+   if (*line[0] != '#' && (eq = strchr(*line, '='))) {
+      /* get name */
+      for (p = *line; *p && *p != '=' && !isspace(*p); ++p);
+      *p = 0;
+      *name = *line;
+
+      /* skip whitespace */
+      if (p < eq)
+         for (++p; isspace(*p); ++p);
+
+      /* get value */
+      if (p == eq) {
+         for (++p; isspace(*p); ++p);
+         len = strlen(p);
+         if (len >= 2 && *p == '"' && p[len-1] == '"') {
+            p[len-1] = 0;
+            ++p;
+         }
+         *value = p;
+         ret = 0;
       }
    }
 

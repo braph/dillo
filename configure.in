@@ -5,7 +5,7 @@ AC_INIT(src/dillo.cc)
 dnl Detect the canonical host and target build environment
 AC_CANONICAL_SYSTEM
 
-AM_INIT_AUTOMAKE(dillo, f15)
+AM_INIT_AUTOMAKE(dillo, 2.0)
 AM_CONFIG_HEADER(config.h)
 
 dnl Options
@@ -21,8 +21,9 @@ AC_ARG_ENABLE(insure, [  --enable-insure         Try to compile and run with Ins
                     , enable_insure=no)
 AC_ARG_ENABLE(ansi,   [  --enable-ansi           Try to compile and run with ANSI flags],
                     , enable_ansi=no)
+AC_ARG_ENABLE(ssl,    [  --enable-ssl            Enable ssl, https (ALPHA CODE)],
+                    , enable_ssl=no)
 AC_ARG_ENABLE(ipv6,   [  --enable-ipv6           Build with support for IPv6], , )
-AC_ARG_ENABLE(rtfl,   [  --enable-rtfl           Build with rtfl messages], enable_rtfl=yes)
 AC_ARG_ENABLE(cookies,[  --disable-cookies       Don't compile support for cookies],
                     , enable_cookies=yes)
 AC_ARG_ENABLE(png,    [  --disable-png           Disable support for PNG images],
@@ -31,11 +32,9 @@ AC_ARG_ENABLE(jpeg,   [  --disable-jpeg          Disable support for JPEG images
               enable_jpeg=$enableval, enable_jpeg=yes)
 AC_ARG_ENABLE(gif,    [  --disable-gif           Disable support for GIF images],
               enable_gif=$enableval, enable_gif=yes)
-AC_ARG_ENABLE(ssl,    [  --disable-ssl           Disable ssl features (eg. https)], 
-              enable_ssl=$enableval, enable_ssl=yes)
 AC_ARG_ENABLE(threaded-dns,[  --disable-threaded-dns  Disable the advantage of a reentrant resolver library],
               enable_threaded_dns=$enableval, enable_threaded_dns=yes)
-              
+AC_ARG_ENABLE(rtfl,   [  --enable-rtfl           Build with rtfl messages])
 AC_PROG_CC
 AC_PROG_CXX
 AM_PROG_CC_STDC
@@ -71,6 +70,8 @@ cat >d_size.h <<_______EOF
 
 #if HAVE_STDINT_H == 0
 #include <stdint.h>
+#elif defined(HAVE_INTTYPES_H)
+#include <inttypes.h>
 #else
 typedef signed $gint16    int16_t;
 typedef unsigned $gint16  uint16_t;
@@ -81,7 +82,7 @@ typedef unsigned char   uchar_t;
 typedef unsigned short  ushort_t;
 typedef unsigned long   ulong_t;
 typedef unsigned int    uint_t; 
-typedef int             bool_t;
+typedef unsigned char   bool_t;
 
 
 #endif /* __D_SIZE_H__ */
@@ -147,14 +148,10 @@ AC_MSG_CHECKING([FLTK2])
 if sh -c "fltk2-config --version" >/dev/null 2>&1
 then AC_MSG_RESULT(yes)
      LIBFLTK_CXXFLAGS=`fltk2-config --cxxflags`
+     LIBFLTK_CFLAGS=`fltk2-config --cflags`
      LIBFLTK_LIBS=`fltk2-config --use-images --ldflags`
-else if sh -c "fltk-config --version" >/dev/null 2>&1
-     then AC_MSG_RESULT(yes)
-          LIBFLTK_CXXFLAGS=`fltk-config --cxxflags`
-          LIBFLTK_LIBS=`fltk-config --ldflags`
-     else AC_MSG_RESULT(no)
-          AC_ERROR(FLTK2 must be installed!)
-     fi
+else AC_MSG_RESULT(no)
+     AC_ERROR(FLTK2 must be installed!)
 fi
 
 
@@ -188,31 +185,29 @@ if test "x$jpeg_ok" = "xyes"; then
   AC_DEFINE([ENABLE_JPEG], [], [Enable JPEG images])
 fi
 
-dnl ------------------------------
-dnl Test for zlib (libpng uses it)
-dnl ------------------------------
+dnl -------------
+dnl Test for zlib
+dnl -------------
 dnl
-if test "x$enable_png" = "xyes"; then
-  AC_CHECK_HEADER(zlib.h, libz_ok=yes, libz_ok=no)
+AC_CHECK_HEADER(zlib.h, libz_ok=yes, libz_ok=no)
 
-  if test "x$libz_ok" = "xyes"; then
-    old_libs="$LIBS"
-    AC_CHECK_LIB(z, zlibVersion, libz_ok=yes, libz_ok=no)
-    LIBS="$old_libs"
-  fi
+if test "x$libz_ok" = "xyes"; then
+  old_libs="$LIBS"
+  AC_CHECK_LIB(z, zlibVersion, libz_ok=yes, libz_ok=no)
+  LIBS="$old_libs"
+fi
 
-  if test "x$libz_ok" = xyes; then
-    LIBZ_LIBS="-lz"
-  else
-    AC_MSG_WARN([*** No libz found. Disabling PNG images ***])
-  fi
+if test "x$libz_ok" = xyes; then
+  LIBZ_LIBS="-lz"
+else
+  AC_ERROR(zlib must be installed!)
 fi
 
 dnl ---------------
 dnl Test for libpng
 dnl ---------------
 dnl
-if test "x$enable_png" = "xyes" && test "x$libz_ok" = "xyes"; then
+if test "x$enable_png" = "xyes"; then
   AC_MSG_CHECKING([for libpng-config])
 
 dnl Check if the user hasn't set the variable $PNG_CONFIG
@@ -295,6 +290,7 @@ if test "x$enable_ssl" = "xyes"; then
 
   if test "x$ssl_ok" = "xyes"; then
     LIBSSL_LIBS="-lcrypto -lssl"
+    AC_MSG_WARN([*** Enabling ssl support. THIS IS ALPHA CODE!***])
   else
     AC_MSG_WARN([*** No libssl found. Disabling ssl support.***])
   fi
@@ -304,6 +300,60 @@ if test "x$ssl_ok" = "xyes"; then
   AC_DEFINE([ENABLE_SSL], [], [Enable SSL support])
 fi
 
+dnl --------------------------------------------------------------
+dnl Test for iconv functionality in libc or for libiconv usability
+dnl --------------------------------------------------------------
+AC_CHECK_HEADER(iconv.h, iconv_ok=yes, iconv_ok=no)
+if test "x$iconv_ok" = "xyes"; then
+  AC_CHECK_LIB(c, iconv_open, LIBICONV_LIBS="",
+    AC_CHECK_LIB(iconv, iconv_open, LIBICONV_LIBS="-liconv", iconv_ok=no))
+fi
+if test "x$iconv_ok" = "xno"; then
+  dnl Test for OpenBSD
+  old_libs="$LIBS"
+  LIBS="$old_libs -liconv"
+  AC_TRY_COMPILE([#include <iconv.h>],[iconv_open("","");],
+                 iconv_ok=yes, iconv_ok=no)
+  LIBS="$old_libs"
+  if test "x$iconv_ok" = "xyes"; then
+     LIBICONV_LIBS="-liconv"
+  fi
+fi
+
+if test "x$iconv_ok" = "xno"; then
+  AC_ERROR(libiconv must be installed!)
+fi
+
+dnl ----------------------
+dnl Check if we need to
+dnl support the old 
+dnl iconv interface
+dnl ----------------------
+if test "x$iconv_ok" = "xyes"; then
+  old_libs="$LIBS"
+  LIBS="$old_libs $LIBICONV_LIBS"
+  old_cflags="$CFLAGS"
+  CFLAGS="$CFLAGS -Werror"
+  AC_LANG_PUSH([C++])
+  AC_TRY_COMPILE([#include <iconv.h>],
+[
+     const char *inPtr;
+      char *outPtr;
+      size_t inLeft = 0, outRoom = 0;
+      iconv_t encoder = iconv_open("ASCII", "UTF-8");
+      iconv(encoder, &inPtr, &inLeft, &outPtr, &outRoom);
+],
+iconv_old=yes,iconv_old=no)
+  AC_LANG_POP([C++])
+  LIBS="$old_libs"
+  CFLAGS="$old_cflags"
+
+  if test "x$iconv_old" = "xyes"; then
+    AC_DEFINE([inbuf_t], [const char], [Use const char pointers for older libiconv])
+  else
+    AC_DEFINE([inbuf_t], [char], [Use char pointers for newer libiconv])
+  fi
+fi
 
 dnl ----------------------
 dnl Test for POSIX threads
@@ -356,34 +406,6 @@ case $target in
 esac
 fi
 
-dnl ------------------------------------
-dnl Workaround for nanosleep and solaris
-dnl ------------------------------------
-dnl
-case $target in
-  *-*-solaris*)
-    AC_MSG_CHECKING(whether SunOS has -lrt )
-    LDSAVEFLAGS="$LDFLAGS"
-    LDFLAGS="$LDFLAGS -lrt"
-    AC_TRY_LINK_FUNC(nanosleep, rt_ok=yes, rt_ok=no)
-    if test "x$rt_ok" = "xyes"; then
-      AC_MSG_RESULT(yes)
-    else
-      AC_MSG_RESULT(no)
-      AC_MSG_CHECKING(whether SunOS has -lposix4 )
-      LDFLAGS="$LDSAVEFLAGS -lposix4"
-      AC_TRY_LINK_FUNC(nanosleep, posix_ok=yes, posix_ok=no)
-      if test "x$posix_ok" = "xyes"; then
-        AC_MSG_RESULT(yes)
-      else
-        LDFLAGS=$LDSAVEFLAGS
-        AC_MSG_RESULT(no)
-        AC_MSG_WARN([*** Try setting LIBS or LDFLAGS manually to point to the library with nanosleep()***])
-      fi
-    fi          
-  ;;
-esac
-
 dnl --------------------
 dnl Command line options
 dnl --------------------
@@ -399,16 +421,17 @@ if test "x$enable_efence" = "xyes" ; then
 fi
 if test "x$enable_gprof" = "xyes" ; then
   CFLAGS="$CFLAGS -pg"
+  CXXFLAGS="$CXXFLAGS -pg"
 fi
 if test "x$enable_insure" = "xyes" ; then
   CC="insure -Zoi \"compiler $CC\""
   LIBS="$LIBS -lstdc++-2-libc6.1-1-2.9.0"
 fi
-if test "x$enable_rtfl" = "xyes" ; then
-  CFLAGS="$CFLAGS -DDBG_RTFL"
-fi
 if test "x$enable_threaded_dns" = "xyes" ; then
   CFLAGS="$CFLAGS -DD_DNS_THREADED"
+fi
+if test "x$enable_rtfl" = "xyes" ; then
+  CXXFLAGS="$CXXFLAGS -DDBG_RTFL"
 fi
 
 dnl -----------------------
@@ -467,9 +490,10 @@ AC_SUBST(LIBSSL_LIBS)
 AC_SUBST(LIBPTHREAD_LIBS)
 AC_SUBST(LIBPTHREAD_LDFLAGS)
 AC_SUBST(LIBFLTK_CXXFLAGS)
+AC_SUBST(LIBFLTK_CFLAGS)
 AC_SUBST(LIBFLTK_LIBS)
+AC_SUBST(LIBICONV_LIBS)
 AC_SUBST(datadir)
-AC_SUBST(src doc)
 
-AC_OUTPUT(Makefile dlib/Makefile dpip/Makefile dpid/Makefile dpi/Makefile doc/Makefile src/Makefile src/IO/Makefile)
+AC_OUTPUT(Makefile dlib/Makefile dpip/Makefile dpid/Makefile dpi/Makefile doc/Makefile dw/Makefile lout/Makefile src/Makefile src/IO/Makefile test/Makefile)
 

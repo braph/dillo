@@ -1,6 +1,9 @@
 #ifndef __COLORS_H__
 #define __COLORS_H__
 
+#include "config.h"
+#include <stdint.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif /* __cplusplus */

@@ -1,87 +1,62 @@
 #ifndef __FORM_HH__
 #define __FORM_HH__
 
-#include "dw/core.hh"
-#include "dw/ui.hh"
+#include "url.h"
 
-namespace form {
-
-/**
- * \brief Handles HTML form data.
- *
- * Add resources by calling the respective add...Resource method. Furtermore,
- * this class impelements dw::core::ui::ButtonResource::ClickedReceiver, the
- * form data is printed to stdout, when the "clicked" signal is received.
+/*
+ * Typedefs 
  */
-class Form: public dw::core::ui::ButtonResource::ClickedReceiver
-{
-private:
-   /**
-    * \brief Decorates instances of dw::core::ui::Resource.
-    *
-    * This is the abstract base class, sub classes have to be defined to
-    * decorate specific sub interfaces of dw::core::ui::Resource.
-    */
-   class ResourceDecorator: public object::Object
-   {
-   private:
-      const char *name;
 
-   protected:
-      ResourceDecorator (const char *name);
-      ~ResourceDecorator ();
+typedef enum {
+   DILLO_HTML_METHOD_UNKNOWN,
+   DILLO_HTML_METHOD_GET,
+   DILLO_HTML_METHOD_POST
+} DilloHtmlMethod;
 
-   public:
-      inline const char *getName () { return name; }
-      virtual const char *getValue () = 0;
-   };
+typedef enum {
+   DILLO_HTML_ENC_URLENCODED,
+   DILLO_HTML_ENC_MULTIPART
+} DilloHtmlEnc;
 
-   /**
-    * \brief Decorates instances of dw::core::ui::TextResource.
-    */
-   class TextResourceDecorator: public ResourceDecorator
-   {
-   private:
-      dw::core::ui::TextResource *resource;
+/*
+ * Classes 
+ */
 
-   public:
-      TextResourceDecorator (const char *name,
-                            dw::core::ui::TextResource *resource);
-      const char *getValue ();
-   };
+class DilloHtmlForm;
+class DilloHtmlInput;
+class DilloHtml;
 
-   /**
-    * \brief Decorates instances of dw::core::ui::RadioButtonResource.
-    *
-    * This class has to be instanciated only once for a group of radio
-    * buttons.
-    */
-   class RadioButtonResourceDecorator: public ResourceDecorator
-   {
-   private:
-      dw::core::ui::RadioButtonResource *resource;
-      const char **values;
+/*
+ * Form API 
+ */
 
-   public:
-      RadioButtonResourceDecorator (const char *name,
-                                   dw::core::ui::RadioButtonResource
-                                   *resource,
-                                   const char **values);
-      ~RadioButtonResourceDecorator ();
-      const char *getValue ();
-   };
+DilloHtmlForm *a_Html_form_new(DilloHtml *html,
+                               DilloHtmlMethod method,
+                               const DilloUrl *action,
+                               DilloHtmlEnc enc,
+                               const char *charset);
 
-   container::typed::List <ResourceDecorator> *resources;
+void a_Html_form_delete(DilloHtmlForm* form);
+void a_Html_input_delete(DilloHtmlInput* input);
+void a_Html_form_submit2(void *v_form);
+void a_Html_form_reset2(void *v_form);
+void a_Html_form_display_hiddens2(void *v_form, bool display);
 
-   void *ext_data;  // external data pointer
 
-public:
-   Form (void *p);
-   ~Form ();
-   void clicked (dw::core::ui::ButtonResource *resource, int buttonNo);
+/*
+ * Form parsing functions 
+ */
 
-};
+void Html_tag_open_form(DilloHtml *html, const char *tag, int tagsize);
+void Html_tag_close_form(DilloHtml *html, int TagIdx);
+void Html_tag_open_input(DilloHtml *html, const char *tag, int tagsize);
+void Html_tag_open_isindex(DilloHtml *html, const char *tag, int tagsize);
+void Html_tag_open_textarea(DilloHtml *html, const char *tag, int tagsize);
+void Html_tag_close_textarea(DilloHtml *html, int TagIdx);
+void Html_tag_open_select(DilloHtml *html, const char *tag, int tagsize);
+void Html_tag_close_select(DilloHtml *html, int TagIdx);
+void Html_tag_open_option(DilloHtml *html, const char *tag, int tagsize);
+void Html_tag_open_button(DilloHtml *html, const char *tag, int tagsize);
+void Html_tag_close_button(DilloHtml *html, int TagIdx);
 
-} // namespace form
-
-#endif // __FORM_HH__
+#endif /* __FORM_HH__ */

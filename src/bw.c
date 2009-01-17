@@ -1,7 +1,7 @@
 /*
  * File: bw.c
  *
- * Copyright (C) 2006 Jorge Arellano Cid <jcid@dillo.org>
+ * Copyright (C) 2006-2007 Jorge Arellano Cid <jcid@dillo.org>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -40,7 +40,7 @@ void a_Bw_init(void)
  * Create a new browser window and return it.
  * (the new window is stored in browser_window[])
  */
-BrowserWindow *a_Bw_new(int width, int height, uint32_t xid)
+BrowserWindow *a_Bw_new()
 {
    BrowserWindow *bw;
 
@@ -50,29 +50,22 @@ BrowserWindow *a_Bw_new(int width, int height, uint32_t xid)
    bws[num_bws++] = bw;
 
    /* Initialize nav_stack */
-   bw->nav_stack_size = 0;
-   bw->nav_stack_size_max = 16;
-   bw->nav_stack = NULL;
+   bw->nav_stack = dList_new(8);
    bw->nav_stack_ptr = -1;
+
+   /* Init expect */
    bw->nav_expecting = FALSE;
    bw->nav_expect_url = NULL;
 
-// if (!xid)
-//     bw->main_window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
-// else
-//     bw->main_window = gtk_plug_new(xid);
-
-
    bw->redirect_level = 0;
-   bw->sens_idle_up = 0;
 
    bw->RootClients = dList_new(8);
    bw->ImageClients = dList_new(8);
    bw->NumImages = 0;
    bw->NumImagesGot = 0;
+   bw->NumPendingStyleSheets = 0;
    bw->PageUrls = dList_new(8);
-
-   bw->question_dialog_data = NULL;
+   bw->Docs = dList_new(8);
 
    bw->num_page_bugs = 0;
    bw->page_bugs = dStr_new("");
@@ -96,12 +89,17 @@ void a_Bw_free(BrowserWindow *bw)
 
          dList_free(bw->RootClients);
          dList_free(bw->ImageClients);
+         dList_free(bw->Docs);
 
+         a_Url_free(bw->nav_expect_url);
          for (j = 0; j < dList_length(bw->PageUrls); ++j)
             a_Url_free(dList_nth_data(bw->PageUrls, j));
          dList_free(bw->PageUrls);
 
-         dFree(bw->nav_stack);
+         for (j = 0; j < dList_length(bw->nav_stack); ++j)
+            dFree(dList_nth_data(bw->nav_stack, j));
+         dList_free(bw->nav_stack);
+
          dStr_free(bw->page_bugs, 1);
          dFree(bw);
          break;
@@ -130,6 +128,8 @@ void a_Bw_add_client(BrowserWindow *bw, int Key, int Root)
       /* --Images progress-bar stuff-- */
       a_UIcmd_set_img_prog(bw, bw->NumImagesGot, bw->NumImages, 1);
    }
+   if (dList_length(bw->RootClients) + dList_length(bw->ImageClients) == 1)
+      a_UIcmd_set_buttons_sens(bw);
 }
 
 /*
@@ -191,7 +191,7 @@ void a_Bw_stop_clients(BrowserWindow *bw, int flags)
    }
 }
 
-/*- PageUrls ---------------------------------------------------------------*/
+/*- Page -------------------------------------------------------------------*/
 /*
  * Add an URL to the browser window's list.
  * This helps us keep track of page-requested URLs so that it's
@@ -203,6 +203,28 @@ void a_Bw_add_url(BrowserWindow *bw, const DilloUrl *Url)
 
    if (!dList_find_custom(bw->PageUrls, Url, (dCompareFunc)a_Url_cmp)) {
       dList_append(bw->PageUrls, a_Url_dup(Url));
+   }
+}
+
+/*
+ * Add a document to the browser window's list.
+ */
+void a_Bw_add_doc(BrowserWindow *bw, void *vdoc)
+{
+   dReturn_if_fail ( bw != NULL && vdoc != NULL);
+
+   dList_append(bw->Docs, vdoc);
+}
+
+/*
+ * Remove a document from the bw's list
+ */
+void a_Bw_remove_doc(BrowserWindow *bw, void *vdoc)
+{
+   void *data;
+
+   if ((data = dList_find(bw->Docs, vdoc))) {
+      dList_remove_fast(bw->Docs, data);
    }
 }
 
@@ -232,17 +254,25 @@ void a_Bw_cleanup(BrowserWindow *bw)
    /* Zero image-progress data */
    bw->NumImages = 0;
    bw->NumImagesGot = 0;
+
+   /* Zero stylesheet counter */
+   bw->NumPendingStyleSheets = 0;
 }
 
 /*--------------------------------------------------------------------------*/
 
-/*
- * TODO: remove this Hack.
- */
-BrowserWindow *a_Bw_get()
+int a_Bw_num()
 {
-   if (num_bws > 0)
-      return bws[0];
+   return num_bws;
+}
+
+/*
+ * Return a bw by index
+ */
+BrowserWindow *a_Bw_get(int i)
+{
+   if (i >= 0 && i < num_bws)
+      return bws[i];
    return NULL;
 }
 

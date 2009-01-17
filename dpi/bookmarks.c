@@ -3,7 +3,7 @@
  *
  * NOTE: this code illustrates how to make a dpi-program.
  *
- * Copyright 2002-2006 Jorge Arellano Cid <jcid@dillo.org>
+ * Copyright 2002-2007 Jorge Arellano Cid <jcid@dillo.org>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -12,7 +12,7 @@
  *
  */
 
-/* Todo: this server is not assembling the received packets.
+/* TODO: this server is not assembling the received packets.
  * This means it currently expects dillo to send full dpi tags
  * within the socket; if that fails, everything stops.
  * This is not hard to fix, mainly is a matter of expecting the
@@ -43,11 +43,6 @@
  */
 #define _MSG(...)
 #define MSG(...)  printf("[bookmarks dpi]: " __VA_ARGS__)
-
-/* This one is tricky, some sources state it should include the byte
- * for the terminating NULL, and others say it shouldn't. */
-# define D_SUN_LEN(ptr) ((size_t) (((struct sockaddr_un *) 0)->sun_path) \
-                        + strlen ((ptr)->sun_path))
 
 #define DOCTYPE \
    "<!DOCTYPE HTML PUBLIC '-//W3C//DTD HTML 4.01 Transitional//EN'>\n"
@@ -95,7 +90,7 @@ static int MODIFY_PAGE_NUM = 1;
 
 /* -- HTML templates ------------------------------------------------------- */
 
-char *mainpage_header =
+static const char *mainpage_header =
 DOCTYPE
 "<html>\n"
 "<head>\n"
@@ -114,7 +109,7 @@ DOCTYPE
 "</table>\n"
 "<br>\n";
 
-char *modifypage_header =
+static const char *modifypage_header =
 DOCTYPE
 "<html>\n"
 "<head>\n"
@@ -150,7 +145,7 @@ DOCTYPE
 "  </table></td></tr>\n"
 "</table>\n";
 
-char *mainpage_sections_header =
+static const char *mainpage_sections_header =
 "<table border='1' cellpadding='0' cellspacing='20' width='100%'>\n"
 " <tr valign='top'>\n"
 "  <td>\n"
@@ -159,7 +154,7 @@ char *mainpage_sections_header =
 "     <table width='100%' bgcolor='#b4b4b4'>\n"
 "      <tr><td><small>Sections:</small></td></tr></table></td></tr>\n";
 
-char *modifypage_sections_header =
+static const char *modifypage_sections_header =
 "<table border='1' cellpadding='0' cellspacing='20' width='100%'>\n"
 " <tr valign='top'>\n"
 "  <td>\n"
@@ -168,32 +163,32 @@ char *modifypage_sections_header =
 "     <table width='100%' bgcolor='#b4b4b4'>\n"
 "      <tr><td><small>Sections:</small></td></tr></table></td></tr>\n";
 
-char *mainpage_sections_item =
+static const char *mainpage_sections_item =
 "    <tr><td align='center'>\n"
 "      <a href='#s%d'>%s</a></td></tr>\n";
 
-char *modifypage_sections_item =
+static const char *modifypage_sections_item =
 "    <tr><td>\n"
-"     <table width='100%%' bgcolor='#b4b4b4'cellspacing='0' cellpadding='0'>\n"
+"     <table width='100%%'>\n"
 "      <tr align='center'>"
-"       <td width='1%%'><input type='checkbox' name='s%d'></td>\n"
-"       <td><a href='#s%d'>%s</a></td></tr></table></td></tr>\n";
+"       <td><input type='checkbox' name='s%d'></td>\n"
+"       <td width='100%%'><a href='#s%d'>%s</a></td></tr></table></td></tr>\n";
 
-char *mainpage_sections_footer =
+static const char *mainpage_sections_footer =
 "   </table>\n";
 
-char *modifypage_sections_footer =
+static const char *modifypage_sections_footer =
 "   </table>\n";
 
-char *mainpage_middle1 =
+static const char *mainpage_middle1 =
 "  </td>\n"
 "  <td width='100%'>\n";
 
-char *modifypage_middle1 =
+static const char *modifypage_middle1 =
 "  </td>\n"
 "  <td width='100%'>\n";
 
-char *mainpage_section_card_header =
+static const char *mainpage_section_card_header =
 "   <a name='s%d'></a>\n"
 "   <table bgcolor='#bfbfbf' width='100%%' cellspacing='2'>\n"
 "    <tr>\n"
@@ -201,7 +196,7 @@ char *mainpage_section_card_header =
 "      &nbsp;&nbsp;&nbsp;%s&nbsp;&nbsp;&nbsp;</b></font></td>\n"
 "     <td bgcolor='white' width='100%%'>&nbsp;</td></tr>\n";
 
-char *modifypage_section_card_header =
+static const char *modifypage_section_card_header =
 "   <a name='s%d'></a>\n"
 "   <table bgcolor='#bfbfbf' width='100%%' cellspacing='2'>\n"
 "    <tr>\n"
@@ -209,31 +204,31 @@ char *modifypage_section_card_header =
 "      &nbsp;&nbsp;&nbsp;%s&nbsp;&nbsp;&nbsp;</b></font></td>\n"
 "     <td bgcolor='white' width='100%%'>&nbsp;</td></tr>\n";
 
-char *mainpage_section_card_item =
+static const char *mainpage_section_card_item =
 "    <tr><td colspan='2'>\n"
 "      <a href='%s'>%s</a> </td></tr>\n";
 
-char *modifypage_section_card_item =
+static const char *modifypage_section_card_item =
 "    <tr>\n"
 "     <td colspan='2'><input type='checkbox' name='url%d'>\n"
 "      <a href='%s'>%s</a></td></tr>\n";
 
-char *mainpage_section_card_footer =
+static const char *mainpage_section_card_footer =
 "   </table>\n"
 "   <hr>\n";
 
-char *modifypage_section_card_footer =
+static const char *modifypage_section_card_footer =
 "   </table>\n"
 "   <hr>\n";
 
-char *mainpage_footer =
+static const char *mainpage_footer =
 "  </td>\n"
 " </tr>\n"
 "</table>\n"
 "</body>\n"
 "</html>\n";
 
-char *modifypage_footer =
+static const char *modifypage_footer =
 "  </td>\n"
 " </tr>\n"
 "</table>\n"
@@ -242,7 +237,7 @@ char *modifypage_footer =
 "</html>\n";
 
 /* ------------------------------------------------------------------------- */
-char *modifypage_add_section_page =
+static const char *modifypage_add_section_page =
 DOCTYPE
 "<html>\n"
 "<head>\n"
@@ -282,7 +277,7 @@ DOCTYPE
 "\n";
 
 /* ------------------------------------------------------------------------- */
-char *modifypage_update_header =
+static const char *modifypage_update_header =
 DOCTYPE
 "<html>\n"
 "<head>\n"
@@ -299,17 +294,17 @@ DOCTYPE
 "<form>\n"
 "<input type='hidden' name='operation' value='modify2'>\n";
 
-char *modifypage_update_title =
+static const char *modifypage_update_title =
 "<table border='1' width='100%%'>\n"
 " <tr>\n"
 "  <td bgcolor='olive'><b>%s</b></td>\n"
 "  <td bgcolor='white' width='100%%'></td></tr>\n"
 "</table>\n";
 
-char *modifypage_update_item_header =
+static const char *modifypage_update_item_header =
 "<table width='100%' cellpadding='10'>\n";
 
-char *modifypage_update_item =
+static const char *modifypage_update_item =
 "<tr><td>\n"
 " <table width='100%%' bgcolor='teal'>\n"
 "  <tr>\n"
@@ -322,7 +317,7 @@ char *modifypage_update_item =
 " </table>\n"
 " </td></tr>\n";
 
-char *modifypage_update_item2 =
+static const char *modifypage_update_item2 =
 "<tr><td>\n"
 " <table width='100%%' bgcolor='teal'>\n"
 "  <tr>\n"
@@ -332,10 +327,10 @@ char *modifypage_update_item2 =
 " </table>\n"
 " </td></tr>\n";
 
-char *modifypage_update_item_footer =
+static const char *modifypage_update_item_footer =
 "</table>\n";
 
-char *modifypage_update_footer =
+static const char *modifypage_update_footer =
 "<table width='100%' cellpadding='4' border='0'>\n"
 "<tr><td bgcolor='#a0a0a0'>\n"
 " <input type='submit' name='submit' value='submit.'></td></tr>\n"
@@ -345,7 +340,7 @@ char *modifypage_update_footer =
 "</html>\n";
 
 /* ------------------------------------------------------------------------- */
-char *modifypage_add_url =
+static const char *modifypage_add_url =
 DOCTYPE
 "<html>\n"
 "<head>\n"
@@ -1107,7 +1102,7 @@ static int Bmsrv_send_modify_answer(SockHandler *sh, char *url)
  * Parse a delete bms request, delete them, and update bm file.
  * Return code: { 0:OK, 1:Abort }
  */
-static int Bmsrv_modify_delete(SockHandler *sh, char *url)
+static int Bmsrv_modify_delete(char *url)
 {
    char *p;
    int nb, ns, key;
@@ -1153,7 +1148,7 @@ static int Bmsrv_modify_delete(SockHandler *sh, char *url)
  * Parse a move urls request, move and update bm file.
  * Return code: { 0:OK, 1:Abort }
  */
-static int Bmsrv_modify_move(SockHandler *sh, char *url)
+static int Bmsrv_modify_move(char *url)
 {
    char *p;
    int n, section = 0, key;
@@ -1192,7 +1187,7 @@ static int Bmsrv_modify_move(SockHandler *sh, char *url)
  * Parse a modify request: update urls and sections, then save.
  * Return code: { 0:OK, 1:Abort }
  */
-static int Bmsrv_modify_update(SockHandler *sh, char *url)
+static int Bmsrv_modify_update(char *url)
 {
    char *p, *q, *title;
    int i, key;
@@ -1247,7 +1242,7 @@ static int Bmsrv_modify_update(SockHandler *sh, char *url)
  * Parse an "add section" request, and update the bm file.
  * Return code: { 0:OK, 1:Abort }
  */
-static int Bmsrv_modify_add_section(SockHandler *sh, char *url)
+static int Bmsrv_modify_add_section(char *url)
 {
    char *p, *title = NULL;
 
@@ -1314,7 +1309,7 @@ static int Bmsrv_modify_add_url(SockHandler *sh, char *s_url)
    dFree(url);
    section = 0;
 
-   /* todo: we should send an "Bookmark added" message, but the
+   /* TODO: we should send an "Bookmark added" message, but the
       msg-after-HTML functionallity is still pending, not hard though. */
 
    /* Write new bookmarks file */
@@ -1400,13 +1395,13 @@ static int Bmsrv_process_modify_request(SockHandler *sh, char *url)
       return 2;
 
    if (strstr(url, "operation=delete&")) {
-      if (Bmsrv_modify_delete(sh, url) == 1)
+      if (Bmsrv_modify_delete(url) == 1)
          return 1;
       if (Bmsrv_send_reload_request(sh, "dpi:/bm/modify") == 1)
          return 1;
 
    } else if (strstr(url, "operation=move&")) {
-      if (Bmsrv_modify_move(sh, url) == 1)
+      if (Bmsrv_modify_move(url) == 1)
          return 1;
       if (Bmsrv_send_reload_request(sh, "dpi:/bm/modify") == 1)
          return 1;
@@ -1419,7 +1414,7 @@ static int Bmsrv_process_modify_request(SockHandler *sh, char *url)
          return 1;
 
    } else if (strstr(url, "operation=modify2&")) {
-      if (Bmsrv_modify_update(sh, url) == 1)
+      if (Bmsrv_modify_update(url) == 1)
          return 1;
       if (Bmsrv_send_reload_request(sh, "dpi:/bm/modify") == 1)
          return 1;
@@ -1431,7 +1426,7 @@ static int Bmsrv_process_modify_request(SockHandler *sh, char *url)
          return 1;
 
    } else if (strstr(url, "operation=add_section&")) {
-      if (Bmsrv_modify_add_section(sh, url) == 1)
+      if (Bmsrv_modify_add_section(url) == 1)
          return 1;
       if (Bmsrv_send_reload_request(sh, "dpi:/bm/modify") == 1)
          return 1;

@@ -24,8 +24,11 @@ struct _BrowserWindow
 
    /* All the rendering is done by this.
     * It is defined as a void pointer to avoid C++ in this structure.
-    * C++ sources have to include browser.h and cast it into an object. */
+    * C++ sources have to include "dw/core.hh" and cast it into an object. */
    void *render_layout;
+
+   /* Root document(s). Currently only used by DilloHtml */
+   Dlist *Docs;
 
    /* A list of active cache clients in the window (The primary Key) */
    Dlist *RootClients;
@@ -35,36 +38,28 @@ struct _BrowserWindow
    int NumImages;
    /* Number of images already loaded */
    int NumImagesGot;
+   /* Number of not yet arrived style sheets */
+   int NumPendingStyleSheets;
    /* List of all Urls requested by this page (and its types) */
    Dlist *PageUrls;
 
    /* The navigation stack (holds indexes to history list) */
-   int *nav_stack;
-   int nav_stack_size;       /* [1 based] */
-   int nav_stack_size_max;
+   Dlist *nav_stack;
    /* 'nav_stack_ptr' refers to what's being displayed */
-   int nav_stack_ptr;        /* [0 based] */
+   int nav_stack_ptr;        /* [0 based; -1 = empty] */
    /* When the user clicks a link, the URL isn't pushed directly to history;
     * nav_expect_url holds it until the first answer-bytes are got. Only then
-    * it is sent to history and referenced in 'nav_stack[++nav_stack_ptr]' */
+    * it is sent to history and referenced at the top of nav_stack */
    DilloUrl *nav_expect_url;
-   /* 'nav_expecting' is true if the last URL is being loaded for
-    * the first time and has not gotten the dw yet. */
+   /* 'nav_expecting' is true while dillo waits for non-cached URL data,
+    * until a dw is assigned to it. */
    bool_t nav_expecting;
 
    /* Counter for the number of hops on a redirection. Used to stop
     * redirection loops (accounts for WEB_RootUrl only) */
    int redirect_level;
 
-   /* flag for button sens idle function */
-   int sens_idle_up;
-
-   /* TODO: remove me */
-   void *question_dialog_data;
-   void *question_dialog_answer;
-
-   /* TODO: maybe this fits better in the linkblock.
-    * Although having it here avoids having a signal for handling it. */
+   /* HTML-bugs detected at parse time */
    int num_page_bugs;
    Dstr *page_bugs;
 };
@@ -76,17 +71,21 @@ extern "C" {
 
 
 void a_Bw_init(void);
-BrowserWindow *a_Bw_new(int width, int height, uint32_t xid);
+BrowserWindow *a_Bw_new();
 void a_Bw_free(BrowserWindow *bw);
-BrowserWindow *a_Bw_get();
+BrowserWindow *a_Bw_get(int i);
+int a_Bw_num();
 
 void a_Bw_add_client(BrowserWindow *bw, int Key, int Root);
 int a_Bw_remove_client(BrowserWindow *bw, int ClientKey);
 void a_Bw_close_client(BrowserWindow *bw, int ClientKey);
 void a_Bw_stop_clients(BrowserWindow *bw, int flags);
+void a_Bw_add_doc(BrowserWindow *bw, void *vdoc);
+void a_Bw_remove_doc(BrowserWindow *bw, void *vdoc);
 void a_Bw_add_url(BrowserWindow *bw, const DilloUrl *Url);
 void a_Bw_cleanup(BrowserWindow *bw);
 
+typedef void (*BwCallback_t)(BrowserWindow *bw, const void *data);
 
 #ifdef __cplusplus
 }

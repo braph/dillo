@@ -33,8 +33,9 @@ extern "C" {
  *-- Casts -------------------------------------------------------------------
  */
 /* TODO: include a void* size test in configure.in */
-#define VOIDP2INT(p)    ((int)(p))
-#define INT2VOIDP(i)    ((void*)(i))
+/* (long) works for both 32bit and 64bit */
+#define VOIDP2INT(p)    ((long)(p))
+#define INT2VOIDP(i)    ((void*)((long)(i)))
 
 /*
  *-- Memory -------------------------------------------------------------------
@@ -105,6 +106,9 @@ void dStr_vsprintfa (Dstr *ds, const char *format, va_list argp);
 void dStr_vsprintf (Dstr *ds, const char *format, va_list argp);
 void dStr_sprintf (Dstr *ds, const char *format, ...);
 void dStr_sprintfa (Dstr *ds, const char *format, ...);
+int  dStr_cmp(Dstr *ds1, Dstr *ds2);
+char *dStr_memmem(Dstr *haystack, Dstr *needle);
+const char *dStr_printable(Dstr *in, int maxlen);
 
 /*
  *-- dList --------------------------------------------------------------------
@@ -131,6 +135,7 @@ Dlist *dList_new(int size);
 void dList_free (Dlist *lp);
 void dList_append (Dlist *lp, void *data);
 void dList_prepend (Dlist *lp, void *data);
+void dList_insert_pos (Dlist *lp, void *data, int pos0);
 int  dList_length (Dlist *lp);
 void dList_remove (Dlist *lp, const void *data);
 void dList_remove_fast (Dlist *lp, const void *data);
@@ -141,6 +146,11 @@ void *dList_find_custom (Dlist *lp, const void *data, dCompareFunc func);
 void dList_sort (Dlist *lp, dCompareFunc func);
 void dList_insert_sorted (Dlist *lp, void *data, dCompareFunc func);
 void *dList_find_sorted (Dlist *lp, const void *data, dCompareFunc func);
+
+/*
+ *- Parse function ------------------------------------------------------------
+ */
+int dParser_get_rc_pair(char **line, char **name, char **value);
 
 /*
  *- Misc utility functions ----------------------------------------------------

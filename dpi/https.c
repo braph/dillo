@@ -25,7 +25,7 @@
  * the https dillo plugin with the OpenSSL project's "OpenSSL"
  * library, and distribute the linked executables, without including
  * the source code for OpenSSL in the source distribution. You must
- * obey the GNU General Public License, version 2, in all respects
+ * obey the GNU General Public License, version 3, in all respects
  * for all of the code used other than "OpenSSL".
  *
  */
@@ -64,13 +64,15 @@
 /*
  * Debugging macros
  */
+#define SILENT 1
 #define _MSG(...)
-#define MSG(...)  printf("[https dpi]: " __VA_ARGS__)
+#if SILENT
+ #define MSG(...)
+#else
+ #define MSG(...)  fprintf(stderr, "[https dpi]: " __VA_ARGS__)
+#endif
 
 
-
-#define ENABLE_SSL
-/* #undef ENABLE_SSL */
 #ifdef ENABLE_SSL
 
 #include <openssl/ssl.h>
@@ -251,7 +253,8 @@ static void yes_ssl_support(void)
       /*Send remaining data*/
 
       while ((retval = SSL_read(ssl_connection, buf, 4096)) > 0 ){
-         sock_handler_write(sh, 0, buf, (size_t)retval);
+         /* flush is good for dialup speed */
+         sock_handler_write(sh, 1, buf, (size_t)retval);
       }
    }
 
@@ -655,23 +658,25 @@ static void no_ssl_support(void)
    sock_handler_printf(sh, 1,
       "Content-type: text/html\n\n"
       "<!DOCTYPE HTML PUBLIC '-//W3C//DTD HTML 4.01 Transitional//EN'>\n"
-      "<html><body><pre>\n"
-      "<b>Hi!\n\n"
-      "  This is the https dpi that just got a request to send\n"
-      "  the following HTTP query:\n{</b>\n"
-      "<code>%s</code>\n"
-      "<b>}</b>\n\n"
-      "  <b>*** Dillo's prototype plugin for https support"
-      " is disabled now ***</b>\n\n"
-      "  If you want to test this <b>alpha</b> support code, just remove\n"
-      "  line 65 from https.c, recompile and reinstall.\n\n"
-      "  (beware that this https support is very limited now)\n\n"
+      "<html><head><title>SSL support is disabled</title></head>\n"
+      "<body>\n"
+      "<p>\n"
+      "  The https dpi was unable to send\n"
+      "  the following HTTP query:\n"
+      "  <blockquote><pre>%s</pre></blockquote>\n"
+      "  because Dillo's prototype plugin for https support"
+      "  is disabled.\n\n"
+      "<p>\n"
+      "  If you want to test this <b>alpha</b> support code,\n"
+      "  just reconfigure with <code>--enable-ssl</code>,\n"
+      "  recompile and reinstall.\n\n"
+      "  (Beware that this https support is very limited now)\n\n"
       "  To use https and SSL, you must have \n"
       "  the OpenSSL development libraries installed.  Check your\n"
       "  O/S distribution provider, or check out\n"
-      "  <a href=\"http://www.openssl.org\">www.openssl.org</a>\n\n"
-      "  --\n"
-      "</pre></body></html>\n",
+      "  <a href=\"http://www.openssl.org\">www.openssl.org</a>.\n\n"
+      "</p>\n\n"
+      "</body></html>\n",
       http_query
    );
    MSG("{ HTML content sent.}\n");

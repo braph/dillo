@@ -1,7 +1,7 @@
 /*
  * File: dpi.c
  *
- * Copyright (C) 2002-2006 Jorge Arellano Cid <jcid@dillo.org>
+ * Copyright (C) 2002-2007 Jorge Arellano Cid <jcid@dillo.org>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -38,12 +38,7 @@
 #include "../klist.h"
 #include "IO.h"
 #include "Url.h"
-#include "../misc.h"
 #include "../../dpip/dpip.h"
-
-/* #define DEBUG_LEVEL 2 */
-#define DEBUG_LEVEL 4
-#include "../debug.h"
 
 /* This one is tricky, some sources state it should include the byte
  * for the terminating NULL, and others say it shouldn't. */
@@ -130,7 +125,7 @@ static void Dpi_conn_free(dpi_conn_t *conn)
  * Check whether a conn is still valid.
  * Return: 1 if found, 0 otherwise
  */
-int Dpi_conn_valid(int key)
+static int Dpi_conn_valid(int key)
 {
    return (a_Klist_get_data(ValidConns, key)) ? 1 : 0;
 }
@@ -249,7 +244,7 @@ static void Dpi_parse_token(dpi_conn_t *conn)
       urlstr = a_Dpip_get_attr(Tok, conn->TokSize, "url");
       a_Chain_fcb(OpSend, conn->InfoRecv, urlstr, cmd);
       dFree(urlstr);
-      /* todo: a_Dpip_get_attr(Tok, conn->TokSize, "send_mode") */
+      /* TODO: a_Dpip_get_attr(Tok, conn->TokSize, "send_mode") */
 
    } else if (strcmp(cmd, "reload_request") == 0) {
       urlstr = a_Dpip_get_attr(Tok, conn->TokSize, "url");
@@ -310,7 +305,7 @@ static int Dpi_start_dpid(void)
       if (execl(path1, "dpid", NULL) == -1) {
          dFree(path1);
          if (execlp("dpid", "dpid", NULL) == -1) {
-            DEBUG_MSG(4, "Dpi_start_dpid (child): %s\n", dStrerror(errno));
+            MSG("Dpi_start_dpid (child): %s\n", dStrerror(errno));
             do
                n = write(st_pipe[1], "ERROR", 5);
             while (n == -1 && errno == EINTR);
@@ -320,7 +315,7 @@ static int Dpi_start_dpid(void)
       }
    } else if (pid < 0) {
       /* The fork failed.  Report failure.  */
-      DEBUG_MSG(4, "Dpi_start_dpid: %s\n", dStrerror(errno));
+      MSG("Dpi_start_dpid: %s\n", dStrerror(errno));
       /* close the unused pipe */
       Dpi_close_fd(st_pipe[0]);
       Dpi_close_fd(st_pipe[1]);
@@ -331,11 +326,11 @@ static int Dpi_start_dpid(void)
       do
          n = read(st_pipe[0], buf, 16);
       while (n == -1 && errno == EINTR);
-      DEBUG_MSG(2, "Dpi_start_dpid: n = %d\n", n);
+      _MSG("Dpi_start_dpid: n = %d\n", n);
       if (n != 5) {
          ret = 0;
       } else {
-         DEBUG_MSG(4, "Dpi_start_dpid: %s\n", dStrerror(errno));
+         MSG("Dpi_start_dpid: %s\n", dStrerror(errno));
       }
    }
 
@@ -358,8 +353,8 @@ static int Dpi_check_uds(char *uds_name)
       strncpy(pun.sun_path, uds_name, sizeof (pun.sun_path));
 
       if ((SockFD = socket(AF_LOCAL, SOCK_STREAM, 0)) == -1 ||
-          connect(SockFD, (void*)&pun, D_SUN_LEN(&pun)) == -1) {
-         DEBUG_MSG(4, "Dpi_check_uds: %s %s\n", dStrerror(errno), uds_name);
+          connect(SockFD, (struct sockaddr *) &pun, D_SUN_LEN(&pun)) == -1) {
+         MSG("Dpi_check_uds: %s %s\n", dStrerror(errno), uds_name);
       } else {
          Dpi_close_fd(SockFD);
          ret = 0;
@@ -449,8 +444,8 @@ static int Dpi_check_dpid(int num_tries)
    }
 
    dFree(dpid_uds_name);
-   DEBUG_MSG(2, "Dpi_check_dpid:: %s\n",
-             (ret == 0) ? "OK" : (ret == 1 ? "EAGAIN" : "ERROR"));
+   _MSG("Dpi_check_dpid:: %s\n",
+        (ret == 0) ? "OK" : (ret == 1 ? "EAGAIN" : "ERROR"));
    return ret;
 }
 
@@ -486,7 +481,7 @@ static char *Dpi_get_server_uds_name(const char *server_name)
    int st;
 
    dReturn_val_if_fail (server_name != NULL, NULL);
-   DEBUG_MSG(2, "Dpi_get_server_uds_name:: server_name = [%s]\n", server_name);
+   _MSG("Dpi_get_server_uds_name:: server_name = [%s]\n", server_name);
 
    dpid_uds_dir = Dpi_get_dpid_uds_dir();
    if (dpid_uds_dir) {
@@ -502,11 +497,11 @@ static char *Dpi_get_server_uds_name(const char *server_name)
       _MSG("dpid_uds_name = [%s]\n", dpid_uds_name);
       strncpy(dpid.sun_path, dpid_uds_name, sizeof(dpid.sun_path));
 
-      if (connect(sock, (struct sockaddr *) &dpid, sizeof(dpid)) == -1)
+      if (connect(sock, (struct sockaddr *) &dpid, D_SUN_LEN(&dpid)) == -1)
          perror("connect");
       /* ask dpid to check the server plugin and send its UDS name back */
       request = a_Dpip_build_cmd("cmd=%s msg=%s", "check_server", server_name);
-      DEBUG_MSG(2, "[%s]\n", request);
+      _MSG("[%s]\n", request);
       do
          st = write(sock, request, strlen(request));
       while (st < 0 && errno == EINTR);
@@ -533,7 +528,7 @@ static char *Dpi_get_server_uds_name(const char *server_name)
          strncat(rply, buf, (size_t)rdlen);
       }
       Dpi_close_fd(sock);
-      DEBUG_MSG(2, "rply = [%s]\n", rply);
+      _MSG("rply = [%s]\n", rply);
 
       /* Parse reply */
       if (rdlen == 0 && rply) {
@@ -546,7 +541,7 @@ static char *Dpi_get_server_uds_name(const char *server_name)
    }
    dFree(dpid_uds_dir);
    dFree(dpid_uds_name);
-   DEBUG_MSG(2, "Dpi_get_server_uds_name:: %s\n", server_uds_name);
+   _MSG("Dpi_get_server_uds_name:: %s\n", server_uds_name);
    return server_uds_name;
 }
 
@@ -564,7 +559,7 @@ static int Dpi_connect_socket(const char *server_name, int retry)
 
    /* Query dpid for the UDS name for this server */
    server_uds_name = Dpi_get_server_uds_name(server_name);
-   DEBUG_MSG(2, "server_uds_name = [%s]\n", server_uds_name);
+   _MSG("server_uds_name = [%s]\n", server_uds_name);
 
    if (access(server_uds_name, F_OK) != 0) {
       MSG("server socket was NOT found\n");
@@ -607,7 +602,7 @@ void a_Dpi_ccc(int Op, int Branch, int Dir, ChainLink *Info,
    dpi_conn_t *conn;
    int SockFD = -1, st;
 
-   a_Chain_debug_msg("a_Dpi_ccc", Op, Branch, Dir);
+   dReturn_if_fail( a_Chain_check("a_Dpi_ccc", Op, Branch, Dir, Info) );
 
    if (Branch == 1) {
       if (Dir == BCK) {
@@ -639,6 +634,11 @@ void a_Dpi_ccc(int Op, int Branch, int Dir, ChainLink *Info,
             break;
          case OpEnd:
             a_Chain_bcb(OpEnd, Info, NULL, NULL);
+            dFree(Info->LocalKey);
+            dFree(Info);
+            break;
+         case OpAbort:
+            a_Chain_bcb(OpAbort, Info, NULL, NULL);
             dFree(Info->LocalKey);
             dFree(Info);
             break;
@@ -717,16 +717,16 @@ void a_Dpi_bye_dpid()
 
    srs_name = Dpi_get_dpid_uds_name();
    sun_path_len = sizeof(sa.sun_path);
-   addr_len = sizeof(sa);
 
    sa.sun_family = AF_LOCAL;
 
    if ((new_socket = socket(AF_LOCAL, SOCK_STREAM, 0)) == -1) {
-      DEBUG_MSG(4, "a_Dpi_bye_dpid: %s\n", dStrerror(errno));
+      MSG("a_Dpi_bye_dpid: %s\n", dStrerror(errno));
    }
    strncpy(sa.sun_path, srs_name, sizeof (sa.sun_path));
+   addr_len = D_SUN_LEN(&sa);
    if (connect(new_socket, (struct sockaddr *) &sa, addr_len) == -1) {
-      DEBUG_MSG(4, "a_Dpi_bye_dpid: %s\n", dStrerror(errno));
+      MSG("a_Dpi_bye_dpid: %s\n", dStrerror(errno));
       MSG("%s\n", sa.sun_path);
    }
    DpiBye_cmd = a_Dpip_build_cmd("cmd=%s", "DpiBye");
@@ -753,12 +753,12 @@ char *a_Dpi_send_blocking_cmd(const char *server_name, const char *cmd)
 
    SockFD = Dpi_connect_socket(server_name, TRUE);
    if (SockFD != -1) {
-      /* todo: handle the case of (st < strlen(cmd)) */
+      /* TODO: handle the case of (st < strlen(cmd)) */
       do
          st = write(SockFD, cmd, strlen(cmd));
       while (st == -1 && errno == EINTR);
 
-      /* todo: if the answer is too long... */
+      /* TODO: if the answer is too long... */
       do
          st = read(SockFD, buf, 16384);
       while (st < 0 && errno == EINTR);

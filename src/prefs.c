@@ -1,7 +1,7 @@
 /*
  * Preferences for dillo
  *
- * Copyright (C) 2006 Jorge Arellano Cid <jcid@dillo.org>
+ * Copyright (C) 2006-2007 Jorge Arellano Cid <jcid@dillo.org>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -31,13 +31,82 @@
 #include "misc.h"
 #include "msg.h"
 
-#define RCNAME "dillorc2"
+#define RCNAME "dillorc"
 
+#define DILLO_START_PAGE "about:splash"
+#define DILLO_HOME "http://www.dillo.org/"
 
-/*
+#define D_VW_FONTNAME "DejaVu Sans"
+#define D_FW_FONTNAME "DejaVu Sans Mono"
+#define D_SEARCH_URL "http://www.google.com/search?ie=UTF-8&oe=UTF-8&q=%s"
+#define D_SAVE_DIR "/tmp/"
+
+#define DW_COLOR_DEFAULT_BGND   0xdcd1ba
+#define DW_COLOR_DEFAULT_TEXT   0x000000
+#define DW_COLOR_DEFAULT_LINK   0x0000ff
+#define DW_COLOR_DEFAULT_VLINK  0x800080
+
+/*-----------------------------------------------------------------------------
  * Global Data
- */
+ *---------------------------------------------------------------------------*/
 DilloPrefs prefs;
+
+/*-----------------------------------------------------------------------------
+ * Local types
+ *---------------------------------------------------------------------------*/
+
+/* define enumeration values to be returned for specific symbols */
+typedef enum {
+   DRC_TOKEN_MIDDLE_CLICK_DRAGS_PAGE,
+   DRC_TOKEN_ALLOW_WHITE_BG,
+   DRC_TOKEN_BG_COLOR,
+   DRC_TOKEN_CONTRAST_VISITED_COLOR,
+   DRC_TOKEN_ENTERPRESS_FORCES_SUBMIT,
+   DRC_TOKEN_FOCUS_NEW_TAB,
+   DRC_TOKEN_FONT_FACTOR,
+   DRC_TOKEN_FORCE_MY_COLORS,
+   DRC_TOKEN_FULLWINDOW_START,
+   DRC_TOKEN_FW_FONT,
+   DRC_TOKEN_GENERATE_SUBMIT,
+   DRC_TOKEN_GEOMETRY,
+   DRC_TOKEN_HOME,
+   DRC_TOKEN_HTTP_LANGUAGE,
+   DRC_TOKEN_LIMIT_TEXT_WIDTH,
+   DRC_TOKEN_LINK_COLOR,
+   DRC_TOKEN_LOAD_IMAGES,
+   DRC_TOKEN_LOAD_STYLESHEETS,
+   DRC_TOKEN_BUFFERED_DRAWING,
+   DRC_TOKEN_MIDDLE_CLICK_OPENS_NEW_TAB,
+   DRC_TOKEN_NOPROXY,
+   DRC_TOKEN_PANEL_SIZE,
+   DRC_TOKEN_PROXY,
+   DRC_TOKEN_PROXYUSER,
+   DRC_TOKEN_REFERER,
+   DRC_TOKEN_SAVE_DIR,
+   DRC_TOKEN_SEARCH_URL,
+   DRC_TOKEN_SHOW_BACK,
+   DRC_TOKEN_SHOW_BOOKMARKS,
+   DRC_TOKEN_SHOW_CLEAR_URL,
+   DRC_TOKEN_SHOW_EXTRA_WARNINGS,
+   DRC_TOKEN_SHOW_FORW,
+   DRC_TOKEN_SHOW_HOME,
+   DRC_TOKEN_SHOW_FILEMENU,
+   DRC_TOKEN_SHOW_MSG,
+   DRC_TOKEN_SHOW_PROGRESS_BOX,
+   DRC_TOKEN_SHOW_RELOAD,
+   DRC_TOKEN_SHOW_SAVE,
+   DRC_TOKEN_SHOW_SEARCH,
+   DRC_TOKEN_SHOW_STOP,
+   DRC_TOKEN_SHOW_TOOLTIP,
+   DRC_TOKEN_SHOW_URL,
+   DRC_TOKEN_SMALL_ICONS,
+   DRC_TOKEN_STANDARD_WIDGET_COLORS,
+   DRC_TOKEN_START_PAGE,
+   DRC_TOKEN_TEXT_COLOR,
+   DRC_TOKEN_VISITED_COLOR,
+   DRC_TOKEN_VW_FONT,
+   DRC_TOKEN_W3C_PLUS_HEURISTICS
+} RcToken_t;
 
 typedef struct SymNode_ SymNode_t;
 
@@ -46,12 +115,18 @@ struct SymNode_ {
    RcToken_t token;
 };
 
+/*-----------------------------------------------------------------------------
+ * Local data
+ *---------------------------------------------------------------------------*/
+
 /* Symbol array, sorted alphabetically */
-SymNode_t symbols[] = {
+static const SymNode_t symbols[] = {
    { "allow_white_bg", DRC_TOKEN_ALLOW_WHITE_BG },
    { "bg_color", DRC_TOKEN_BG_COLOR },
+   { "buffered_drawing", DRC_TOKEN_BUFFERED_DRAWING },
    { "contrast_visited_color", DRC_TOKEN_CONTRAST_VISITED_COLOR },
    { "enterpress_forces_submit", DRC_TOKEN_ENTERPRESS_FORCES_SUBMIT },
+   { "focus_new_tab", DRC_TOKEN_FOCUS_NEW_TAB },
    { "font_factor", DRC_TOKEN_FONT_FACTOR },
    { "force_my_colors", DRC_TOKEN_FORCE_MY_COLORS },
    { "fullwindow_start", DRC_TOKEN_FULLWINDOW_START },
@@ -59,20 +134,27 @@ SymNode_t symbols[] = {
    { "generate_submit", DRC_TOKEN_GENERATE_SUBMIT },
    { "geometry", DRC_TOKEN_GEOMETRY },
    { "home", DRC_TOKEN_HOME },
+   { "http_language", DRC_TOKEN_HTTP_LANGUAGE },
    { "http_proxy", DRC_TOKEN_PROXY },
    { "http_proxyuser", DRC_TOKEN_PROXYUSER },
+   { "http_referer", DRC_TOKEN_REFERER },
    { "limit_text_width", DRC_TOKEN_LIMIT_TEXT_WIDTH },
    { "link_color", DRC_TOKEN_LINK_COLOR },
+   { "load_images", DRC_TOKEN_LOAD_IMAGES },
+   { "load_stylesheets", DRC_TOKEN_LOAD_STYLESHEETS },
+   { "middle_click_drags_page", DRC_TOKEN_MIDDLE_CLICK_DRAGS_PAGE },
+   { "middle_click_opens_new_tab", DRC_TOKEN_MIDDLE_CLICK_OPENS_NEW_TAB },
    { "no_proxy", DRC_TOKEN_NOPROXY },
    { "panel_size", DRC_TOKEN_PANEL_SIZE },
+   { "save_dir", DRC_TOKEN_SAVE_DIR },
    { "search_url", DRC_TOKEN_SEARCH_URL },
    { "show_back", DRC_TOKEN_SHOW_BACK },
    { "show_bookmarks", DRC_TOKEN_SHOW_BOOKMARKS },
    { "show_clear_url", DRC_TOKEN_SHOW_CLEAR_URL },
    { "show_extra_warnings", DRC_TOKEN_SHOW_EXTRA_WARNINGS },
+   { "show_filemenu", DRC_TOKEN_SHOW_FILEMENU },
    { "show_forw", DRC_TOKEN_SHOW_FORW },
    { "show_home", DRC_TOKEN_SHOW_HOME },
-   { "show_menubar", DRC_TOKEN_SHOW_MENUBAR },
    { "show_msg", DRC_TOKEN_SHOW_MSG },
    { "show_progress_box", DRC_TOKEN_SHOW_PROGRESS_BOX },
    { "show_reload", DRC_TOKEN_SHOW_RELOAD },
@@ -82,11 +164,9 @@ SymNode_t symbols[] = {
    { "show_tooltip", DRC_TOKEN_SHOW_TOOLTIP },
    { "show_url", DRC_TOKEN_SHOW_URL },
    { "small_icons", DRC_TOKEN_SMALL_ICONS },
+   { "standard_widget_colors", DRC_TOKEN_STANDARD_WIDGET_COLORS },
    { "start_page", DRC_TOKEN_START_PAGE },
    { "text_color", DRC_TOKEN_TEXT_COLOR },
-   { "transient_dialogs", DRC_TOKEN_TRANSIENT_DIALOGS },
-   { "use_dicache", DRC_TOKEN_USE_DICACHE },
-   { "use_oblique", DRC_TOKEN_USE_OBLIQUE },
    { "visited_color", DRC_TOKEN_VISITED_COLOR, },
    { "vw_fontname", DRC_TOKEN_VW_FONT },
    { "w3c_plus_heuristics", DRC_TOKEN_W3C_PLUS_HEURISTICS }
@@ -104,50 +184,6 @@ static const uint_t n_symbols = sizeof (symbols) / sizeof (symbols[0]);
 static int Prefs_symbol_cmp(const void *a, const void *b)
 {
    return strcmp(((SymNode_t*)a)->name, ((SymNode_t*)b)->name);
-}
-
-/*
- * Take a dillo rc line and return 'name' and 'value' pointers to it.
- * Notes:
- *    - line is modified!
- *    - it skips blank lines and lines starting with '#'
- *
- * Return value: 0 on successful value/pair, -1 otherwise
- */
-static int Prefs_get_pair(char **line, char **name, char **value)
-{
-   char *eq, *p;
-   int len, ret = -1;
-
-   dReturn_val_if_fail(*line, ret);
-
-   *name = NULL;
-   *value = NULL;
-   dStrstrip(*line);
-   if (*line[0] != '#' && (eq = strchr(*line, '='))) {
-      /* get name */
-      for (p = *line; *p && *p != '=' && !isspace(*p); ++p);
-      *p = 0;
-      *name = *line;
-
-      /* get value */
-      if (p == eq) {
-         for (++p; isspace(*p); ++p);
-         len = strlen(p);
-         if (len >= 2 && *p == '"' && p[len-1] == '"') {
-            p[len-1] = 0;
-            ++p;
-         }
-         *value = p;
-         ret = 0;
-      }
-   }
-
-   if (*line[0] && *line[0] != '#' && (!*name || !*value)) {
-      MSG("prefs: Syntax error in %s: name=\"%s\" value=\"%s\"\n",
-          RCNAME, *name, *value);
-   }
-   return ret;
 }
 
 /*
@@ -171,13 +207,21 @@ static int Prefs_parse_pair(char *name, char *value)
       a_Misc_parse_geometry(value, &prefs.xpos, &prefs.ypos,
                             &prefs.width, &prefs.height);
       break;
+   case DRC_TOKEN_HTTP_LANGUAGE:
+      dFree(prefs.http_language);
+      prefs.http_language = dStrdup(value);
+      break;
    case DRC_TOKEN_PROXY:
       a_Url_free(prefs.http_proxy);
-      prefs.http_proxy = a_Url_new(value, NULL, 0, 0, 0);
+      prefs.http_proxy = a_Url_new(value, NULL);
       break;
    case DRC_TOKEN_PROXYUSER:
       dFree(prefs.http_proxyuser);
       prefs.http_proxyuser = dStrdup(value);
+      break;
+   case DRC_TOKEN_REFERER:
+      dFree(prefs.http_referer);
+      prefs.http_referer = dStrdup(value);
       break;
    case DRC_TOKEN_NOPROXY:
       dFree(prefs.no_proxy);
@@ -198,38 +242,44 @@ static int Prefs_parse_pair(char *name, char *value)
    case DRC_TOKEN_ALLOW_WHITE_BG:
       prefs.allow_white_bg = (strcmp(value, "YES") == 0);
       break;
+   case DRC_TOKEN_MIDDLE_CLICK_DRAGS_PAGE:
+      prefs.middle_click_drags_page = (strcmp(value, "YES") == 0);
+      break;
    case DRC_TOKEN_FORCE_MY_COLORS:
       prefs.force_my_colors = (strcmp(value, "YES") == 0);
       break;
    case DRC_TOKEN_CONTRAST_VISITED_COLOR:
       prefs.contrast_visited_color = (strcmp(value, "YES") == 0);
       break;
-   case DRC_TOKEN_USE_OBLIQUE:
-      prefs.use_oblique = (strcmp(value, "YES") == 0);
+   case DRC_TOKEN_STANDARD_WIDGET_COLORS:
+      prefs.standard_widget_colors = (strcmp(value, "YES") == 0);
       break;
    case DRC_TOKEN_PANEL_SIZE:
       if (!dStrcasecmp(value, "tiny"))
-         prefs.panel_size = 1;
+         prefs.panel_size = P_tiny;
       else if (!dStrcasecmp(value, "small"))
-         prefs.panel_size = 2;
+         prefs.panel_size = P_small;
       else if (!dStrcasecmp(value, "medium"))
-         prefs.panel_size = 3;
-      else /* default to "large" */
-         prefs.panel_size = 4;
+         prefs.panel_size = P_medium;
+      else /* default to "medium" */
+         prefs.panel_size = P_medium;
       break;
    case DRC_TOKEN_SMALL_ICONS:
       prefs.small_icons = (strcmp(value, "YES") == 0);
       break;
    case DRC_TOKEN_START_PAGE:
       a_Url_free(prefs.start_page);
-      prefs.start_page = a_Url_new(value, NULL, 0, 0, 0);
+      prefs.start_page = a_Url_new(value, NULL);
       break;
    case DRC_TOKEN_HOME:
       a_Url_free(prefs.home);
-      prefs.home = a_Url_new(value, NULL, 0, 0, 0);
+      prefs.home = a_Url_new(value, NULL);
       break;
    case DRC_TOKEN_SHOW_TOOLTIP:
       prefs.show_tooltip = (strcmp(value, "YES") == 0);
+      break;
+   case DRC_TOKEN_FOCUS_NEW_TAB:
+      prefs.focus_new_tab = (strcmp(value, "YES") == 0);
       break;
    case DRC_TOKEN_FONT_FACTOR:
       prefs.font_factor = strtod(value, NULL);
@@ -239,9 +289,6 @@ static int Prefs_parse_pair(char *name, char *value)
       break;
    case DRC_TOKEN_W3C_PLUS_HEURISTICS:
       prefs.w3c_plus_heuristics = (strcmp(value,"YES") == 0);
-      break;
-   case DRC_TOKEN_USE_DICACHE:
-      prefs.use_dicache = (strcmp(value, "YES") == 0);
       break;
    case DRC_TOKEN_SHOW_BACK:
       prefs.show_back = (strcmp(value, "YES") == 0);
@@ -264,8 +311,8 @@ static int Prefs_parse_pair(char *name, char *value)
    case DRC_TOKEN_SHOW_BOOKMARKS:
       prefs.show_bookmarks = (strcmp(value, "YES") == 0);
       break;
-   case DRC_TOKEN_SHOW_MENUBAR:
-      prefs.show_menubar = (strcmp(value, "YES") == 0);
+   case DRC_TOKEN_SHOW_FILEMENU:
+      prefs.show_filemenu = (strcmp(value, "YES") == 0);
       break;
    case DRC_TOKEN_SHOW_CLEAR_URL:
       prefs.show_clear_url = (strcmp(value, "YES") == 0);
@@ -282,8 +329,14 @@ static int Prefs_parse_pair(char *name, char *value)
    case DRC_TOKEN_FULLWINDOW_START:
       prefs.fullwindow_start = (strcmp(value, "YES") == 0);
       break;
-   case DRC_TOKEN_TRANSIENT_DIALOGS:
-      prefs.transient_dialogs = (strcmp(value, "YES") == 0);
+   case DRC_TOKEN_LOAD_IMAGES:
+      prefs.load_images = (strcmp(value, "YES") == 0);
+      break;
+   case DRC_TOKEN_LOAD_STYLESHEETS:
+      prefs.load_stylesheets = (strcmp(value, "YES") == 0);
+      break;
+   case DRC_TOKEN_BUFFERED_DRAWING:
+      prefs.buffered_drawing = atoi(value);
       break;
    case DRC_TOKEN_FW_FONT:
       dFree(prefs.fw_fontname);
@@ -299,10 +352,16 @@ static int Prefs_parse_pair(char *name, char *value)
    case DRC_TOKEN_ENTERPRESS_FORCES_SUBMIT:
       prefs.enterpress_forces_submit = (strcmp(value, "YES") == 0);
       break;
+   case DRC_TOKEN_MIDDLE_CLICK_OPENS_NEW_TAB:
+      prefs.middle_click_opens_new_tab = (strcmp(value, "YES") == 0);
+      break;
    case DRC_TOKEN_SEARCH_URL:
       dFree(prefs.search_url);
       prefs.search_url = dStrdup(value);
       break;
+   case DRC_TOKEN_SAVE_DIR:
+      dFree(prefs.save_dir);
+      prefs.save_dir = dStrdup(value);
    case DRC_TOKEN_SHOW_MSG:
       prefs.show_msg = (strcmp(value, "YES") == 0);
       break;
@@ -340,9 +399,12 @@ static int Prefs_parse_dillorc(void)
    if (F_in) {
       /* scan dillorc line by line */
       while ((line = dGetline(F_in)) != NULL) {
-         if (Prefs_get_pair(&line, &name, &value) == 0){
+         if (dParser_get_rc_pair(&line, &name, &value) == 0) {
             _MSG("{%s}, {%s}\n", name, value);
             Prefs_parse_pair(name, value);
+         } else if (line[0] && line[0] != '#' && (!name || !value)) {
+            MSG("prefs: Syntax error in %s: name=\"%s\" value=\"%s\"\n",
+                RCNAME, name, value);
          }
          dFree(line);
       }
@@ -364,26 +426,28 @@ void a_Prefs_init(void)
    prefs.height = D_GEOMETRY_DEFAULT_HEIGHT;
    prefs.xpos = D_GEOMETRY_DEFAULT_XPOS;
    prefs.ypos = D_GEOMETRY_DEFAULT_YPOS;
+   prefs.http_language = NULL;
    prefs.http_proxy = NULL;
    prefs.http_proxyuser = NULL;
+   prefs.http_referer = dStrdup("host");
    prefs.no_proxy = NULL;
-   prefs.link_color = DW_COLOR_DEFAULT_BLUE;
-   prefs.visited_color = DW_COLOR_DEFAULT_PURPLE;
+   prefs.link_color = DW_COLOR_DEFAULT_LINK;
+   prefs.visited_color = DW_COLOR_DEFAULT_VLINK;
    prefs.bg_color = DW_COLOR_DEFAULT_BGND;
-   prefs.text_color = DW_COLOR_DEFAULT_BLACK;
-   prefs.use_oblique = FALSE;
-   prefs.start_page = a_Url_new(DILLO_START_PAGE, NULL, 0, 0, 0);
-   prefs.home = a_Url_new(DILLO_HOME, NULL, 0, 0, 0);
+   prefs.text_color = DW_COLOR_DEFAULT_TEXT;
+   prefs.start_page = a_Url_new(DILLO_START_PAGE, NULL);
+   prefs.home = a_Url_new(DILLO_HOME, NULL);
    prefs.allow_white_bg = TRUE;
    prefs.force_my_colors = FALSE;
-   prefs.contrast_visited_color = FALSE;
-   prefs.show_tooltip = FALSE;
-   prefs.panel_size = 1;
+   prefs.contrast_visited_color = TRUE;
+   prefs.standard_widget_colors = FALSE;
+   prefs.show_tooltip = TRUE;
+   prefs.panel_size = P_medium;
    prefs.small_icons = FALSE;
    prefs.limit_text_width = FALSE;
    prefs.w3c_plus_heuristics = TRUE;
+   prefs.focus_new_tab = TRUE;
    prefs.font_factor = 1.0;
-   prefs.use_dicache = FALSE;
    prefs.show_back=TRUE;
    prefs.show_forw=TRUE;
    prefs.show_home=TRUE;
@@ -391,20 +455,25 @@ void a_Prefs_init(void)
    prefs.show_save=TRUE;
    prefs.show_stop=TRUE;
    prefs.show_bookmarks=TRUE;
-   prefs.show_menubar=TRUE;
+   prefs.show_filemenu=TRUE;
    prefs.show_clear_url=TRUE;
    prefs.show_url=TRUE;
    prefs.show_search=TRUE;
    prefs.show_progress_box=TRUE;
    prefs.fullwindow_start=FALSE;
-   prefs.transient_dialogs=FALSE;
-   prefs.vw_fontname = dStrdup("helvetica");
-   prefs.fw_fontname = dStrdup("courier");
+   prefs.load_images=TRUE;
+   prefs.load_stylesheets=TRUE;
+   prefs.buffered_drawing=1;
+   prefs.vw_fontname = dStrdup(D_VW_FONTNAME);
+   prefs.fw_fontname = dStrdup(D_FW_FONTNAME);
    prefs.generate_submit = FALSE;
    prefs.enterpress_forces_submit = FALSE;
-   prefs.search_url = dStrdup("http://www.google.com/search?q=%s");
+   prefs.middle_click_opens_new_tab = TRUE;
+   prefs.search_url = dStrdup(D_SEARCH_URL);
+   prefs.save_dir = dStrdup(D_SAVE_DIR);
    prefs.show_msg = TRUE;
    prefs.show_extra_warnings = FALSE;
+   prefs.middle_click_drags_page = TRUE;
 
    /* this locale stuff is to avoid parsing problems with float numbers */
    old_locale = dStrdup (setlocale (LC_NUMERIC, NULL));
@@ -423,7 +492,9 @@ void a_Prefs_init(void)
  */
 void a_Prefs_freeall(void)
 {
+   dFree(prefs.http_language);
    dFree(prefs.http_proxyuser);
+   dFree(prefs.http_referer);
    dFree(prefs.no_proxy);
    a_Url_free(prefs.http_proxy);
    dFree(prefs.fw_fontname);
@@ -431,4 +502,5 @@ void a_Prefs_freeall(void)
    a_Url_free(prefs.start_page);
    a_Url_free(prefs.home);
    dFree(prefs.search_url);
+   dFree(prefs.save_dir);
 }

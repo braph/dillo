@@ -1,7 +1,7 @@
 /*
  * File: dpip.c
  *
- * Copyright 2005 Jorge Arellano Cid <jcid@dillo.org>
+ * Copyright 2005-2007 Jorge Arellano Cid <jcid@dillo.org>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -111,7 +111,7 @@ char *a_Dpip_build_cmd(const char *format, ...)
  *       (stuffing of ' is removed here)
  * Return value: the attribute value, or NULL if not present or malformed.
  */
-char *a_Dpip_get_attr(char *tag, size_t tagsize, char *attrname)
+char *a_Dpip_get_attr(char *tag, size_t tagsize, const char *attrname)
 {
    uint_t i, n = 0, found = 0;
    char *p, *q, *start, *val = NULL;

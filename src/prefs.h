@@ -7,65 +7,13 @@
 extern "C" {
 #endif /* __cplusplus */
 
-#define DILLO_START_PAGE "about:splash"
-#define DILLO_HOME "http://www.dillo.org/"
-#define D_GEOMETRY_DEFAULT_WIDTH   640
-#define D_GEOMETRY_DEFAULT_HEIGHT  550
+#define D_GEOMETRY_DEFAULT_WIDTH   780
+#define D_GEOMETRY_DEFAULT_HEIGHT  580
 #define D_GEOMETRY_DEFAULT_XPOS  -9999
 #define D_GEOMETRY_DEFAULT_YPOS  -9999
 
-#define DW_COLOR_DEFAULT_GREY   0xd6d6d6
-#define DW_COLOR_DEFAULT_BLACK  0x000000
-#define DW_COLOR_DEFAULT_BLUE   0x0000ff
-#define DW_COLOR_DEFAULT_PURPLE 0x800080
-#define DW_COLOR_DEFAULT_BGND   0xd6d6c0
-
-
-/* define enumeration values to be returned for specific symbols */
-typedef enum {
-   DRC_TOKEN_ALLOW_WHITE_BG,
-   DRC_TOKEN_BG_COLOR,
-   DRC_TOKEN_CONTRAST_VISITED_COLOR,
-   DRC_TOKEN_ENTERPRESS_FORCES_SUBMIT,
-   DRC_TOKEN_FONT_FACTOR,
-   DRC_TOKEN_FORCE_MY_COLORS,
-   DRC_TOKEN_FULLWINDOW_START,
-   DRC_TOKEN_FW_FONT,
-   DRC_TOKEN_GENERATE_SUBMIT,
-   DRC_TOKEN_GEOMETRY,
-   DRC_TOKEN_HOME,
-   DRC_TOKEN_LIMIT_TEXT_WIDTH,
-   DRC_TOKEN_LINK_COLOR,
-   DRC_TOKEN_NOPROXY,
-   DRC_TOKEN_PANEL_SIZE,
-   DRC_TOKEN_PROXY,
-   DRC_TOKEN_PROXYUSER,
-   DRC_TOKEN_SEARCH_URL,
-   DRC_TOKEN_SHOW_BACK,
-   DRC_TOKEN_SHOW_BOOKMARKS,
-   DRC_TOKEN_SHOW_CLEAR_URL,
-   DRC_TOKEN_SHOW_EXTRA_WARNINGS,
-   DRC_TOKEN_SHOW_FORW,
-   DRC_TOKEN_SHOW_HOME,
-   DRC_TOKEN_SHOW_MENUBAR,
-   DRC_TOKEN_SHOW_MSG,
-   DRC_TOKEN_SHOW_PROGRESS_BOX,
-   DRC_TOKEN_SHOW_RELOAD,
-   DRC_TOKEN_SHOW_SAVE,
-   DRC_TOKEN_SHOW_SEARCH,
-   DRC_TOKEN_SHOW_STOP,
-   DRC_TOKEN_SHOW_TOOLTIP,
-   DRC_TOKEN_SHOW_URL,
-   DRC_TOKEN_SMALL_ICONS,
-   DRC_TOKEN_START_PAGE,
-   DRC_TOKEN_TEXT_COLOR,
-   DRC_TOKEN_TRANSIENT_DIALOGS,
-   DRC_TOKEN_USE_DICACHE,
-   DRC_TOKEN_USE_OBLIQUE,
-   DRC_TOKEN_VISITED_COLOR,
-   DRC_TOKEN_VW_FONT,
-   DRC_TOKEN_W3C_PLUS_HEURISTICS
-} RcToken_t;
+/* Panel sizes */
+enum { P_tiny = 0, P_small, P_medium, P_large };
 
 typedef struct _DilloPrefs DilloPrefs;
 
@@ -74,8 +22,10 @@ struct _DilloPrefs {
    int height;
    int xpos;
    int ypos;
+   char *http_language;
    DilloUrl *http_proxy;
    char *http_proxyuser;
+   char *http_referer;
    char *no_proxy;
    DilloUrl *start_page;
    DilloUrl *home;
@@ -84,16 +34,16 @@ struct _DilloPrefs {
    int32_t bg_color;
    int32_t text_color;
    bool_t allow_white_bg;
-   bool_t use_oblique;
    bool_t force_my_colors;
    bool_t contrast_visited_color;
+   bool_t standard_widget_colors;
    bool_t show_tooltip;
    int panel_size;
    bool_t small_icons;
    bool_t limit_text_width;
    bool_t w3c_plus_heuristics;
+   bool_t focus_new_tab;
    double font_factor;
-   bool_t use_dicache;
    bool_t show_back;
    bool_t show_forw;
    bool_t show_home;
@@ -101,20 +51,25 @@ struct _DilloPrefs {
    bool_t show_save;
    bool_t show_stop;
    bool_t show_bookmarks;
-   bool_t show_menubar;
+   bool_t show_filemenu;
    bool_t show_clear_url;
    bool_t show_url;
    bool_t show_search;
    bool_t show_progress_box;
    bool_t fullwindow_start;
-   bool_t transient_dialogs;
+   bool_t load_images;
+   bool_t load_stylesheets;
+   int32_t buffered_drawing;
    char *vw_fontname;
    char *fw_fontname;
    bool_t generate_submit;
    bool_t enterpress_forces_submit;
+   bool_t middle_click_opens_new_tab;
    char *search_url;
+   char *save_dir;
    bool_t show_msg;
    bool_t show_extra_warnings;
+   bool_t middle_click_drags_page;
 };
 
 /* Global Data */

@@ -4,6 +4,7 @@
  *
  * Geoff Lane nov 1999 zzassgl@twirl.mcc.ac.uk
  * Luca Rota, Jorge Arellano Cid, Eric Gaudet 2000
+ * Jorge Arellano Cid 2009
  *
  * "PNG: The Definitive Guide" by Greg Roelofs, O'Reilly
  * ISBN 1-56592-542-4
@@ -31,17 +32,16 @@
 #include "dicache.h"
 #include "prefs.h"
 
-#define DEBUG_LEVEL 6
-#include "debug.h"
-
 enum prog_state {
    IS_finished, IS_init, IS_nextdata
 };
 
+#if 0
 static char *prog_state_name[] =
 {
    "IS_finished", "IS_init", "IS_nextdata"
 };
+#endif
 
 /*
  * This holds the data that must be saved between calls to this module.
@@ -68,18 +68,19 @@ typedef
 struct _DilloPng {
    DilloImage *Image;           /* Image meta data */
    DilloUrl *url;               /* Primary Key for the dicache */
-   int version;                /* Secondary Key for the dicache */
+   int version;                 /* Secondary Key for the dicache */
 
    double display_exponent;     /* gamma correction */
-   ulong_t width;                /* png image width */
-   ulong_t height;               /* png image height */
+   ulong_t width;               /* png image width */
+   ulong_t height;              /* png image height */
    png_structp png_ptr;         /* libpng private data */
    png_infop info_ptr;          /* libpng private info */
-   uchar_t *image_data;          /* decoded image data    */
-   uchar_t **row_pointers;       /* pntr to row starts    */
+   uchar_t *image_data;         /* decoded image data    */
+   uchar_t **row_pointers;      /* pntr to row starts    */
    jmp_buf jmpbuf;              /* png error processing */
-   int error;                  /* error flag */
-   int rowbytes;               /* No. bytes in image row */
+   int error;                   /* error flag */
+   png_uint_32 previous_row;
+   int rowbytes;                /* No. bytes in image row */
    short passes;
    short channels;              /* No. image channels */
 
@@ -92,13 +93,13 @@ struct _DilloPng {
  * ipbuf    ipbufstart                            ipbufsize
  */
 
-   uchar_t *ipbuf;               /* image data in buffer */
-   int ipbufstart;             /* first valid image byte */
-   int ipbufsize;              /* size of valid data in */
+   uchar_t *ipbuf;              /* image data in buffer */
+   int ipbufstart;              /* first valid image byte */
+   int ipbufsize;               /* size of valid data in */
 
    enum prog_state state;       /* FSM current state  */
 
-   uchar_t *linebuf;             /* o/p raster data */
+   uchar_t *linebuf;            /* o/p raster data */
 
 } DilloPng;
 
@@ -119,7 +120,7 @@ void Png_error_handling(png_structp png_ptr, png_const_charp msg)
 {
    DilloPng *png;
 
-   DEBUG_MSG(6, "Png_error_handling: %s\n", msg);
+   MSG("Png_error_handling: %s\n", msg);
    png = png_get_error_ptr(png_ptr);
 
    png->error = 1;
@@ -138,7 +139,7 @@ Png_datainfo_callback(png_structp png_ptr, png_infop info_ptr)
    uint_t i;
    double gamma;
 
-   DEBUG_MSG(5, "Png_datainfo_callback:\n");
+   _MSG("Png_datainfo_callback:\n");
 
    png = png_get_progressive_ptr(png_ptr);
    dReturn_if_fail (png != NULL);
@@ -146,9 +147,9 @@ Png_datainfo_callback(png_structp png_ptr, png_infop info_ptr)
    png_get_IHDR(png_ptr, info_ptr, &png->width, &png->height,
                 &bit_depth, &color_type, &interlace_type, NULL, NULL);
 
-   DEBUG_MSG(5, "Png_datainfo_callback: png->width  = %ld\n"
-             "Png_datainfo_callback: png->height = %ld\n",
-             png->width, png->height);
+   _MSG("Png_datainfo_callback: png->width  = %ld\n"
+        "Png_datainfo_callback: png->height = %ld\n",
+        png->width, png->height);
 
    /* we need RGB/RGBA in the end */
    if (color_type == PNG_COLOR_TYPE_PALETTE && bit_depth <= 8) {
@@ -169,7 +170,7 @@ Png_datainfo_callback(png_structp png_ptr, png_infop info_ptr)
    }
 
    /* Get and set gamma information. Beware: gamma correction 2.2 will
-      only work on PC's. todo: select screen gamma correction for other
+      only work on PC's. TODO: select screen gamma correction for other
       platforms. */
    if (png_get_gAMA(png_ptr, info_ptr, &gamma))
       png_set_gamma(png_ptr, 2.2, gamma);
@@ -195,10 +196,10 @@ Png_datainfo_callback(png_structp png_ptr, png_infop info_ptr)
    png->channels = png_get_channels(png_ptr, info_ptr);
 
    /* init Dillo specifics */
-   DEBUG_MSG(5, "Png_datainfo_callback: rowbytes = %d\n"
-             "Png_datainfo_callback: width    = %ld\n"
-             "Png_datainfo_callback: height   = %ld\n",
-             png->rowbytes, png->width, png->height);
+   _MSG("Png_datainfo_callback: rowbytes = %d\n"
+        "Png_datainfo_callback: width    = %ld\n"
+        "Png_datainfo_callback: height   = %ld\n",
+        png->rowbytes, png->width, png->height);
 
    png->image_data = (uchar_t *) dMalloc(png->rowbytes * png->height);
    png->row_pointers = (uchar_t **) dMalloc(png->height * sizeof(uchar_t *));
@@ -224,27 +225,33 @@ static void
    if (!new_row)                /* work to do? */
       return;
 
-   DEBUG_MSG(5, "Png_datarow_callback: row_num = %ld\n", row_num);
+   _MSG("Png_datarow_callback: row_num = %ld\n", row_num);
 
    png = png_get_progressive_ptr(png_ptr);
 
    png_progressive_combine_row(png_ptr, png->row_pointers[row_num], new_row);
 
+   _MSG("png: row_num=%u previous_row=%u\n", row_num, png->previous_row);
+   if (row_num < png->previous_row) {
+      a_Dicache_new_scan(png->url, png->version);
+   }
+   png->previous_row = row_num;
+
    switch (png->channels) {
    case 3:
       a_Dicache_write(png->Image, png->url, png->version,
                       png->image_data + (row_num * png->rowbytes),
-                      0, (uint_t)row_num);
+                      (uint_t)row_num);
       break;
    case 4:
      {
-        /* todo: get the backgound color from the parent
+        /* TODO: get the backgound color from the parent
          * of the image widget -- Livio.                 */
         int a, bg_red, bg_green, bg_blue;
         uchar_t *pl = png->linebuf;
         uchar_t *data = png->image_data + (row_num * png->rowbytes);
 
-        /* todo: maybe change prefs.bg_color to `a_Dw_widget_get_bg_color`,
+        /* TODO: maybe change prefs.bg_color to `a_Dw_widget_get_bg_color`,
          * when background colors are correctly implementated */
         bg_blue  = (png->Image->bg_color) & 0xFF;
         bg_green = (png->Image->bg_color>>8) & 0xFF;
@@ -271,7 +278,7 @@ static void
            }
         }
         a_Dicache_write(png->Image, png->url, png->version,
-                        png->linebuf, 0, (uint_t)row_num);
+                        png->linebuf, (uint_t)row_num);
         break;
      }
    default:
@@ -286,67 +293,49 @@ static void
 {
    DilloPng *png;
 
-   DEBUG_MSG(5, "Png_dataend_callback:\n");
+   _MSG("Png_dataend_callback:\n");
 
    png = png_get_progressive_ptr(png_ptr);
    png->state = IS_finished;
 }
 
+/*
+ * Finish the decoding process (and free the memory)
+ */
+static void Png_close(DilloPng *png, CacheClient_t *Client)
+{
+   _MSG("Png_close\n");
+   /* Let dicache know decoding is over */
+   a_Dicache_close(png->url, png->version, Client);
+
+   /* Free up the resources for this image */
+   dFree(png->image_data);
+   dFree(png->row_pointers);
+   dFree(png->linebuf);
+   if (setjmp(png->jmpbuf))
+      MSG_WARN("PNG: can't destroy read structure\n");
+   else if (png->png_ptr)
+      png_destroy_read_struct(&png->png_ptr, &png->info_ptr, NULL);
+   dFree(png);
+}
 
 /*
- * Op:  Operation to perform.
- *   If (Op == 0)
- *      start or continue processing an image if image data exists.
- *   else
- *       terminate processing, cleanup any allocated memory,
- *       close down the decoding process.
- *
- * Client->CbData  : pointer to previously allocated DilloPng work area.
- *  This holds the current state of the image processing and is saved
- *  across calls to this routine.
- * Client->Buf     : Pointer to data start.
- * Client->BufSize : the size of the data buffer.
- *
- * You have to keep track of where you are in the image data and
- * how much has been processed.
- *
- * It's entirely possible that you will not see the end of the data.  The
- * user may terminate transfer via a Stop button or there may be a network
- * failure.  This means that you can't just wait for all the data to be
- * presented before starting conversion and display.
+ * Receive and process new chunks of PNG image data
  */
-static void Png_callback(int Op, CacheClient_t *Client)
+static void Png_write(DilloPng *png, void *Buf, uint_t BufSize)
 {
-   DilloPng *png = Client->CbData;
+   dReturn_if_fail ( Buf != NULL && BufSize > 0 );
 
-   if (Op) {
-      /* finished - free up the resources for this image */
-      a_Dicache_close(png->url, png->version, Client);
-      dFree(png->image_data);
-      dFree(png->row_pointers);
-      dFree(png->linebuf);
-
-      if (setjmp(png->jmpbuf))
-         MSG_WARN("PNG: can't destroy read structure\n");
-      else if (png->png_ptr)
-         png_destroy_read_struct(&png->png_ptr, &png->info_ptr, NULL);
-      dFree(png);
-      return;
-   }
-
-   /* Let's make some sound if we have been called with no data */
-   dReturn_if_fail ( Client->Buf != NULL && Client->BufSize > 0 );
-
-   DEBUG_MSG(5, "Png_callback BufSize = %d\n", Client->BufSize);
+   _MSG("Png_callback BufSize = %d\n", BufSize);
 
    /* Keep local copies so we don't have to pass multiple args to
     * a number of functions. */
-   png->ipbuf = Client->Buf;
-   png->ipbufsize = Client->BufSize;
+   png->ipbuf = Buf;
+   png->ipbufsize = BufSize;
 
    /* start/resume the FSM here */
    while (png->state != IS_finished && DATASIZE) {
-      DEBUG_MSG(5, "State = %s\n", prog_state_name[png->state]);
+      _MSG("State = %s\n", prog_state_name[png->state]);
 
       switch (png->state) {
       case IS_init:
@@ -356,6 +345,7 @@ static void Png_callback(int Op, CacheClient_t *Client)
          /* check the image signature - DON'T update ipbufstart! */
          if (!png_check_sig(png->ipbuf, DATASIZE)) {
             /* you lied to me about it being a PNG image */
+            MSG_WARN("\"%s\" is not a PNG file.\n", URL_STR(png->url));
             png->state = IS_finished;
             break;
          }
@@ -402,6 +392,37 @@ static void Png_callback(int Op, CacheClient_t *Client)
 }
 
 /*
+ * Op:  Operation to perform.
+ *   If (Op == 0)
+ *      start or continue processing an image if image data exists.
+ *   else
+ *       terminate processing, cleanup any allocated memory,
+ *       close down the decoding process.
+ *
+ * Client->CbData  : pointer to previously allocated DilloPng work area.
+ *  This holds the current state of the image processing and is kept
+ *  across calls to this routine.
+ * Client->Buf     : Pointer to data start.
+ * Client->BufSize : the size of the data buffer.
+ *
+ * You have to keep track of where you are in the image data and
+ * how much has been processed.
+ *
+ * It's entirely possible that you will not see the end of the data.  The
+ * user may terminate transfer via a Stop button or there may be a network
+ * failure.  This means that you can't just wait for all the data to be
+ * presented before starting conversion and display.
+ */
+static void Png_callback(int Op, CacheClient_t *Client)
+{
+   if (Op) { /* EOF */
+      Png_close(Client->CbData, Client);
+   } else {
+      Png_write(Client->CbData, Client->Buf, Client->BufSize);
+   }
+}
+
+/*
  * Create the image state data that must be kept between calls
  */
 static DilloPng *Png_new(DilloImage *Image, DilloUrl *url, int version)
@@ -419,32 +440,27 @@ static DilloPng *Png_new(DilloImage *Image, DilloUrl *url, int version)
    png->linebuf = NULL;
    png->image_data = NULL;
    png->row_pointers = NULL;
+   png->previous_row = 0;
 
    return png;
 }
 
 /*
- * MIME handler for "image/png" type
- * (Sets Png_callback or a_Dicache_callback as the cache-client)
+ * MIME handler for "image/png" type.
+ * Sets a_Dicache_callback as the cache-client,
+ * and Png_callback as the image decoder.
+ *
+ * Parameters:
+ *   Type: MIME type
+ *   Ptr:  points to a Web structure
+ *   Call: Dillo calls this with more data/eod
+ *   Data: Decoding data structure
  */
 void *a_Png_image(const char *Type, void *Ptr, CA_Callback_t *Call,
                   void **Data)
 {
-/*
- * Type: MIME type
- * Ptr:  points to a Web structure
- * Call: Dillo calls this with more data/eod
- * Data: raw image data
- */
-
    DilloWeb *web = Ptr;
    DICacheEntry *DicEntry;
-
-   DEBUG_MSG(5, "a_Png_image: Type = %s\n"
-             "a_Png_image: libpng - Compiled %s; using %s.\n"
-             "a_Png_image: zlib   - Compiled %s; using %s.\n",
-             Type, PNG_LIBPNG_VER_STRING, png_libpng_ver,
-             ZLIB_VERSION, zlib_version);
 
    if (!web->Image)
       web->Image = a_Image_new(0, 0, NULL, prefs.bg_color);
@@ -452,20 +468,20 @@ void *a_Png_image(const char *Type, void *Ptr, CA_Callback_t *Call,
    /* Add an extra reference to the Image (for dicache usage) */
    a_Image_ref(web->Image);
 
-   DicEntry = a_Dicache_get_entry(web->url);
+   DicEntry = a_Dicache_get_entry(web->url, DIC_Last);
    if (!DicEntry) {
       /* Let's create an entry for this image... */
       DicEntry = a_Dicache_add_entry(web->url);
-
-      /* ... and let the decoder feed it! */
-      *Data = Png_new(web->Image, DicEntry->url, DicEntry->version);
-      *Call = (CA_Callback_t) Png_callback;
+      DicEntry->DecoderData =
+         Png_new(web->Image, DicEntry->url, DicEntry->version);
    } else {
-      /* Let's feed our client from the dicache */
+      /* Repeated image */
       a_Dicache_ref(DicEntry->url, DicEntry->version);
-      *Data = web->Image;
-      *Call = (CA_Callback_t) a_Dicache_callback;
    }
+   DicEntry->Decoder = Png_callback;
+   *Data = DicEntry->DecoderData;
+   *Call = (CA_Callback_t) a_Dicache_callback;
+
    return (web->Image->dw);
 }
 

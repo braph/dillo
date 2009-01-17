@@ -9,12 +9,14 @@
 #include <fltk/Input.h>
 #include <fltk/PackedGroup.h>
 #include <fltk/Output.h>
-#include <fltk/xpmImage.h>
+#include <fltk/Image.h>
+#include <fltk/MultiImage.h>
+#include <fltk/MenuBuild.h>
+#include <fltk/TabGroup.h>
+
+#include "findbar.hh"
 
 using namespace fltk;
-
-// Panel sizes
-enum { P_tiny = 0, P_small, P_medium, P_large };
 
 typedef enum {
    UI_BACK = 0,
@@ -28,18 +30,29 @@ typedef enum {
    UI_SEARCH
 } UIButton;
 
+typedef enum {
+   UI_NORMAL = 0,     /* make sure it's compatible with bool */
+   UI_HIDDEN = 1,
+   UI_TEMPORARILY_SHOW_PANELS
+} UIPanelmode;
+
+// Private classes
+class CustProgressBox;
+class CustTabGroup;
+
 //
 // UI class definition -------------------------------------------------------
 //
-class UI : public fltk::Window {
+class UI : public fltk::Group {
+   CustTabGroup *Tabs;
+   char *TabTooltip;
+
    Group *TopGroup;
    Button *Back, *Forw, *Home, *Reload, *Save, *Stop, *Bookmarks,
-          *Clear, *Search, *FullScreen, *BugMeter;
+          *Clear, *Search, *FullScreen, *ImageLoad, *BugMeter, *FileButton;
    Input  *Location;
-   Widget *PProg, *IProg;
-   Image *ImgLeftIns, *ImgLeftSens, *ImgRightIns, *ImgRightSens,
-         *ImgStopIns, *ImgStopSens, *ImgFullScreenOn, *ImgFullScreenOff,
-         *ImgMeterOK, *ImgMeterBug;
+   PackedGroup *ProgBox;
+   CustProgressBox *PProg, *IProg;
    Group *Panel, *StatusPanel;
    Widget *Main;
    Output *Status;
@@ -47,22 +60,23 @@ class UI : public fltk::Window {
    int MainIdx;
    // Panel customization variables
    int PanelSize, CuteColor, Small_Icons;
-   int xpos, bw, bh, fh, lh, lbl, pr_w;
+   int xpos, bw, bh, fh, lh, lbl;
 
-   // TODO: Hack for fullscreen mode
-   int Panel_h, Status_h;
+   UIPanelmode Panelmode;
+   Findbar *findbar;
+   int PointerOnLink;
 
    PackedGroup *make_toolbar(int tw, int th);
    PackedGroup *make_location();
    PackedGroup *make_progress_bars(int wide, int thin_up);
-   Group *make_menu(int tiny);
+   void make_menubar(int x, int y, int w, int h);
+   Widget *make_filemenu_button();
    Group *make_panel(int ww);
-
 
 public:
 
-   UI(int w, int h, const char* label = 0);
-   ~UI() {} // TODO: implement destructor
+   UI(int x,int y,int w,int h, const char* label = 0, const UI *cur_ui=NULL);
+   ~UI();
 
    // To manage what events to catch and which to let pass
    int handle(int event);
@@ -70,6 +84,7 @@ public:
    const char *get_location();
    void set_location(const char *str);
    void focus_location();
+   void focus_main();
    void set_status(const char *str);
    void set_page_prog(size_t nbytes, int cmd);
    void set_img_prog(int n_img, int t_img, int cmd);
@@ -79,31 +94,24 @@ public:
    void customize(int flags);
    void button_set_sens(UIButton btn, int sens);
    void paste_url();
-
-   // Workaround functions for a non-working replace() in FLTK2
-   void set_render_layout_begin() {
-      TopGroup->remove(MainIdx);
-      TopGroup->remove(TopGroup->find(StatusPanel));
-      delete(Main);
-      Main = NULL;
-      TopGroup->begin();
-   }
-   void set_render_layout_end() {
-      TopGroup->resizable(TopGroup->child(MainIdx));
-      Main = TopGroup->child(MainIdx);
-      TopGroup->add(*StatusPanel);
-      TopGroup->end();
-   }
-   int panel_h() { return Panel->h(); };
-   int status_h() { return Status->h(); };
+   void set_panelmode(UIPanelmode mode);
+   UIPanelmode get_panelmode();
+   void set_findbar_visibility(bool visible);
+   bool images_enabled() { return ImageLoad->state();}
+   void images_enabled(int flag) { ImageLoad->state(flag);}
    Widget *fullscreen_button() { return FullScreen; }
    void fullscreen_toggle() { FullScreen->do_callback(); }
+
+   CustTabGroup *tabs() { return Tabs; }
+   void tabs(CustTabGroup *tabs) { Tabs = tabs; }
+   int pointerOnLink() { return PointerOnLink; }
+   void pointerOnLink(int flag) { PointerOnLink = flag; }
 
    // Hooks to method callbacks
    void panel_cb_i();
    void color_change_cb_i();
    void toggle_cb_i();
-   void fullscreen_cb_i();
+   void panelmode_cb_i();
 };
 
 #endif // __UI_HH__

@@ -1,7 +1,7 @@
 /*
  * File: capi.c
  *
- * Copyright 2002-2006 Jorge Arellano Cid <jcid@dillo.org>
+ * Copyright 2002-2007 Jorge Arellano Cid <jcid@dillo.org>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -25,16 +25,12 @@
 #include "list.h"
 #include "history.h"
 #include "nav.h"
-#include "misc.h"
 #include "dpiapi.h"
 #include "uicmd.hh"
 #include "../dpip/dpip.h"
 
 /* for testing dpi chat */
 #include "bookmark.h"
-
-#define DEBUG_LEVEL 5
-#include "debug.h"
 
 typedef struct {
    DilloUrl *url;           /* local copy of web->url */
@@ -213,10 +209,10 @@ static int Capi_dpi_verify_request(DilloWeb *web)
 
    /* test POST and GET */
    if (dStrcasecmp(URL_SCHEME(web->url), "dpi") == 0 &&
-       (strchr(URL_STR(web->url), '?') || URL_DATA_(web->url))) {
+       URL_FLAGS(web->url) & (URL_Post + URL_Get)) {
       /* only allow dpi requests from dpi-generated urls */
       if (a_Nav_stack_size(web->bw)) {
-         referer = a_History_get_url(NAV_TOP(web->bw));
+         referer = a_History_get_url(NAV_TOP_UIDX(web->bw));
          if (dStrcasecmp(URL_SCHEME(referer), "dpi") == 0) {
             allow = TRUE;
          }
@@ -228,8 +224,9 @@ static int Capi_dpi_verify_request(DilloWeb *web)
    if (!allow) {
       MSG("Capi_dpi_verify_request: Permission Denied!\n");
       MSG("  URL_STR : %s\n", URL_STR(web->url));
-      if (URL_DATA_(web->url))
-         MSG("  URL_DATA: %s\n", URL_DATA(web->url));
+      if (URL_FLAGS(web->url) & URL_Post) {
+         MSG("  URL_DATA: %s\n", dStr_printable(URL_DATA(web->url), 1024));
+      }
    }
    return allow;
 }
@@ -237,11 +234,15 @@ static int Capi_dpi_verify_request(DilloWeb *web)
 /*
  * If the url belongs to a dpi server, return its name.
  */
-int Capi_url_uses_dpi(DilloUrl *url, char **server_ptr)
+static int Capi_url_uses_dpi(DilloUrl *url, char **server_ptr)
 {
    char *p, *server = NULL, *url_str = URL_STR(url);
+   Dstr *tmp;
 
-   if (dStrncasecmp(url_str, "dpi:/", 5) == 0) {
+   if ((dStrncasecmp(url_str, "http:", 5) == 0) ||
+       (dStrncasecmp(url_str, "about:", 6) == 0)) {
+      /* URL doesn't use dpi (server = NULL) */
+   } else if (dStrncasecmp(url_str, "dpi:/", 5) == 0) {
       /* dpi prefix, get this server's name */
       if ((p = strchr(url_str + 5, '/')) != NULL) {
          server = dStrndup(url_str + 5, (uint_t)(p - url_str - 5));
@@ -252,16 +253,11 @@ int Capi_url_uses_dpi(DilloUrl *url, char **server_ptr)
          dFree(server);
          server = dStrdup("bookmarks");
       }
-
-   } else if (dStrncasecmp(url_str, "ftp:/", 5) == 0) {
-      server = dStrdup("ftp");
-
-   } else if (dStrncasecmp(url_str, "https:/", 7) == 0) {
-      server = dStrdup("https");
-   } else if (dStrncasecmp(url_str, "file:", 5) == 0) {
-      server = dStrdup("file");
-   } else if (dStrncasecmp(url_str, "data:", 5) == 0) {
-      server = dStrdup("datauri");
+   } else if ((p = strchr(url_str, ':')) != NULL) {
+      tmp = dStr_new("proto.");
+      dStr_append_l(tmp, url_str, p - url_str);
+      server = tmp->str;
+      dStr_free(tmp, 0);
    }
 
    return ((*server_ptr = server) ? 1 : 0);
@@ -269,18 +265,19 @@ int Capi_url_uses_dpi(DilloUrl *url, char **server_ptr)
 
 /*
  * Build the dpip command tag, according to URL and server.
- * todo: make it PROXY-aware (AFAIS, it should be easy)
+ * TODO: make it PROXY-aware (AFAIS, it should be easy)
  */
 static char *Capi_dpi_build_cmd(DilloWeb *web, char *server)
 {
-   char *cmd, *http_query;
+   char *cmd;
 
-   if (strcmp(server, "https") == 0) {
+   if (strcmp(server, "proto.https") == 0) {
       /* Let's be kind and make the HTTP query string for the dpi */
-      http_query = a_Http_make_query_str(web->url, FALSE);
+      Dstr *http_query = a_Http_make_query_str(web->url, FALSE);
+      /* BUG: embedded NULLs in query data will truncate message */
       cmd = a_Dpip_build_cmd("cmd=%s url=%s query=%s",
-                             "open_url", URL_STR(web->url), http_query);
-      dFree(http_query);
+                             "open_url", URL_STR(web->url), http_query->str);
+      dStr_free(http_query, 1);
 
    } else if (strcmp(server, "downloads") == 0) {
       /* let the downloads server get it */
@@ -296,7 +293,7 @@ static char *Capi_dpi_build_cmd(DilloWeb *web, char *server)
 
 /*
  * Most used function for requesting a URL.
- * todo: clean up the ad-hoc bindings with an API that allows dynamic
+ * TODO: clean up the ad-hoc bindings with an API that allows dynamic
  *       addition of new plugins.
  *
  * Return value: A primary key for identifying the client,
@@ -305,19 +302,19 @@ static char *Capi_dpi_build_cmd(DilloWeb *web, char *server)
 int a_Capi_open_url(DilloWeb *web, CA_Callback_t Call, void *CbData)
 {
    capi_conn_t *conn;
-   int buf_size, reload;
-   char *cmd, *server, *buf;
+   int reload;
+   char *cmd, *server;
    const char *scheme = URL_SCHEME(web->url);
    int safe = 0, ret = 0, use_cache = 0;
 
    /* reload test */
-   reload = (!a_Capi_get_buf(web->url, &buf, &buf_size) ||
-             (URL_FLAGS(web->url) & URL_E2EReload));
+   reload = (!(a_Capi_get_flags(web->url) & CAPI_IsCached) ||
+             (URL_FLAGS(web->url) & URL_E2EQuery));
 
    if (web->flags & WEB_Download) {
-     /* donwload request: if cached save from cache, else
+     /* download request: if cached save from cache, else
       * for http, ftp or https, use the downloads dpi */
-     if (a_Capi_get_buf(web->url, &buf, &buf_size)) {
+     if (a_Capi_get_flags(web->url) & CAPI_IsCached) {
         if (web->filename && (web->stream = fopen(web->filename, "w"))) {
            use_cache = 1;
         }
@@ -337,7 +334,7 @@ int a_Capi_open_url(DilloWeb *web, CA_Callback_t Call, void *CbData)
       if ((safe = Capi_dpi_verify_request(web))) {
          if (dStrcasecmp(scheme, "dpi") == 0) {
             /* make "dpi:/" prefixed urls always reload. */
-            a_Url_set_flags(web->url, URL_FLAGS(web->url) | URL_E2EReload);
+            a_Url_set_flags(web->url, URL_FLAGS(web->url) | URL_E2EQuery);
             reload = 1;
          }
          if (reload) {
@@ -375,12 +372,58 @@ int a_Capi_open_url(DilloWeb *web, CA_Callback_t Call, void *CbData)
 }
 
 /*
+ * Return status information of an URL's content-transfer process.
+ */
+int a_Capi_get_flags(const DilloUrl *Url)
+{
+   int status = 0;
+   uint_t flags = a_Cache_get_flags(Url);
+
+   if (flags) {
+      status |= CAPI_IsCached;
+      if (flags & CA_IsEmpty)
+         status |= CAPI_IsEmpty;
+      if (flags & CA_GotData)
+         status |= CAPI_Completed;
+      else
+         status |= CAPI_InProgress;
+
+      /* CAPI_Aborted is not yet used/defined */
+   }
+   return status;
+}
+
+/*
  * Get the cache's buffer for the URL, and its size.
  * Return: 1 cached, 0 not cached.
  */
 int a_Capi_get_buf(const DilloUrl *Url, char **PBuf, int *BufSize)
 {
    return a_Cache_get_buf(Url, PBuf, BufSize);
+}
+
+/*
+ * Unref the cache's buffer when no longer using it.
+ */
+void a_Capi_unref_buf(const DilloUrl *Url)
+{
+   a_Cache_unref_buf(Url);
+}
+
+/*
+ * Get the Content-Type associated with the URL
+ */
+const char *a_Capi_get_content_type(const DilloUrl *url)
+{
+   return a_Cache_get_content_type(url);
+}
+
+/*
+ * Set the Content-Type for the URL. 
+ */
+const char *a_Capi_set_content_type(const DilloUrl *url, const char *ctype)
+{
+   return a_Cache_set_content_type(url, ctype);
 }
 
 /*
@@ -439,7 +482,7 @@ void a_Capi_ccc(int Op, int Branch, int Dir, ChainLink *Info,
 {
    capi_conn_t *conn;
 
-   a_Chain_debug_msg("a_Capi_ccc", Op, Branch, Dir);
+   dReturn_if_fail( a_Chain_check("a_Capi_ccc", Op, Branch, Dir, Info) );
 
    if (Branch == 1) {
       if (Dir == BCK) {
@@ -504,7 +547,10 @@ void a_Capi_ccc(int Op, int Branch, int Dir, ChainLink *Info,
             /* remove the cache entry for this URL */
             a_Cache_entry_remove_by_url(conn->url);
             if (Data2 && !strcmp(Data2, "DpidERROR"))
-               a_UIcmd_set_msg(conn->bw, "ERROR: can't start dpid daemon!");
+               a_UIcmd_set_msg(conn->bw,
+                               "ERROR: can't start dpid daemon "
+                               "(URL scheme = '%s')!", 
+                               URL_SCHEME(conn->url));
             /* finish conn */
             Capi_conn_unref(conn);
             dFree(Info);

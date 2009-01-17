@@ -1,7 +1,7 @@
 /*
  * File: colors.c
  *
- * Copyright (C) 2000-2005 Jorge Arellano Cid <jcid@dillo.org>
+ * Copyright (C) 2000-2007 Jorge Arellano Cid <jcid@dillo.org>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -14,8 +14,6 @@
 #include <ctype.h>
 #include "colors.h"
 
-#define DEBUG_LEVEL 5
-#include "debug.h"
 #include "msg.h"
 
 /*
@@ -206,7 +204,7 @@ static const struct key {
 #define NCOLORS   (sizeof(color_keyword) / sizeof(struct key))
 
 /*
- * Parse a color in hex (RRGGBB)
+ * Parse a color in hex (RRGGBB) or (RGB)
  *
  * Return Value:
  *   parsed color if successful (err = 0),
@@ -221,7 +219,12 @@ static int32_t Color_parse_hex (const char *s, int32_t default_color, int *err)
   ret_color = strtol(s, &tail, 16);
   if (tail - s == 6)
      *err = 0;
-  else
+  else if (tail - s == 3) {       /* #RGB as allowed by CSS */
+     *err = 0;
+	 ret_color = ((ret_color & 0xf00) << 12) | ((ret_color & 0xf00) << 8) |
+                 ((ret_color & 0x0f0) << 8) | ((ret_color & 0x0f0) << 4) |
+				 ((ret_color & 0x00f) << 4) | ((ret_color & 0x00f) << 0);
+  } else
      ret_color = default_color;
 
   return ret_color;
@@ -277,8 +280,8 @@ int32_t a_Color_parse (const char *subtag, int32_t default_color, int *err)
       }
    }
 
-   DEBUG_MSG(3, "subtag: %s\n", subtag);
-   DEBUG_MSG(3, "color :  %X\n", ret_color);
+   _MSG("subtag: %s\n", subtag);
+   _MSG("color :  %X\n", ret_color);
 
    *err = st;
    return ret_color;
@@ -322,7 +325,8 @@ static int Color_distance3(long c1, long c2)
  *   if candidate has good contrast with C_txt, C_lnk and C_bg  -> candidate
  *   else another color (from the internal list)
  */
-int32_t a_Color_vc(int32_t candidate, int32_t C_txt, int32_t C_lnk, int32_t C_bg)
+int32_t a_Color_vc(int32_t candidate,
+                   int32_t C_txt, int32_t C_lnk, int32_t C_bg)
 {
                     /* candidate purple    darkcyan  darkmagenta olive   */
   static int32_t v[] = {0x000000, 0x800080, 0x008b8b, 0x8b008b, 0x808000,

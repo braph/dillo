@@ -1,7 +1,7 @@
 /*
  * File: bookmark.c
  *
- * Copyright 2002 Jorge Arellano Cid <jcid@dillo.org>
+ * Copyright 2002-2007 Jorge Arellano Cid <jcid@dillo.org>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -71,7 +71,7 @@ void a_Bookmarks_chat_add(BrowserWindow *Bw, char *Cmd, char *answer)
 /*
  * Add the new bookmark through the bookmarks server
  */
-void a_Bookmarks_add(BrowserWindow *bw, DilloUrl *url)
+void a_Bookmarks_add(BrowserWindow *bw, const DilloUrl *url)
 {
    const char *title;
    char *cmd;

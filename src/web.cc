@@ -1,7 +1,7 @@
 /*
  * File: web.cc
  *
- * Copyright 2005 Jorge Arellano Cid <jcid@dillo.org>
+ * Copyright 2005-2007 Jorge Arellano Cid <jcid@dillo.org>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -25,10 +25,7 @@
 #include "prefs.h"
 #include "web.hh"
 
-#define DEBUG_LEVEL 5
-#include "debug.h"
-
-// Platform idependent part
+// Platform independent part
 using namespace dw::core;
 
 
@@ -61,7 +58,7 @@ int a_Web_dispatch_by_type (const char *Type, DilloWeb *Web,
    style::Style *widgetStyle;
    style::FontAttrs fontAttrs;
 
-   DEBUG_MSG(1, "a_Web_dispatch_by_type\n");
+   _MSG("a_Web_dispatch_by_type\n");
 
    dReturn_val_if_fail(Web->bw != NULL, -1);
 
@@ -75,35 +72,23 @@ int a_Web_dispatch_by_type (const char *Type, DilloWeb *Web,
          return -1;
 
       /* Set a style for the widget */
-      fontAttrs.name = "Bitstream Charter";
-      fontAttrs.size = (int) rint(12.0 * prefs.font_factor);
+      fontAttrs.name = prefs.vw_fontname;
+      fontAttrs.size = (int) rint(14.0 * prefs.font_factor);
       fontAttrs.weight = 400;
       fontAttrs.style = style::FONT_STYLE_NORMAL;
 
       styleAttrs.initValues ();
       styleAttrs.margin.setVal (5);
       styleAttrs.font = style::Font::create (layout, &fontAttrs);
-      styleAttrs.color = style::Color::createSimple (layout, 0xff0000);
+      styleAttrs.color = style::Color::create (layout, 0xff0000);
       styleAttrs.backgroundColor = 
-         style::Color::createSimple (layout, 0xdcd1ba);
+         style::Color::create (layout, prefs.bg_color);
       widgetStyle = style::Style::create (layout, &styleAttrs);
       dw->setStyle (widgetStyle);
       widgetStyle->unref ();
 
       /* This method frees the old dw if any */
       layout->setWidget(dw);
-
-    if (URL_POSX(Web->url) || URL_POSY(Web->url)) {
-       layout->scrollTo(HPOS_LEFT, VPOS_TOP,
-                        URL_POSX(Web->url), URL_POSY(Web->url),
-                        0, 0);
-    } else {
-       char *pf = a_Url_decode_hex_str(URL_FRAGMENT_(Web->url));
-       if (pf) {
-          layout->setAnchor(pf);
-          dFree(pf);
-       }
-    }
 
       /* Clear the title bar for pages without a <TITLE> tag */
       a_UIcmd_set_page_title(Web->bw, "");

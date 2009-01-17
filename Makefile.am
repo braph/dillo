@@ -1,5 +1,5 @@
-SUBDIRS = doc dlib dpip src dpid dpi
+SUBDIRS = lout dw dlib dpip src doc dpid dpi test
 
-EXTRA_DIST = ChangeLog.old dillorc2 install-dpi-local README-port
+EXTRA_DIST = Doxyfile dillorc install-dpi-local
 
-sysconf_DATA = dillorc2
+sysconf_DATA = dillorc
