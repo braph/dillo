@@ -21,6 +21,7 @@
  */
 
 #include <errno.h>
+#include <stdlib.h>
 #include "dpid_common.h"
 #include "dpi.h"
 #include "misc_new.h"
@@ -76,9 +77,10 @@ int tst_dir(char *dir)
  */
 char *mk_sockdir(void)
 {
-   char *template;
+   char *template, *logname;
 
-   template = dStrconcat("/tmp/", getlogin(), "-", "XXXXXX", NULL);
+   logname = getenv("LOGNAME") ? getenv("LOGNAME") : "dillo";
+   template = dStrconcat("/tmp/", logname, "-", "XXXXXX", NULL);
    if (a_Misc_mkdtemp(template) == NULL) {
       ERRMSG("mk_sockdir", "a_Misc_mkdtemp", 0);
       MSG_ERR(" - %s\n", template);
@@ -101,7 +103,7 @@ char *init_sockdir(char *dpi_socket_dir)
 
    if ((sockdir = a_Dpi_rd_dpi_socket_dir(dpi_socket_dir)) == NULL) {
       MSG_ERR("init_sockdir: The dpi_socket_dir file %s does not exist\n",
-              sockdir);
+              dpi_socket_dir);
    } else {
       if ((dir_ok = tst_dir(sockdir)) == 1) {
          MSG_ERR("init_sockdir: The socket directory %s exists and is OK\n",

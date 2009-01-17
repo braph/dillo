@@ -1,7 +1,7 @@
 /*
  * File: datauri.c
  *
- * Copyright (C) 2006 Jorge Arellano Cid <jcid@dillo.org>
+ * Copyright (C) 2006-2007 Jorge Arellano Cid <jcid@dillo.org>
  *
  * Filter dpi for the "data:" URI scheme (RFC 2397).
  *
@@ -22,8 +22,13 @@
 /*
  * Debugging macros
  */
+#define SILENT 1
 #define _MSG(...)
-#define MSG(...)  printf("[datauri dpi]: " __VA_ARGS__)
+#if SILENT
+ #define MSG(...)
+#else
+ #define MSG(...)  fprintf(stderr, "[datauri dpi]: " __VA_ARGS__)
+#endif
 
 /*
  * Global variables
@@ -32,7 +37,7 @@ static SockHandler *sh = NULL;
 
 
 
-int b64decode(unsigned char* str)
+static int b64decode(unsigned char* str)
 {
     unsigned char *cur, *start;
     int d, dlast, phase;
@@ -144,8 +149,8 @@ char *a_Url_decode_hex_str(const char *str, size_t *p_sz)
 /*
  * Send decoded data to dillo in an HTTP envelope.
  */
-void send_decoded_data(const char *url, const char *mime_type,
-                       unsigned char *data, size_t data_sz)
+static void send_decoded_data(const char *url, const char *mime_type,
+                              unsigned char *data, size_t data_sz)
 {
    char *d_cmd;
 
@@ -163,8 +168,8 @@ void send_decoded_data(const char *url, const char *mime_type,
    sock_handler_write(sh, 0, (char *)data, data_sz);
 }
 
-void send_failure_message(const char *url, const char *mime_type,
-                          unsigned char *data, size_t data_sz)
+static void send_failure_message(const char *url, const char *mime_type,
+                                 unsigned char *data, size_t data_sz)
 {
    char *d_cmd;
    char buf[1024];
@@ -200,11 +205,11 @@ void send_failure_message(const char *url, const char *mime_type,
 
 /*
  * Get mime type from the data URI.
- * todo: there's no point in handling "charset" because current dillo
+ * TODO: there's no point in handling "charset" because current dillo
  * only handles ISO-LATIN-1. The FLTK2 version (utf-8) could use it in the
  * future.
  */
-char *datauri_get_mime(char *url)
+static char *datauri_get_mime(char *url)
 {
    char buf[256];
    char *mime_type = NULL, *p;
@@ -239,7 +244,7 @@ char *datauri_get_mime(char *url)
 /*
  * Return a decoded data string.
  */
-unsigned char *datauri_get_data(char *url, size_t *p_sz)
+static unsigned char *datauri_get_data(char *url, size_t *p_sz)
 {
    char *p;
    int is_base64 = 0;
@@ -278,7 +283,6 @@ int main(void)
    /* Initialize the SockHandler */
    sh = sock_handler_new(STDIN_FILENO, STDOUT_FILENO, 8*1024);
 
-   /* wget may need to write a temporary file... */
    chdir("/tmp");
 
    /* Read the dpi command from STDIN */
@@ -297,7 +301,7 @@ int main(void)
    data = datauri_get_data(url, &data_size);
 
    MSG("mime_type: %s\n", mime_type);
-   MSG("data_size: %d\n", data_size);
+   MSG("data_size: %d\n", (int)data_size);
    MSG("data: {%s}\n", data);
 
    if (mime_type && data) {

@@ -2,7 +2,7 @@
  * File: jpeg.c
  *
  * Copyright (C) 1997 Raph Levien <raph@acm.org>
- * Copyright (C) 2000-2006 Jorge Arellano Cid <jcid@dillo.org>
+ * Copyright (C) 2000-2007 Jorge Arellano Cid <jcid@dillo.org>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -35,14 +35,15 @@
 #include "web.hh"
 #include "cache.h"
 #include "dicache.h"
-
-#define DEBUG_LEVEL 6
-#include "debug.h"
+#include "capi.h"       /* get cache entry status */
+#include "msg.h"
 
 typedef enum {
    DILLO_JPEG_INIT,
    DILLO_JPEG_STARTING,
-   DILLO_JPEG_READING,
+   DILLO_JPEG_READ_BEGIN_SCAN,
+   DILLO_JPEG_READ_IN_SCAN,
+   DILLO_JPEG_READ_END_SCAN,
    DILLO_JPEG_DONE,
    DILLO_JPEG_ERROR
 } DilloJpegState;
@@ -83,7 +84,6 @@ typedef struct DilloJpeg {
 static DilloJpeg *Jpeg_new(DilloImage *Image, DilloUrl *url, int version);
 static void Jpeg_callback(int Op, CacheClient_t *Client);
 static void Jpeg_write(DilloJpeg *jpeg, void *Buf, uint_t BufSize);
-static void Jpeg_close(DilloJpeg *jpeg, CacheClient_t *Client);
 METHODDEF(void) Jpeg_errorexit (j_common_ptr cinfo);
 
 /* exported function */
@@ -102,7 +102,8 @@ METHODDEF(void) Jpeg_errorexit (j_common_ptr cinfo)
 
 /*
  * MIME handler for "image/jpeg" type
- * (Sets Jpeg_callback or a_Dicache_callback as the cache-client)
+ * Sets a_Dicache_callback as the cache-client,
+ * and Jpeg_callback as the image decoder.
  */
 void *a_Jpeg_image(const char *Type, void *P, CA_Callback_t *Call,
                    void **Data)
@@ -116,20 +117,20 @@ void *a_Jpeg_image(const char *Type, void *P, CA_Callback_t *Call,
    /* Add an extra reference to the Image (for dicache usage) */
    a_Image_ref(web->Image);
 
-   DicEntry = a_Dicache_get_entry(web->url);
+   DicEntry = a_Dicache_get_entry(web->url, DIC_Last);
    if (!DicEntry) {
       /* Let's create an entry for this image... */
       DicEntry = a_Dicache_add_entry(web->url);
-
-      /* ... and let the decoder feed it! */
-      *Data = Jpeg_new(web->Image, DicEntry->url, DicEntry->version);
-      *Call = (CA_Callback_t) Jpeg_callback;
+      DicEntry->DecoderData =
+         Jpeg_new(web->Image, DicEntry->url, DicEntry->version);
    } else {
-      /* Let's feed our client from the dicache */
+      /* Repeated image */
       a_Dicache_ref(DicEntry->url, DicEntry->version);
-      *Data = web->Image;
-      *Call = (CA_Callback_t) a_Dicache_callback;
    }
+   DicEntry->Decoder = Jpeg_callback;
+   *Data = DicEntry->DecoderData;
+   *Call = (CA_Callback_t) a_Dicache_callback;
+
    return (web->Image->dw);
 }
 
@@ -138,11 +139,9 @@ void *a_Jpeg_image(const char *Type, void *P, CA_Callback_t *Call,
  */
 static void Jpeg_close(DilloJpeg *jpeg, CacheClient_t *Client)
 {
+   _MSG("Jpeg_close\n");
    a_Dicache_close(jpeg->url, jpeg->version, Client);
-
-   if (jpeg->state != DILLO_JPEG_DONE) {
-      jpeg_destroy_decompress(&(jpeg->cinfo));
-   }
+   jpeg_destroy_decompress(&(jpeg->cinfo));
    dFree(jpeg);
 }
 
@@ -154,11 +153,11 @@ static boolean fill_input_buffer(j_decompress_ptr cinfo)
 {
    DilloJpeg *jpeg = ((my_source_mgr *) cinfo->src)->jpeg;
 
-   DEBUG_MSG(5, "fill_input_buffer\n");
+   _MSG("fill_input_buffer\n");
 #if 0
    if (!cinfo->src->bytes_in_buffer) {
-      DEBUG_MSG(5, "fill_input_buffer: %ld bytes in buffer\n",
-                (long)cinfo->src->bytes_in_buffer);
+      _MSG("fill_input_buffer: %ld bytes in buffer\n",
+           (long)cinfo->src->bytes_in_buffer);
 
       jpeg->Start_Ofs = (ulong_t) jpeg->cinfo.src->next_input_byte -
          (ulong_t) jpeg->Data;
@@ -185,10 +184,9 @@ static void skip_input_data(j_decompress_ptr cinfo, long num_bytes)
       return;
    jpeg = ((my_source_mgr *) cinfo->src)->jpeg;
 
-   DEBUG_MSG(5, "skip_input_data: Start_Ofs = %lu, num_bytes = %ld,"
-             " %ld bytes in buffer\n",
-             (ulong_t)jpeg->Start_Ofs, num_bytes,
-             (long)cinfo->src->bytes_in_buffer);
+   _MSG("skip_input_data: Start_Ofs = %lu, num_bytes = %ld,"
+        " %ld bytes in buffer\n",
+        (ulong_t)jpeg->Start_Ofs, num_bytes,(long)cinfo->src->bytes_in_buffer);
 
    cinfo->src->next_input_byte += num_bytes;
    if (num_bytes < (long)cinfo->src->bytes_in_buffer) {
@@ -257,8 +255,8 @@ static void Jpeg_write(DilloJpeg *jpeg, void *Buf, uint_t BufSize)
    JSAMPLE *array[1];
    int num_read;
 
-   DEBUG_MSG(5, "Jpeg_write: (%p) Bytes in buff: %ld Ofs: %lu\n", jpeg,
-             (long) BufSize, (ulong_t)jpeg->Start_Ofs);
+   _MSG("Jpeg_write: (%p) Bytes in buff: %ld Ofs: %lu\n", jpeg,
+        (long) BufSize, (ulong_t)jpeg->Start_Ofs);
 
    /* See if we are supposed to skip ahead. */
    if (BufSize <= jpeg->Start_Ofs)
@@ -281,13 +279,22 @@ static void Jpeg_write(DilloJpeg *jpeg, void *Buf, uint_t BufSize)
       /* decompression step 3 (see libjpeg.doc) */
       if (jpeg_read_header(&(jpeg->cinfo), TRUE) != JPEG_SUSPENDED) {
          type = DILLO_IMG_TYPE_GRAY;
-         if (jpeg->cinfo.num_components == 1)
+         if (jpeg->cinfo.num_components == 1) {
             type = DILLO_IMG_TYPE_GRAY;
-         else if (jpeg->cinfo.num_components == 3)
+         } else if (jpeg->cinfo.num_components == 3) {
             type = DILLO_IMG_TYPE_RGB;
-         else
-            DEBUG_MSG(5, "jpeg: can't handle %d component images\n",
-                      jpeg->cinfo.num_components);
+         } else {
+            _MSG("jpeg: can't handle %d component images\n",
+                 jpeg->cinfo.num_components);
+         }
+         /*
+          * If a multiple-scan image is not completely in cache,
+          * use progressive display, updating as it arrives.
+          */
+         if (jpeg_has_multiple_scans(&jpeg->cinfo) &&
+             !(a_Capi_get_flags(jpeg->url) & CAPI_Completed))
+            jpeg->cinfo.buffered_image = TRUE;
+
          a_Dicache_set_parms(jpeg->url, jpeg->version, jpeg->Image,
                              (uint_t)jpeg->cinfo.image_width,
                              (uint_t)jpeg->cinfo.image_height,
@@ -301,33 +308,94 @@ static void Jpeg_write(DilloJpeg *jpeg, void *Buf, uint_t BufSize)
       /* decompression step 5 (see libjpeg.doc) */
       if (jpeg_start_decompress(&(jpeg->cinfo))) {
          jpeg->y = 0;
-         jpeg->state = DILLO_JPEG_READING;
+         jpeg->state = jpeg->cinfo.buffered_image ?
+                          DILLO_JPEG_READ_BEGIN_SCAN : DILLO_JPEG_READ_IN_SCAN;
       }
    }
-   if (jpeg->state == DILLO_JPEG_READING) {
+
+   /*
+    * A progressive jpeg contains multiple scans that can be used to display
+    * an increasingly sharp image as it is being received. The reading of each
+    * scan must be surrounded by jpeg_start_output()/jpeg_finish_output().
+    */
+
+   if (jpeg->state == DILLO_JPEG_READ_END_SCAN) {
+      if (jpeg_finish_output(&jpeg->cinfo)) {
+         if (jpeg_input_complete(&jpeg->cinfo)) {
+            jpeg->state = DILLO_JPEG_DONE;
+         } else {
+            jpeg->state = DILLO_JPEG_READ_BEGIN_SCAN;
+         }
+      }
+   }
+
+   if (jpeg->state == DILLO_JPEG_READ_BEGIN_SCAN) {
+      if (jpeg_start_output(&jpeg->cinfo, jpeg->cinfo.input_scan_number)) {
+         a_Dicache_new_scan(jpeg->url, jpeg->version);
+         jpeg->state = DILLO_JPEG_READ_IN_SCAN;
+      }
+   }
+
+   if (jpeg->state == DILLO_JPEG_READ_IN_SCAN) {
       linebuf = dMalloc(jpeg->cinfo.image_width *
                          jpeg->cinfo.num_components);
       array[0] = linebuf;
-      while (jpeg->y < jpeg->cinfo.image_height) {
+
+      while (1) {
          num_read = jpeg_read_scanlines(&(jpeg->cinfo), array, 1);
-         if (num_read == 0)
+         if (num_read == 0) {
+            /* out of input */
             break;
+         }
          a_Dicache_write(jpeg->Image, jpeg->url, jpeg->version,
-                         linebuf, 0, jpeg->y);
+                         linebuf, jpeg->y);
 
          jpeg->y++;
-      }
-      if (jpeg->y == jpeg->cinfo.image_height) {
-         DEBUG_MSG(5, "height achieved\n");
 
-         jpeg_destroy_decompress(&(jpeg->cinfo));
-         jpeg->state = DILLO_JPEG_DONE;
+         if (jpeg->y == jpeg->cinfo.image_height) {
+            /* end of scan */
+            if (!jpeg->cinfo.buffered_image) {
+               /* single scan */
+               jpeg->state = DILLO_JPEG_DONE;
+               break;
+            } else {
+               jpeg->y = 0;
+               if (jpeg_input_complete(&jpeg->cinfo)) {
+                  if (jpeg->cinfo.input_scan_number ==
+                      jpeg->cinfo.output_scan_number) {
+                     jpeg->state = DILLO_JPEG_DONE;
+                     break;
+                  } else {
+                       /* one final loop through the scanlines */
+                       jpeg_finish_output(&jpeg->cinfo);
+                       jpeg_start_output(&jpeg->cinfo,
+                                         jpeg->cinfo.input_scan_number);
+                       continue;
+                  }
+               }
+               jpeg->state = DILLO_JPEG_READ_END_SCAN;
+               if (!jpeg_finish_output(&jpeg->cinfo)) {
+                  /* out of input */
+                  break;
+               } else {
+                  if (jpeg_input_complete(&jpeg->cinfo)) {
+                     jpeg->state = DILLO_JPEG_DONE;
+                     break;
+                  } else {
+                     jpeg->state = DILLO_JPEG_READ_BEGIN_SCAN;
+                  }
+               }
+               if (!jpeg_start_output(&jpeg->cinfo,
+                                      jpeg->cinfo.input_scan_number)) {
+                  /* out of input */
+                  break;
+               }
+               a_Dicache_new_scan(jpeg->url, jpeg->version);
+               jpeg->state = DILLO_JPEG_READ_IN_SCAN;
+            }
+         }
       }
       dFree(linebuf);
-   }
-   if (jpeg->state == DILLO_JPEG_ERROR) {
-      jpeg_destroy_decompress(&(jpeg->cinfo));
-      jpeg->state = DILLO_JPEG_DONE;
    }
 }
 

@@ -1,7 +1,7 @@
 /*
  * File: uicmd.cc
  *
- * Copyright (C) 2005 Jorge Arellano Cid <jcid@dillo.org>
+ * Copyright (C) 2005-2007 Jorge Arellano Cid <jcid@dillo.org>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -14,7 +14,9 @@
 
 #include <stdio.h>
 #include <stdarg.h>
+#include <math.h>       /* for rint */
 #include <fltk/Widget.h>
+#include <fltk/TabGroup.h>
 
 #include "dir.h"
 #include "ui.hh"
@@ -31,80 +33,245 @@
 
 #include "nav.h"
 
+#define DEFAULT_TAB_LABEL "Dillo"
+
+// Handy macro
+#define BW2UI(bw) ((UI*)((bw)->ui))
+
 // Platform idependent part
 using namespace dw::core;
 // FLTK related
 using namespace dw::fltk;
 
-typedef struct {
-   UI *ui;
-   BrowserWindow *bw;
-} Uibw;
 
 /*
  * Local data
  */
-// A matching table for all open ui/bw pairs
-// BUG: must be dynamic.
-static Uibw uibws[32];
-static int uibws_num = 0, uibws_max = 32;
-
 static char *save_dir = NULL;
 
 using namespace fltk;
 
+//
+// For custom handling of keyboard
+//
+class CustTabGroup : public fltk::TabGroup {
+public:
+   CustTabGroup (int x, int y, int ww, int wh, const char *lbl=0) :
+      TabGroup(x,y,ww,wh,lbl) {};
+   int handle(int e) {
+      // Don't focus with arrow keys
+      _MSG("CustTabGroup::handle %d\n", e);
+      int k = event_key();
+      // We're only interested in some flags
+      unsigned modifier = event_state() & (SHIFT | CTRL | ALT);
+      if (e == KEY) {
+         if (k == UpKey || k == DownKey || k == TabKey) {
+            return 0;
+         } else if (k == LeftKey || k == RightKey) {
+            if (modifier == SHIFT) {
+               int i = value();
+               if (k == LeftKey) {i = i ? i-1 : children()-1;}
+               else {i++; if (i >= children()) i = 0;}
+               selected_child(child(i));
+               return 1;
+            }
+            // Avoid focus change.
+            return 0; 
+         }
+      }
+      return TabGroup::handle(e);
+   }
+
+   void remove (Widget *w) {
+      TabGroup::remove (w);
+      /* fixup resizable in case we just removed it */
+      if (resizable () == w) {
+         if (children () > 0)
+            resizable (child (children () - 1));
+         else
+            resizable (NULL);
+      }
+
+      if (children () < 2)
+         hideLabels ();
+   }
+
+   void add (Widget *w) {
+      TabGroup::add (w);
+      if (children () > 1)
+         showLabels ();
+   }
+
+   void hideLabels() {
+      for (int i = children () - 1; i >= 0; i--)
+         child(i)->resize(x(), y(), w(), h());
+   }
+
+   void showLabels() {
+      for (int i = children () - 1; i >= 0; i--)
+         child(i)->resize(x(), y() + 20, w(), h() - 20);
+   }
+};
+
+static void win_cb (fltk::Widget *w, void *cb_data) {
+   CustTabGroup *tabs;
+   int choice = 0;
+
+   tabs = BW2UI((BrowserWindow*) cb_data)->tabs();
+   if (tabs->children () > 1)
+      choice = a_Dialog_choice3 ("Window contains more than one tab.",
+                                 "Close all tabs", "Cancel", NULL);
+   if (choice == 0)
+      while (tabs->children())
+         a_UIcmd_close_bw(a_UIcmd_get_bw_by_widget(tabs->child(0)));
+}
+
+/*
+ * Given a UI or UI child widget, return its bw.
+ */
+BrowserWindow *a_UIcmd_get_bw_by_widget(void *v_wid)
+{
+   BrowserWindow *bw;
+   for (int i = 0; i < a_Bw_num(); ++i) {
+      bw = a_Bw_get(i);
+      if (((fltk::Widget*)bw->ui)->contains((fltk::Widget*)v_wid))
+         return bw;
+   }
+   return NULL;
+}
+
+/*
+ * FLTK regards SHIFT + {LeftKey, Right} as navigation keys.
+ * Special handling is required to override it. Here we route
+ * these events directly to the recipient.
+ * TODO: focus is not remembered correctly.
+ */
+void a_UIcmd_send_event_to_tabs_by_wid(int e, void *v_wid)
+{
+   BrowserWindow *bw = a_UIcmd_get_bw_by_widget(v_wid);
+   UI *ui = (UI*)bw->ui;
+   if (ui->tabs())
+      ui->tabs()->handle(e);
+}
 
 /*
  * Create a new UI and its associated BrowserWindow data structure.
+ * Use style from v_ui. If non-NULL it must be of type UI*.
  */
-BrowserWindow *a_UIcmd_browser_window_new(int ww, int wh)
+BrowserWindow *a_UIcmd_browser_window_new(int ww, int wh, const void *vbw)
 {
+   BrowserWindow *old_bw = (BrowserWindow*)vbw;
+   BrowserWindow *new_bw = NULL;
+
    if (ww <= 0 || wh <= 0) {
-      // TODO: set default geometry from dillorc.
-      ww = 780;
-      wh = 580;
+      // Set default geometry from dillorc.
+      ww = prefs.width;
+      wh = prefs.height;
    }
 
+   Window *win = new Window(ww, wh);
+   win->shortcut(0); // Ignore Escape
+   if (prefs.buffered_drawing != 2)
+      win->clear_double_buffer();
+   win->set_flag(RAW_LABEL);
+   CustTabGroup *DilloTabs = new CustTabGroup(0, 0, ww, wh);
+   DilloTabs->clear_tab_to_focus();
+   DilloTabs->selection_color(156);
+   win->add(DilloTabs);
+
    // Create and set the UI
-   UI *new_ui = new UI(ww, wh, "Dillo: UI");
+   UI *new_ui = new UI(0, 0, ww, wh, DEFAULT_TAB_LABEL,
+                       old_bw ? BW2UI(old_bw) : NULL);
    new_ui->set_status("http://www.dillo.org/");
-   //new_ui->set_location("http://dillo.org/");
-   //new_ui->customize(12);
+   new_ui->tabs(DilloTabs);
+
+   DilloTabs->add(new_ui);
+   DilloTabs->resizable(new_ui);
+   DilloTabs->window()->resizable(new_ui);
+   DilloTabs->window()->show();
+
+   if (old_bw == NULL && prefs.xpos >= 0 && prefs.ypos >= 0) {
+      // position the first window according to preferences
+      fltk::Rectangle r;
+      new_ui->window()->borders(&r);
+      // borders() gives x and y border sizes as negative values
+      new_ui->window()->position(prefs.xpos - r.x(), prefs.ypos - r.y());
+   }
 
    // Now create the Dw render layout and viewport
    FltkPlatform *platform = new FltkPlatform ();
    Layout *layout = new Layout (platform);
 
-   // BUG: This is a workaround for FLTK's non-working replace().
-   new_ui->set_render_layout_begin();
-    int p_h = new_ui->panel_h();
-    int s_h = new_ui->status_h();
-    FltkViewport *viewport = new FltkViewport (0, p_h, ww, wh-p_h-s_h);
-    layout->attachView (viewport);
-    //viewport->addGadget(new_ui->fullscreen_button());
-   new_ui->set_render_layout_end();
-   // This was the original code.
-   // Set the render_layout widget into the UI
-   // new_ui->set_render_layout(*viewport);
+   FltkViewport *viewport = new FltkViewport (0, 0, 1, 1);
+   if (prefs.buffered_drawing == 1)
+      viewport->setBufferedDrawing (true);
+   else
+      viewport->setBufferedDrawing (false);
+   
+   layout->attachView (viewport);
+   new_ui->set_render_layout(*viewport);
+
+   viewport->setScrollStep((int) rint(14.0 * prefs.font_factor));
 
    // Now, create a new browser window structure
-   BrowserWindow *new_bw = a_Bw_new(ww, wh, 0);
+   new_bw = a_Bw_new();
 
-   // Set new_bw as callback data for UI
-   new_ui->user_data(new_bw);
    // Reference the UI from the bw
    new_bw->ui = (void *)new_ui;
    // Copy the layout pointer into the bw data
    new_bw->render_layout = (void*)layout;
 
-   // insert the new ui/bw pair in the table
-   if (uibws_num < uibws_max) {
-      uibws[uibws_num].ui = new_ui;
-      uibws[uibws_num].bw = new_bw;
-      uibws_num++;
-   }
+   win->callback(win_cb, new_bw);
 
-   new_ui->show();
+   return new_bw;
+}
+
+/*
+ * Create a new Tab.
+ * i.e the new UI and its associated BrowserWindow data structure.
+ */
+static BrowserWindow *UIcmd_tab_new(const void *vbw)
+{
+   _MSG(" UIcmd_tab_new vbw=%p\n", vbw);
+
+   dReturn_val_if_fail (vbw != NULL, NULL);
+
+   BrowserWindow *new_bw = NULL;
+   BrowserWindow *old_bw = (BrowserWindow*)vbw;
+   UI *ui = BW2UI(old_bw);
+
+   // WORKAROUND: limit the number of tabs because of a fltk bug
+   if (ui->tabs()->children() >= 127)
+      return a_UIcmd_browser_window_new(ui->window()->w(), ui->window()->h(),
+                                        vbw);
+
+   // Create and set the UI
+   UI *new_ui = new UI(0, 0, ui->w(), ui->h(), DEFAULT_TAB_LABEL, ui);
+   new_ui->tabs(ui->tabs());
+
+   new_ui->tabs()->add(new_ui);
+   new_ui->tabs()->resizable(new_ui);
+   new_ui->tabs()->window()->resizable(new_ui);
+   new_ui->tabs()->window()->show();
+
+   // Now create the Dw render layout and viewport
+   FltkPlatform *platform = new FltkPlatform ();
+   Layout *layout = new Layout (platform);
+
+   FltkViewport *viewport = new FltkViewport (0, 0, 1, 1);
+   
+   layout->attachView (viewport);
+   new_ui->set_render_layout(*viewport);
+
+   viewport->setScrollStep((int) rint(14.0 * prefs.font_factor));
+
+   // Now, create a new browser window structure
+   new_bw = a_Bw_new();
+
+   // Reference the UI from the bw
+   new_bw->ui = (void *)new_ui;
+   // Copy the layout pointer into the bw data
+   new_bw->render_layout = (void*)layout;
 
    return new_bw;
 }
@@ -115,24 +282,39 @@ BrowserWindow *a_UIcmd_browser_window_new(int ww, int wh)
 void a_UIcmd_close_bw(void *vbw)
 {
    BrowserWindow *bw = (BrowserWindow *)vbw;
-   UI *ui = (UI*)bw->ui;
+   UI *ui = BW2UI(bw);
    Layout *layout = (Layout*)bw->render_layout;
 
    MSG("a_UIcmd_close_bw\n");
-   ui->destroy();
+   a_Bw_stop_clients(bw, BW_Root + BW_Img + Bw_Force);
    delete(layout);
+   if (ui->tabs()) {
+      ui->tabs()->remove(ui);
+      ui->tabs()->value(ui->tabs()->children() - 1);
+      if (ui->tabs()->value() != -1)
+         ui->tabs()->selected_child()->take_focus();
+      else
+         ui->tabs()->window()->hide();
+   }
+   delete(ui);
+
    a_Bw_free(bw);
 }
 
 /*
  * Close all the browser windows
  */
-void a_UIcmd_close_all_bw()
+void a_UIcmd_close_all_bw(void *)
 {
    BrowserWindow *bw;
+   int choice = 0;
 
-   while ((bw = a_Bw_get()))
-      a_UIcmd_close_bw((void*)bw);
+   if (a_Bw_num() > 1)
+      choice = a_Dialog_choice3 ("More than one open tab or Window.",
+         "Close all tabs and windows", "Cancel", NULL);
+   if (choice == 0)
+      while ((bw = a_Bw_get(0)))
+         a_UIcmd_close_bw((void*)bw);
 }
 
 /*
@@ -155,16 +337,16 @@ void a_UIcmd_open_urlstr(void *vbw, const char *urlstr)
          /* file URI */
          ch = new_urlstr[5];
          if (!ch || ch == '.') {
-            url = a_Url_new(a_Dir_get_owd(), "file:", 0, 0, 0);
+            url = a_Url_new(a_Dir_get_owd(), "file:");
          } else if (ch == '~') {
-            url = a_Url_new(dGethomedir(), "file:", 0, 0, 0);
+            url = a_Url_new(dGethomedir(), "file:");
          } else {
-            url = a_Url_new(new_urlstr, "file:", 0, 0, 0);
+            url = a_Url_new(new_urlstr, "file:");
          }
 
       } else {
          /* common case */
-         url = a_Url_new(new_urlstr, NULL, 0, 0, 0);
+         url = a_Url_new(new_urlstr, NULL);
       }
       dFree(new_urlstr);
 
@@ -181,9 +363,31 @@ void a_UIcmd_open_urlstr(void *vbw, const char *urlstr)
 /*
  * Open a new URL in the given browser window
  */
-void a_UIcmd_open_url_nw(BrowserWindow *bw, DilloUrl *url)
+void a_UIcmd_open_url(BrowserWindow *bw, const DilloUrl *url)
+{
+   a_Nav_push(bw, url);
+}
+
+/*
+ * Open a new URL in the given browser window
+ */
+void a_UIcmd_open_url_nw(BrowserWindow *bw, const DilloUrl *url)
 {
    a_Nav_push_nw(bw, url);
+}
+
+/*
+ * Open a new URL in a new tab in the same browser window
+ */
+void a_UIcmd_open_url_nt(void *vbw, const DilloUrl *url, int focus)
+{
+   BrowserWindow *new_bw = UIcmd_tab_new(vbw);
+   if (url)
+      a_Nav_push(new_bw, url);
+   if (focus) {
+      BW2UI(new_bw)->tabs()->selected_child(BW2UI(new_bw));
+      BW2UI(new_bw)->tabs()->selected_child()->take_focus();
+   }
 }
 
 /*
@@ -235,21 +439,21 @@ void a_UIcmd_reload(void *vbw)
 }
 
 /*
- * Return a suitable filename for a given URL.
+ * Return a suitable filename for a given URL path.
  */
-char *UIcmd_make_save_filename(const char *urlstr)
+static char *UIcmd_make_save_filename(const char *pathstr)
 {
    size_t MaxLen = 64;
    char *FileName, *name;
    const char *dir = a_UIcmd_get_save_dir();
 
-   if ((name = strrchr(urlstr, '/'))) {
+   if ((name = strrchr(pathstr, '/'))) {
       if (strlen(++name) > MaxLen) {
          name = name + strlen(name) - MaxLen;
       }
       FileName = dStrconcat(dir ? dir : "", name, NULL);
    } else {
-      FileName = dStrconcat(dir ? dir : "", urlstr, NULL);
+      FileName = dStrconcat(dir ? dir : "", pathstr, NULL);
    }
    return FileName;
 }
@@ -282,25 +486,29 @@ void a_UIcmd_set_save_dir(const char *dir)
 void a_UIcmd_save(void *vbw)
 {
    const char *name;
-   char *SuggestedName, *urlstr;
-   DilloUrl *url;
+   char *SuggestedName;
+   BrowserWindow *bw = (BrowserWindow *)vbw;
+   const DilloUrl *url = a_History_get_url(NAV_TOP_UIDX(bw));
 
-   // BUG: this should be set by preferences.
-   a_UIcmd_set_save_dir("/tmp/k/");
+   if (url) {
+      a_UIcmd_set_save_dir(prefs.save_dir);
+      SuggestedName = UIcmd_make_save_filename(URL_PATH(url));
+      name = a_Dialog_save_file("Save Page as File", NULL, SuggestedName);
+      MSG("a_UIcmd_save: %s\n", name);
+      dFree(SuggestedName);
 
-   urlstr = a_UIcmd_get_location_text((BrowserWindow*)vbw);
-   url = a_Url_new(urlstr, NULL, 0, 0, 0);
-   SuggestedName = UIcmd_make_save_filename(urlstr);
-   name = a_Dialog_save_file("Save Page as File", NULL, SuggestedName);
-   MSG("a_UIcmd_save: %s\n", name);
-   dFree(SuggestedName);
-   dFree(urlstr);
+      if (name) {
+         a_Nav_save_url(bw, url, name);
+      }
+   } 
+}
 
-   if (name) {
-      a_Nav_save_url((BrowserWindow*)vbw, url, name);
-   }
-
-   a_Url_free(url);
+/*
+ * Select a file
+ */
+const char *a_UIcmd_select_file()
+{
+   return a_Dialog_select_file("Select a File", NULL, NULL);
 }
 
 /*
@@ -312,6 +520,7 @@ void a_UIcmd_stop(void *vbw)
    BrowserWindow *bw = (BrowserWindow *)vbw;
 
    MSG("a_UIcmd_stop()\n");
+   a_Nav_cancel_expect(bw);
    a_Bw_stop_clients(bw, BW_Root + BW_Img + Bw_Force);
    a_UIcmd_set_buttons_sens(bw);
 }
@@ -327,22 +536,10 @@ void a_UIcmd_open_file(void *vbw)
    name = a_Dialog_open_file("Open File", NULL, "");
 
    if (name) {
-      url = a_Url_new(name, "file:", 0, 0, 0);
+      url = a_Url_new(name, "file:");
       a_Nav_push((BrowserWindow*)vbw, url);
       a_Url_free(url);
       dFree(name);
-   }
-}
-
-/*
- * Get an URL from a dialog and open it
- */
-void a_UIcmd_open_url_dialog(void *vbw)
-{
-   const char *urlstr;
-
-   if ((urlstr = a_Dialog_input("Please enter a URL:"))) {
-      a_UIcmd_open_urlstr(vbw, urlstr);
    }
 }
 
@@ -351,7 +548,7 @@ void a_UIcmd_open_url_dialog(void *vbw)
  * a string of keywords (separarated by blanks) and prefs.search_url.
  * The search string is urlencoded.
  */
-char *UIcmd_make_search_str(const char *str)
+static char *UIcmd_make_search_str(const char *str)
 {
    char *keys = a_Url_encode_hex_str(str), *c = prefs.search_url;
    Dstr *ds = dStr_sized_new(128);
@@ -393,6 +590,18 @@ void a_UIcmd_search_dialog(void *vbw)
 }
 
 /*
+ * Get password for user
+ */
+const char *a_UIcmd_get_passwd(const char *user)
+{
+   const char *passwd;
+   char *prompt = dStrconcat("Password for user \"", user, "\"", NULL);
+   passwd = a_Dialog_passwd(prompt);
+   dFree(prompt);
+   return passwd;
+}
+
+/*
  * Save link URL
  */
 void a_UIcmd_save_link(BrowserWindow *bw, const DilloUrl *url)
@@ -400,8 +609,7 @@ void a_UIcmd_save_link(BrowserWindow *bw, const DilloUrl *url)
    const char *name;
    char *SuggestedName;
 
-   // BUG: this should be set by preferences.
-   a_UIcmd_set_save_dir("/tmp/k/");
+   a_UIcmd_set_save_dir(prefs.save_dir);
 
    SuggestedName = UIcmd_make_save_filename(URL_STR(url));
    name = a_Dialog_save_file("Save Link as File", NULL, SuggestedName);
@@ -418,7 +626,7 @@ void a_UIcmd_save_link(BrowserWindow *bw, const DilloUrl *url)
  */
 void a_UIcmd_book(void *vbw)
 {
-   DilloUrl *url = a_Url_new("dpi:/bm/", NULL, 0, 0, 0);
+   DilloUrl *url = a_Url_new("dpi:/bm/", NULL);
    a_Nav_push((BrowserWindow*)vbw, url);
    a_Url_free(url);
 }
@@ -426,7 +634,7 @@ void a_UIcmd_book(void *vbw)
 /*
  * Add a bookmark for a certain URL
  */
-void a_UIcmd_add_bookmark(BrowserWindow *bw, DilloUrl *url)
+void a_UIcmd_add_bookmark(BrowserWindow *bw, const DilloUrl *url)
 {
    a_Bookmarks_add(bw, url);
 }
@@ -435,29 +643,67 @@ void a_UIcmd_add_bookmark(BrowserWindow *bw, DilloUrl *url)
 /*
  * Popup the page menu
  */
-void a_UIcmd_page_popup(void *vbw, DilloUrl *url, const char *bugs_txt)
+void a_UIcmd_page_popup(void *vbw, const DilloUrl *url,
+                        bool_t has_bugs, bool_t unloaded_imgs)
 {
-   a_Menu_page_popup((BrowserWindow*)vbw, url, bugs_txt);
+   a_Menu_page_popup((BrowserWindow*)vbw, url, has_bugs, unloaded_imgs);
 }
 
 /*
  * Popup the link menu
  */
-void a_UIcmd_link_popup(void *vbw, DilloUrl *url)
+void a_UIcmd_link_popup(void *vbw, const DilloUrl *url)
 {
    a_Menu_link_popup((BrowserWindow*)vbw, url);
 }
 
 /*
+ * Pop up the image menu
+ */
+void a_UIcmd_image_popup(void *vbw, const DilloUrl *url, bool_t loaded_img,
+                         DilloUrl *link_url)
+{
+   a_Menu_image_popup((BrowserWindow*)vbw, url, loaded_img, link_url);
+}
+
+/*
+ * Pop up the form menu
+ */
+void a_UIcmd_form_popup(void *vbw, const DilloUrl *url, void *vform,
+                        bool_t showing_hiddens)
+{
+   a_Menu_form_popup((BrowserWindow*)vbw, url, vform, showing_hiddens);
+}
+
+/*
+ * Pop up the file menu
+ */
+void a_UIcmd_file_popup(void *vbw, void *v_wid)
+{
+   a_Menu_file_popup((BrowserWindow*)vbw, v_wid);
+}
+
+/*
+ * Copy url string to paste buffer
+ */
+void a_UIcmd_copy_urlstr(BrowserWindow *bw, const char *urlstr)
+{
+   Layout *layout = (Layout*)bw->render_layout;
+   layout->copySelection(urlstr);
+}
+
+/*
  * Show a text window with the URL's source
  */
-void a_UIcmd_view_page_source(DilloUrl *url)
+void a_UIcmd_view_page_source(const DilloUrl *url)
 {
    char *buf;
    int buf_size;
 
    if (a_Nav_get_buf(url, &buf, &buf_size)) {
-      a_Dialog_text_window(buf, "View Page source");
+      void *vWindow = a_Dialog_make_text_window(buf, "View Page source");
+      a_Nav_unref_buf(url);
+      a_Dialog_show_text_window(vWindow);
    }
 }
 
@@ -469,7 +715,9 @@ void a_UIcmd_view_page_bugs(void *vbw)
    BrowserWindow *bw = (BrowserWindow*)vbw;
 
    if (bw->num_page_bugs > 0) {
-      a_Dialog_text_window(bw->page_bugs->str, "Detected HTML errors");
+      void *vWindow = a_Dialog_make_text_window(bw->page_bugs->str,
+                                                "Detected HTML errors");
+      a_Dialog_show_text_window(vWindow);
    } else {
       a_Dialog_msg("Zero detected HTML errors!");
    }
@@ -482,7 +730,7 @@ void a_UIcmd_bugmeter_popup(void *vbw)
 {
    BrowserWindow *bw = (BrowserWindow*)vbw;
 
-   a_Menu_bugmeter_popup(bw, a_History_get_url(NAV_TOP(bw)));
+   a_Menu_bugmeter_popup(bw, a_History_get_url(NAV_TOP_UIDX(bw)));
 }
 
 /*
@@ -503,7 +751,7 @@ int *a_UIcmd_get_history(BrowserWindow *bw, int direction)
    // Fill the list
    i = a_Nav_stack_ptr(bw) + direction;
    for (j = 0 ; i >= 0 && i < a_Nav_stack_size(bw); i+=direction, j += 1) {
-      hlist[j] = NAV_IDX(bw,i);
+      hlist[j] = NAV_UIDX(bw,i);
    }
    hlist[j] = -1;
 
@@ -520,8 +768,6 @@ void a_UIcmd_nav_jump(BrowserWindow *bw, int offset, int new_bw)
 
 // UI binding functions -------------------------------------------------------
 
-#define BW2UI(bw) ((UI*)(bw->ui))
-
 /*
  * Return browser window width and height
  */
@@ -530,6 +776,43 @@ void a_UIcmd_get_wh(BrowserWindow *bw, int *w, int *h)
    *w = BW2UI(bw)->w();
    *h = BW2UI(bw)->h();
    _MSG("a_UIcmd_wh: w=%d, h=%d\n", *w, *h);
+}
+
+/*
+ * Get the scroll position (x, y offset pair)
+ */
+void a_UIcmd_get_scroll_xy(BrowserWindow *bw, int *x, int *y)
+{
+   Layout *layout = (Layout*)bw->render_layout;
+
+   if (layout) {
+     *x = layout->getScrollPosX();
+     *y = layout->getScrollPosY();
+   }
+}
+
+/*
+ * Set the scroll position ({x, y} offset pair)
+ */
+void a_UIcmd_set_scroll_xy(BrowserWindow *bw, int x, int y)
+{
+   Layout *layout = (Layout*)bw->render_layout;
+
+   if (layout) {
+      layout->scrollTo(HPOS_LEFT, VPOS_TOP, x, y, 0, 0);
+   }
+}
+
+/*
+ * Set the scroll position by fragment (from URL)
+ */
+void a_UIcmd_set_scroll_by_fragment(BrowserWindow *bw, const char *f)
+{
+   Layout *layout = (Layout*)bw->render_layout;
+
+   if (layout && f) {
+      layout->setAnchor(f);
+   }
 }
 
 /*
@@ -565,6 +848,10 @@ void a_UIcmd_set_page_prog(BrowserWindow *bw, size_t nbytes, int cmd)
 void a_UIcmd_set_img_prog(BrowserWindow *bw, int n_img, int t_img, int cmd)
 {
    BW2UI(bw)->set_img_prog(n_img, t_img, cmd);
+#if 0
+   if (!cmd)
+      a_UIcmd_close_bw(bw);
+#endif
 }
 
 /*
@@ -601,12 +888,27 @@ void a_UIcmd_set_msg(BrowserWindow *bw, const char *format, ...)
 }
 
 /*
+ * Check whether the UI has automatic image loading enabled.
+ */
+bool_t a_UIcmd_get_images_enabled(BrowserWindow *bw)
+{
+   return BW2UI(bw)->images_enabled();
+}
+
+/*
+ * Enable/Disable automatic image loading.
+ */
+void a_UIcmd_set_images_enabled(BrowserWindow *bw, int flag)
+{
+   BW2UI(bw)->images_enabled(flag);
+}
+
+/*
  * Set the sensitivity of back/forw/stop buttons.
  */
-static void a_UIcmd_set_buttons_sens_cb(void *vbw)
+void a_UIcmd_set_buttons_sens(BrowserWindow *bw)
 {
    int sens;
-   BrowserWindow *bw = (BrowserWindow*)vbw;
 
    // Stop
    sens = (dList_length(bw->ImageClients) || dList_length(bw->RootClients));
@@ -618,20 +920,22 @@ static void a_UIcmd_set_buttons_sens_cb(void *vbw)
    sens = (a_Nav_stack_ptr(bw) < a_Nav_stack_size(bw) - 1 &&
            !bw->nav_expecting);
    BW2UI(bw)->button_set_sens(UI_FORW, sens);
-  
-   bw->sens_idle_up = 0;
 }
 
+/*
+ * Keep track of mouse pointer over a link.
+ */
+void a_UIcmd_set_pointer_on_link(BrowserWindow *bw, int flag)
+{
+   BW2UI(bw)->pointerOnLink(flag);
+}
 
 /*
- * Set the timeout function for button sensitivity
+ * Is the mouse pointer over a link?
  */
-void a_UIcmd_set_buttons_sens(BrowserWindow *bw)
+int a_UIcmd_pointer_on_link(BrowserWindow *bw)
 {
-   if (bw->sens_idle_up == 0) {
-      a_Timeout_add(0.0, a_UIcmd_set_buttons_sens_cb, bw);
-      bw->sens_idle_up = 1;
-   }
+   return BW2UI(bw)->pointerOnLink();
 }
 
 /*
@@ -640,5 +944,54 @@ void a_UIcmd_set_buttons_sens(BrowserWindow *bw)
 void a_UIcmd_fullscreen_toggle(BrowserWindow *bw)
 {
    BW2UI(bw)->fullscreen_toggle();
+}
+
+/*
+ * Search for next occurrence of key.
+ */
+void a_UIcmd_findtext_search(BrowserWindow *bw, const char *key, int case_sens)
+{
+   Layout *l = (Layout *)bw->render_layout;
+   
+   switch (l->search(key, case_sens)) {
+      case FindtextState::RESTART:
+         a_UIcmd_set_msg(bw, "No further occurrences of \"%s\". "
+                             "Restarting from the top.", key);
+         break;
+      case FindtextState::NOT_FOUND:
+         a_UIcmd_set_msg(bw, "\"%s\" not found.", key);
+         break;
+      case FindtextState::SUCCESS:
+      default:
+         a_UIcmd_set_msg(bw, "");
+   }
+}
+
+/*
+ * Reset text search state.
+ */
+void a_UIcmd_findtext_reset(BrowserWindow *bw)
+{
+   Layout *l = (Layout *)bw->render_layout;
+   l->resetSearch();
+
+   a_UIcmd_set_msg(bw, "");
+}
+
+/*
+ * Focus the rendered area.
+ */
+void a_UIcmd_focus_main_area(BrowserWindow *bw)
+{
+   BW2UI(bw)->focus_main();
+}
+
+/*
+ * Focus the location bar.
+ */
+void a_UIcmd_focus_location(void *vbw)
+{
+   BrowserWindow *bw = (BrowserWindow*)vbw;
+   BW2UI(bw)->focus_location();
 }
 

@@ -146,7 +146,7 @@ static char *get_request(int sock)
  * \Return
  * command code on success, -1 on failure
  */
-static int get_command(int sock, char *dpi_tag, struct dp *dpi_attr_list)
+static int get_command(int sock, char *dpi_tag)
 {
    char *cmd, *d_cmd;
    int COMMAND;
@@ -185,7 +185,7 @@ static int get_command(int sock, char *dpi_tag, struct dp *dpi_attr_list)
 /*
  * Check whether a dpi server is running
  */
-int server_is_running(char *server_id)
+static int server_is_running(char *server_id)
 {
    int i;
 
@@ -228,13 +228,14 @@ int main(void)
    fd_set selected_set;
 
    dpi_attr_list = NULL;
+   services_list = NULL;
    //daemon(0,0); /* Use 0,1 for feedback */
-   /* todo: call setsid() ?? */
+   /* TODO: call setsid() ?? */
 
    /* Allow read and write access, but only for the user.
-    * todo: can this cause trouble with umount? */
+    * TODO: can this cause trouble with umount? */
    umask(0077);
-   /* todo: make dpid work on any directory. */
+   /* TODO: make dpid work on any directory. */
    // chdir("/");
 
    /* close inherited file descriptors */
@@ -257,6 +258,9 @@ int main(void)
       MSG_ERR("Failed to create socket directory\n");
       exit(1);
    }
+
+   /* Init and get services list */
+   fill_services_list(dpi_attr_list, numdpis, &services_list);
 
    /* Remove any sockets that may have been leftover from a crash */
    cleanup(sockdir);
@@ -333,7 +337,7 @@ int main(void)
             int command;
 
             req = get_request(sock);
-            command = get_command(sock, req, dpi_attr_list);
+            command = get_command(sock, req);
             switch (command) {
             case BYE_CMD:
                stop_active_dpis(dpi_attr_list, numdpis);

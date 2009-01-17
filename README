@@ -2,33 +2,32 @@
  Dillo
 =======
 
-  This  is  an  alpha release of the next generation of the Dillo
-web  browser.  The  code  underwent  a major rewrite: significant
-parts  of  the  codebase  were  ported  to C++, and the rendering
-engine now uses the FLTK2 library instead of GTK1.
+  This  is a beta release of the next generation of the Dillo web
+browser. The code underwent a major rewrite: significant parts of
+the  codebase  were  ported  to C++, and the rendering engine now
+uses the FLTK2 library instead of GTK1.
 
-  With  regard to Dillo 0.8.6, dillo-f15f has some advantages (as
-antialiasing and utf-8), and some disadvantages. The problems are
-simple  to  solve and only need some man months to complete. When
-we're  there,  dillo-f15f  will be easily regarded as better than
-the former series.
-
-  This is release should be regarded as alpha.
+Our users will surely enjoy this new release as it will give them
+the   same   things  they're  accustomed  plus  tabbed  browsing,
+antialiasing,  different  character  sets,  accepting  compressed
+pages,  control  over  image  loading,  smaller  footprint, fewer
+dependencies, better table rendering, bugfixes, improved GUI, ...
+In brief, a better dillo. 
 
 
   Here's a list of some well known problems:
 
-    * no iteration inside simple lists
-    * image links haven't been hooked yet
-    * you may experience crashes from "assert" statements from
-      unfinished code.
-    * the scrolling position is not yet updated (when following a
-      link, the former scroll position is kept).
-    * viewport scrolling is not yet optimized (takes lots of CPU)
-    * context menus are not yet completely hooked or activated
+         * no FRAMES rendering
+         * no https (there's a barebones prototype).
+-----
+FLTK2
+-----
 
-    * no FRAMES rendering
-    * no https            -- read the FAQ to enable a protoype.
+  The FLTK2 library is statically linked into Dillo2.
+  You can get it from fltk.org.
+The recommended version is >= r6403. e.g. in:
+
+  http://fltk.org/software.php?VERSION=2.0.x-r6403
 
 
 ------------
@@ -45,11 +44,10 @@ top directory (they will be installed under ~/.dillo).
 *BSD
 ----
 
-  Dillo  may  compile on *BSD systems; please report on this.
-Please note that you'll need GNU make.
+  Dillo   compiles on *BSD systems; please report on this anyway,
+and note that you'll need GNU make.
 
-  From  OpenBSD  >=  3.3,  gethost* calls are not thread safe. If
-your dillo crashes or locks at times, just use:
+  If your dillo crashes or locks at times, just use:
 
     ./configure --disable-threaded-dns
 
@@ -73,4 +71,4 @@ Solaris
     
 Jorge.-
 (jcid@dillo.org)
-Sep 30, 2007
+Oct, 2008

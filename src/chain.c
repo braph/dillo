@@ -3,7 +3,7 @@
  * Concomitant control chain (CCC)
  * Theory and code by Jorge Arellano Cid
  *
- * Copyright 2001, 2002 Jorge Arellano Cid <jcid@dillo.org>
+ * Copyright 2001-2007 Jorge Arellano Cid <jcid@dillo.org>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -17,6 +17,22 @@
 
 #define VERBOSE 0
 
+/*
+ * Show debugging info
+ */
+#if VERBOSE
+static void Chain_debug_msg(char *FuncStr, int Op, int Branch, int Dir,
+                             ChainLink *Info)
+{
+   const char *StrOps[] = {"", "OpStart", "OpSend",
+                            "OpStop", "OpEnd", "OpAbort"};
+   MSG("%-*s: %-*s [%d%s] Info=%p Flags=%d\n",
+       12, FuncStr, 7, StrOps[Op], Branch, (Dir == 1) ? "F" : "B",
+       Info, Info ? Info->Flags : -1);
+}
+#else
+static void Chain_debug_msg() { }
+#endif
 /*
  * Create and initialize a new chain-link
  */
@@ -79,26 +95,46 @@ void a_Chain_unlink(ChainLink *Info, int Direction)
 
 /*
  * Issue the forward callback of the 'Info' link
+ * Return value: 1 if OK, 0 if not operative.
  */
 int a_Chain_fcb(int Op, ChainLink *Info, void *Data1, void *Data2)
 {
-   if (Info->Fcb) {
+   int ret = 0;
+
+   if (Info->Flags & (CCC_Ended + CCC_Aborted)) {
+      /* CCC is not operative */
+   } else if (Info->Fcb) {
+      if (Op == OpEnd)
+         Info->Flags |= CCC_Ended;
+      else if (Op == OpAbort)
+         Info->Flags |= CCC_Aborted;
+
       Info->Fcb(Op, Info->FcbBranch, FWD, Info->FcbInfo, Data1, Data2);
-      return 1;
+      ret = 1;
    }
-   return 0;
+   return ret;
 }
 
 /*
  * Issue the backward callback of the 'Info' link
+ * Return value: 1 if OK, 0 if not operative.
  */
 int a_Chain_bcb(int Op, ChainLink *Info, void *Data1, void *Data2)
 {
-   if (Info->Bcb) {
+   int ret = 0;
+
+   if (Info->Flags & (CCC_Ended + CCC_Aborted)) {
+      /* CCC is not operative */
+   } else if (Info->Bcb) {
+      if (Op == OpEnd)
+         Info->Flags |= CCC_Ended;
+      else if (Op == OpAbort)
+         Info->Flags |= CCC_Aborted;
+
       Info->Bcb(Op, Info->BcbBranch, BCK, Info->BcbInfo, Data1, Data2);
-      return 1;
+      ret = 1;
    }
-   return 0;
+   return ret;
 }
 
 
@@ -115,14 +151,25 @@ DataBuf *a_Chain_dbuf_new(void *buf, int size, int code)
 }
 
 /*
- * Show some debugging info
+ * Check whether the CCC is operative.
+ * Also used to hook debug information.
+ * 
+ * Return value: 1 if ready to use, 0 if not operative.
  */
-void a_Chain_debug_msg(char *FuncStr, int Op, int Branch, int Dir)
+int a_Chain_check(char *FuncStr, int Op, int Branch, int Dir,
+                  ChainLink *Info)
 {
-#if VERBOSE
-   const char *StrOps[] = {"", "OpStart", "OpSend",
-                            "OpStop", "OpEnd", "OpAbort"};
-   MSG("%-*s: %-*s [%d%s]\n",
-       12, FuncStr, 7, StrOps[Op], Branch, (Dir == 1) ? "F" : "B");
-#endif
+   int ret = 0;
+
+   /* Show status information */
+   Chain_debug_msg(FuncStr, Op, Branch, Dir, Info);
+
+   if (Info->Flags & (CCC_Ended + CCC_Aborted)) {
+      /* CCC is not operative */
+      MSG_WARN("CCC: call on already finished chain.\n");
+   } else {
+      ret = 1;
+   }
+   return ret;
 }
+

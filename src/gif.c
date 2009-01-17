@@ -2,7 +2,7 @@
  * File: gif.c
  *
  * Copyright (C) 1997 Raph Levien <raph@acm.org>
- * Copyright (C) 2000-2002 Jorge Arellano Cid <jcid@dillo.org>
+ * Copyright (C) 2000-2007 Jorge Arellano Cid <jcid@dillo.org>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -54,7 +54,7 @@
  */
 
 
-/* todo:
+/* TODO:
  * + Make sure to handle error cases gracefully (including aborting the
  * connection, if necessary).
  */
@@ -71,9 +71,6 @@
 #include "cache.h"
 #include "dicache.h"
 #include "prefs.h"
-
-#define DEBUG_LEVEL 6
-#include "debug.h"
 
 #define INTERLACE      0x40
 #define LOCALCOLORMAP  0x80
@@ -160,7 +157,8 @@ void *a_Gif_image(const char *Type, void *Ptr, CA_Callback_t *Call,
 
 /*
  * MIME handler for "image/gif" type
- * (Sets Gif_callback as cache-client)
+ * Sets a_Dicache_callback as the cache-client,
+ * and Gif_callback as the image decoder.
  */
 void *a_Gif_image(const char *Type, void *Ptr, CA_Callback_t *Call,
                   void **Data)
@@ -170,25 +168,25 @@ void *a_Gif_image(const char *Type, void *Ptr, CA_Callback_t *Call,
 
    if (!web->Image)
       web->Image = a_Image_new(0, 0, NULL, prefs.bg_color);
-      /* todo: get the backgound color from the parent widget -- Livio. */
+      /* TODO: get the backgound color from the parent widget -- Livio. */
 
    /* Add an extra reference to the Image (for dicache usage) */
    a_Image_ref(web->Image);
 
-   DicEntry = a_Dicache_get_entry(web->url);
+   DicEntry = a_Dicache_get_entry(web->url, DIC_Last);
    if (!DicEntry) {
       /* Let's create an entry for this image... */
       DicEntry = a_Dicache_add_entry(web->url);
-
-      /* ... and let the decoder feed it! */
-      *Data = Gif_new(web->Image, DicEntry->url, DicEntry->version);
-      *Call = (CA_Callback_t) Gif_callback;
+      DicEntry->DecoderData =
+         Gif_new(web->Image, DicEntry->url, DicEntry->version);
    } else {
-      /* Let's feed our client from the dicache */
+      /* Repeated image */
       a_Dicache_ref(DicEntry->url, DicEntry->version);
-      *Data = web->Image;
-      *Call = (CA_Callback_t) a_Dicache_callback;
    }
+   DicEntry->Decoder = Gif_callback;
+   *Data = DicEntry->DecoderData;
+   *Call = (CA_Callback_t) a_Dicache_callback;
+
    return (web->Image->dw);
 }
 
@@ -245,7 +243,7 @@ static void Gif_write(DilloGif *gif, void *Buf, uint_t BufSize)
    buf = ((uchar_t *) Buf) + gif->Start_Ofs;
    bufsize = BufSize - gif->Start_Ofs;
 
-   DEBUG_MSG(5, "Gif_write: %u bytes\n", BufSize);
+   _MSG("Gif_write: %u bytes\n", BufSize);
 
    /* Process the bytes in the input buffer. */
    bytes_consumed = Gif_process_bytes(gif, buf, bufsize, Buf);
@@ -254,7 +252,7 @@ static void Gif_write(DilloGif *gif, void *Buf, uint_t BufSize)
       return;
    gif->Start_Ofs += bytes_consumed;
 
-   DEBUG_MSG(5, "exit Gif_write, bufsize=%ld\n", (long)bufsize);
+   _MSG("exit Gif_write, bufsize=%ld\n", (long)bufsize);
 }
 
 /*
@@ -264,7 +262,7 @@ static void Gif_close(DilloGif *gif, CacheClient_t *Client)
 {
    int i;
 
-   DEBUG_MSG(5, "destroy gif %p\n", gif);
+   _MSG("Gif_close: destroy gif %p\n", gif);
 
    a_Dicache_close(gif->url, gif->version, Client);
 
@@ -421,7 +419,7 @@ static void Gif_lwz_init(DilloGif *gif)
  */
 static void Gif_emit_line(DilloGif *gif, const uchar_t *linebuf)
 {
-   a_Dicache_write(gif->Image, gif->url, gif->version, linebuf, 0, gif->y);
+   a_Dicache_write(gif->Image, gif->url, gif->version, linebuf, gif->y);
    if (gif->Flags & INTERLACE) {
       switch (gif->pass) {
       case 0:
@@ -545,7 +543,7 @@ static void Gif_sequence(DilloGif *gif, uint_t code)
       for (; o_size > 0 && o_index > 0; o_size--) {
          uint_t code_and_byte = gif->code_and_byte[code];
 
-         DEBUG_MSG(5, "%d ", gif->code_and_byte[code] & 255);
+         _MSG("%d ", gif->code_and_byte[code] & 255);
 
          obuf[--o_index] = code_and_byte & 255;
          code = code_and_byte >> 8;
@@ -565,16 +563,16 @@ static void Gif_sequence(DilloGif *gif, uint_t code)
    }
    /* Ok, now we write the first byte of the sequence. */
    /* We are sure that the code is literal. */
-   DEBUG_MSG(5, "%d", code);
+   _MSG("%d", code);
    obuf[--o_index] = code;
    gif->code_and_byte[gif->last_code] |= code;
 
    /* Fix up the output if the original code was last_code. */
    if (orig_code == gif->last_code) {
       *last_byte_ptr = code;
-      DEBUG_MSG(5, " fixed (%d)!", code);
+      _MSG(" fixed (%d)!", code);
    }
-   DEBUG_MSG(5, "\n");
+   _MSG("\n");
 
    /* Output any full lines. */
    if (gif->line_index >= gif->Width) {
@@ -621,7 +619,7 @@ static int Gif_process_code(DilloGif *gif, uint_t code, uint_t clear_code)
     */
    if (code < clear_code) {
       /* a literal code. */
-      DEBUG_MSG(5, "literal\n");
+      _MSG("literal\n");
       Gif_literal(gif, code);
       return 1;
    } else if (code >= clear_code + 2) {
@@ -632,11 +630,11 @@ static int Gif_process_code(DilloGif *gif, uint_t code, uint_t clear_code)
       return 1;
    } else if (code == clear_code) {
       /* clear code. Resets the whole table */
-      DEBUG_MSG(5, "clear\n");
+      _MSG("clear\n");
       return 0;
    } else {
       /* end code. */
-      DEBUG_MSG(5, "end\n");
+      _MSG("end\n");
       return 2;
    }
 }
@@ -694,7 +692,7 @@ static int Gif_decode(DilloGif *gif, const uchar_t *buf, size_t bsize)
              * at the start of the window */
             code = (window >> (32 - bits_in_window)) & code_mask;
 
-            DEBUG_MSG(5, "code = %d, ", code);
+            _MSG("code = %d, ", code);
 
             bits_in_window -= code_size;
             switch (Gif_process_code(gif, code, clear_code)) {
@@ -762,12 +760,9 @@ static int Gif_check_sig(DilloGif *gif, const uchar_t *ibuf, int ibsize)
    /* at beginning of file - read magic number */
    if (ibsize < 6)
       return 0;
-   if (memcmp(ibuf, "GIF", 3) != 0) {
-      gif->state = 999;
-      return 6;
-   }
-   if (memcmp(ibuf + 3, "87a", 3) != 0 &&
-       memcmp(ibuf + 3, "89a", 3) != 0) {
+   if (memcmp(ibuf, "GIF87a", 6) != 0 &&
+       memcmp(ibuf, "GIF89a", 6) != 0) {
+      MSG_WARN("\"%s\" is not a GIF file.\n", URL_STR(gif->url));
       gif->state = 999;
       return 6;
    }
@@ -1045,8 +1040,8 @@ static size_t Gif_process_bytes(DilloGif *gif, const uchar_t *ibuf,
       break;
    }
 
-   DEBUG_MSG(5, "Gif_process_bytes: final state %d, %ld bytes consumed\n",
-             gif->state, (long)(bufsize - tmp_bufsize));
+   _MSG("Gif_process_bytes: final state %d, %ld bytes consumed\n",
+        gif->state, (long)(bufsize - tmp_bufsize));
 
    return bufsize - tmp_bufsize;
 }

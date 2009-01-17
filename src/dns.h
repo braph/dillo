@@ -1,7 +1,7 @@
 #ifndef __DNS_H__
 #define __DNS_H__
 
-#include "chain.h"
+#include <netinet/in.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -14,7 +14,7 @@ void a_Dns_init (void);
 void a_Dns_freeall(void);
 void a_Dns_resolve(const char *hostname, DnsCallback_t cb_func, void *cb_data);
 
-#define DILLO_ADDR_MAX 16
+#define DILLO_ADDR_MAX sizeof(struct in6_addr)
 
 typedef struct _DilloHost
 {
@@ -22,7 +22,7 @@ typedef struct _DilloHost
   int alen;
   char data[DILLO_ADDR_MAX];
 } DilloHost;
-
+void a_Dns_dillohost_to_string(DilloHost *host, char *dst, size_t size);
 
 #ifdef __cplusplus
 }

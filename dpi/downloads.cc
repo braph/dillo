@@ -1,7 +1,7 @@
 /*
  * File: downloads.cc
  *
- * Copyright (C) 2005 Jorge Arellano Cid <jcid@dillo.org>
+ * Copyright (C) 2005-2007 Jorge Arellano Cid <jcid@dillo.org>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -134,14 +134,14 @@ public:
    void child_init();
    void father_init();
    void update_size(int new_sz);
-   void log_text_add(char *buf, ssize_t st);
+   void log_text_add(const char *buf, ssize_t st);
    void log_text_show();
    void abort_dl();
    void prButton_cb();
    pid_t pid() { return mPid; }
    void pid(pid_t p) { mPid = p; }
    void child_finished(int status);
-   void status_msg(char *msg) { prBar->message(msg); }
+   void status_msg(const char *msg) { prBar->message((char*)msg); }
    Widget *get_widget() { return group; }
    int widget_done() { return WidgetDone; }
    void widget_done(int val) { WidgetDone = val; }
@@ -294,16 +294,16 @@ DLItem::DLItem(const char *full_filename, const char *url, DLAction action)
    char *p, *esc_url;
 
    if (pipe(LogPipe) < 0) {
-      MSG("pipe, %s\n", strerror(errno));
+      MSG("pipe, %s\n", dStrerror(errno));
       return;
    }
    /* Set FD to background */
    fcntl(LogPipe[0], F_SETFL,
          O_NONBLOCK | fcntl(LogPipe[0], F_GETFL));
 
-   fullname = strdup(full_filename);
+   fullname = dStrdup(full_filename);
    p = strrchr(fullname, '/');
-   shortname = (p) ? strdup(p + 1) : strdup("??");
+   shortname = (p) ? dStrdup(p + 1) : dStrdup("??");
    p = strrchr(full_filename, '/');
    target_dir= p ? dStrndup(full_filename,p-full_filename+1) : dStrdup("??");
 
@@ -325,15 +325,15 @@ DLItem::DLItem(const char *full_filename, const char *url, DLAction action)
       Filter_smtp_hack(esc_url);
    dl_argv = new char*[8];
    int i = 0;
-   dl_argv[i++] = "wget";
+   dl_argv[i++] = (char*)"wget";
    if (action == DL_CONTINUE) {
       if (stat(fullname, &ss) == 0)
          init_bytesize = (int)ss.st_size;
-      dl_argv[i++] = "-c";
+      dl_argv[i++] = (char*)"-c";
    }
-   dl_argv[i++] = "--load-cookies";
+   dl_argv[i++] = (char*)"--load-cookies";
    dl_argv[i++] = dStrconcat(dGethomedir(), "/.dillo/cookies.txt", NULL);
-   dl_argv[i++] = "-O";
+   dl_argv[i++] = (char*)"-O";
    dl_argv[i++] = fullname;
    dl_argv[i++] = esc_url;
    dl_argv[i++] = NULL;
@@ -345,7 +345,7 @@ DLItem::DLItem(const char *full_filename, const char *url, DLAction action)
    WidgetDone = 0;
    WgetStatus = -1;
 
-   gw = 470, gh = 70;
+   gw = 400, gh = 70;
    group = new Group(0,0,gw,gh);
    group->begin();
     prTitle = new Widget(24, 7, 290, 23, shortname);
@@ -414,7 +414,6 @@ DLItem::DLItem(const char *full_filename, const char *url, DLAction action)
     prButton->clear_tab_to_focus();
     prButton->callback(prButton_scb, this);
 
-   //group->resizable(group);
    group->box(ROUND_UP_BOX);
    group->end();
 }
@@ -482,9 +481,10 @@ void DLItem::update_prSize(int newsize)
    prSize->redraw_label();
 }
 
-void DLItem::log_text_add(char *buf, ssize_t st)
+void DLItem::log_text_add(const char *buf, ssize_t st)
 {
-   char *p, *q, *d, num[64];
+   const char *p;
+   char *q, *d, num[64];
 
    // Make room...
    if (log_len + st >= log_max) {
@@ -513,7 +513,7 @@ void DLItem::log_text_add(char *buf, ssize_t st)
          if (isdigit(*q++ = *p)) {
             // keep here
          } else if (*p == 'K') {
-            for(--q; isdigit(q[-1]); --q); log_state = ST_discard;
+            for(--q; isdigit(q[-1]); --q) ; log_state = ST_discard;
          } else {
             log_state = ST_copy;
          }
@@ -654,7 +654,7 @@ void DLItem::child_finished(int status)
 /*
  * Convert seconds into human readable [hour]:[min]:[sec] string.
  */
-void secs2timestr(int et, char *str)
+static void secs2timestr(int et, char *str)
 {
    int eh, em, es;
 
@@ -685,7 +685,7 @@ void DLItem::update()
 
    /* Update curr_size */
    if (stat(fullname, &ss) == -1) {
-      MSG("stat, %s\n", strerror(errno));
+      MSG("stat, %s\n", dStrerror(errno));
       return;
    }
    update_size((int)ss.st_size);
@@ -743,13 +743,13 @@ void DLItem::update()
 
 /*! SIGCHLD handler
  */
-void raw_sigchld(int)
+static void raw_sigchld(int)
 {          
    caught_sigchld = 1;
 }
 
 /*! Establish SIGCHLD handler */
-void est_sigchld(void)
+static void est_sigchld(void)
 {
    struct sigaction sigact;
    sigset_t set;
@@ -767,7 +767,7 @@ void est_sigchld(void)
 /*
  * Timeout function to check wget's exit status.
  */
-void cleanup_cb(void *data)
+static void cleanup_cb(void *data)
 {
    DLItemList *list = (DLItemList *)data;
 
@@ -793,7 +793,7 @@ void cleanup_cb(void *data)
  * Timeout function to update the widget indicators,
  * also remove widgets marked "done".
  */
-void update_cb(void *data)
+static void update_cb(void *data)
 {
    static int cb_used = 0;
 
@@ -833,7 +833,7 @@ static ssize_t readline(int socket, Dstr ** msg)
    while (st < 0 && errno == EINTR);
 
    if (st == -1)
-      MSG("readline, %s\n", strerror(errno));
+      MSG("readline, %s\n", dStrerror(errno));
 
    dStr_truncate(*msg, 0);
    if (st > 0)
@@ -888,7 +888,7 @@ static void read_req_cb(int req_fd, void *)
       new_socket = accept(req_fd, (struct sockaddr *) &clnt_addr, &csz);
    } while (new_socket == -1 && errno == EINTR);
    if (new_socket == -1) {
-      MSG("accept, %s fd=%d\n", strerror(errno), req_fd);
+      MSG("accept, %s fd=%d\n", dStrerror(errno), req_fd);
       return;
    }
 
@@ -899,7 +899,7 @@ static void read_req_cb(int req_fd, void *)
    _MSG("Received tag={%s}\n", tag->str);
 
    if ((cmd = a_Dpip_get_attr(tag->str, (size_t)tag->len, "cmd")) == NULL) {
-      MSG("Failed to parse 'cmd' in %s\n", tag->str);
+      MSG("Failed to parse 'cmd' in {%s}\n", tag->str);
       goto end;
    }
    if (strcmp(cmd, "DpiBye") == 0) {
@@ -911,11 +911,11 @@ static void read_req_cb(int req_fd, void *)
       goto end;
    }
    if (!(url = a_Dpip_get_attr(tag->str,(size_t)tag->len, "url"))){
-      MSG("Failed to parse 'url' in %s\n", tag->str);
+      MSG("Failed to parse 'url' in {%s}\n", tag->str);
       goto end;
    }
    if (!(dl_dest = a_Dpip_get_attr(tag->str,(size_t)tag->len,"destination"))){
-      MSG("Failed to parse 'destination' in %s\n", tag->str);
+      MSG("Failed to parse 'destination' in {%s}\n", tag->str);
       goto end;
    }
    /* 'dl_dest' may be a directory */
@@ -942,8 +942,8 @@ end:
  */
 static void dlwin_esc_cb(Widget *, void *)
 {
-   char *msg = "There are running downloads.\n"
-               "ABORT them and EXIT anyway?";
+   const char *msg = "There are running downloads.\n"
+                     "ABORT them and EXIT anyway?";
 
    if (dl_win && dl_win->num_running() > 0) {
       int ch = fltk::choice(msg, "Yes", "*No", "Cancel");
@@ -963,7 +963,6 @@ void DLWin::add(const char *full_filename, const char *url, DLAction action)
 {
    DLItem *dl_item = new DLItem(full_filename, url, action);
    mDList->add(dl_item);
-   //mPG->add(*dl_item->get_widget());
    mPG->insert(*dl_item->get_widget(), 0);
 
    _MSG("Child index = %d\n", mPG->find(dl_item->get_widget()));
@@ -1028,10 +1027,10 @@ void DLWin::del(int n_item)
 {
    DLItem *dl_item = mDList->get(n_item);
 
-   // Remove the widget from the scroll group
+   // Remove the widget from the packed group
    mPG->remove(dl_item->get_widget());
-   // Resize the scroll group
-   mPG->resize(mWin->w(), 1);
+   // WORKAROUND: without this call FLTK2 doesn't clear the background.
+   mScroll->redraw();
 
    mDList->del(n_item);
    delete(dl_item);
@@ -1092,8 +1091,9 @@ DLWin::DLWin(int ww, int wh) {
      mPG->end();
      //mPG->spacing(10);
     mScroll->end();
-   mWin->resizable(mWin);
+    mScroll->type(ScrollGroup::VERTICAL);
    mWin->end();
+   mWin->resizable(mScroll);
    mWin->callback(dlwin_esc_cb, NULL);
    mWin->show();
 

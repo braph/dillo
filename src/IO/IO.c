@@ -1,7 +1,7 @@
 /*
  * File: IO.c
  *
- * Copyright (C) 2000-2006 Jorge Arellano Cid <jcid@dillo.org>
+ * Copyright (C) 2000-2007 Jorge Arellano Cid <jcid@dillo.org>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -24,21 +24,16 @@
 #include "../msg.h"
 #include "../chain.h"
 #include "../klist.h"
-#include "../list.h"
 #include "IO.h"
 #include "iowatch.hh"
-
-#define DEBUG_LEVEL 5
-//#define DEBUG_LEVEL 1
-#include "../debug.h"
 
 /*
  * Symbolic defines for shutdown() function
  * (Not defined in the same header file, for all distros --Jcid)
  */
-#define IO_StopRd   0
-#define IO_StopWr   1
-#define IO_StopRdWr 2
+#define IO_StopRd   1
+#define IO_StopWr   2
+#define IO_StopRdWr (IO_StopRd | IO_StopWr)
 
 
 typedef struct {
@@ -50,7 +45,6 @@ typedef struct {
    Dstr *Buf;             /* Internal buffer */
 
    void *Info;            /* CCC Info structure for this IO */
-   int events;            /* FLTK events for this IO */
 } IOData_t;
 
 
@@ -94,6 +88,8 @@ static void IO_ins(IOData_t *io)
    if (io->Key == 0) {
       io->Key = a_Klist_insert(&ValidIOs, io);
    }
+   _MSG("IO_ins: io->Key=%d, Klist_length=%d\n",
+       io->Key, a_Klist_length(ValidIOs));
 }
 
 /*
@@ -128,10 +124,17 @@ static void IO_free(IOData_t *io)
 /*
  * Close an open FD, and remove io controls.
  * (This function can be used for Close and Abort operations)
+ * BUG: there's a race condition for Abort. The file descriptor is closed
+ * twice, and it could be reused for something else in between. It's simple
+ * to fix, but it'd be better to design a canonical way to Abort the CCC.
  */
 static void IO_close_fd(IOData_t *io, int CloseCode)
 {
    int st;
+   int events = 0;
+
+   _MSG("====> begin IO_close_fd (%d) Key=%d CloseCode=%d Flags=%d ",
+       io->FD, io->Key, CloseCode, io->Flags);
 
    /* With HTTP, if we close the writing part, the reading one also gets
     * closed! (other clients may set 'IOFlag_ForceClose') */
@@ -139,13 +142,22 @@ static void IO_close_fd(IOData_t *io, int CloseCode)
       do
          st = close(io->FD);
       while (st < 0 && errno == EINTR);
+   } else {
+      _MSG(" NOT CLOSING ");
    }
    /* Remove this IOData_t reference, from our ValidIOs list
     * We don't deallocate it here, just remove from the list.*/
    IO_del(io);
 
    /* Stop the polling on this FD */
-   a_IOwatch_remove_fd(io->FD, io->events);
+   if (CloseCode & IO_StopRd) {
+     events |= DIO_READ;
+   } 
+   if (CloseCode & IO_StopWr) {
+     events |= DIO_WRITE;
+   } 
+   a_IOwatch_remove_fd(io->FD, events);
+   _MSG(" end IO close (%d) <=====\n", io->FD);
 }
 
 /*
@@ -156,8 +168,9 @@ static bool_t IO_read(IOData_t *io)
    char Buf[IOBufLen];
    ssize_t St;
    bool_t ret = FALSE;
+   int io_key = io->Key;
 
-   DEBUG_MSG(3, "  IO_read\n");
+   _MSG("  IO_read\n");
 
    /* this is a new read-buffer */
    dStr_truncate(io->Buf, 0);
@@ -188,8 +201,15 @@ static bool_t IO_read(IOData_t *io)
       a_IO_ccc(OpSend, 2, FWD, io->Info, io, NULL);
    }
    if (St == 0) {
-      /* All data read (EOF) */
-      a_IO_ccc(OpEnd, 2, FWD, io->Info, io, NULL);
+      /* TODO: design a general way to avoid reentrancy problems with CCC. */
+
+      /* The following check is necessary because the above CCC operation
+       * may abort the whole Chain. */
+      if ((io = IO_get(io_key))) {
+         /* All data read (EOF) */
+         _MSG("IO_read: io->Key=%d io_key=%d\n", io->Key, io_key);
+         a_IO_ccc(OpEnd, 2, FWD, io->Info, io, NULL);
+      }
    }
    return ret;
 }
@@ -202,7 +222,7 @@ static bool_t IO_write(IOData_t *io)
    ssize_t St;
    bool_t ret = FALSE;
 
-   DEBUG_MSG(3, "  IO_write\n");
+   _MSG("  IO_write\n");
    io->Status = 0;
 
    while (1) {
@@ -235,7 +255,7 @@ static bool_t IO_write(IOData_t *io)
  * Handle background IO for a given FD (reads | writes)
  * (This function gets called when there's activity in the FD)
  */
-static int IO_callback(int fd, IOData_t *io)
+static int IO_callback(IOData_t *io)
 {
    bool_t ret = FALSE;
 
@@ -255,7 +275,7 @@ static int IO_callback(int fd, IOData_t *io)
  */
 static void IO_fd_read_cb(int fd, void *data)
 {
-   int io_key = (int)data;
+   int io_key = VOIDP2INT(data);
    IOData_t *io = IO_get(io_key);
 
    /* There should be no more events on already closed FDs  --Jcid */
@@ -264,7 +284,7 @@ static void IO_fd_read_cb(int fd, void *data)
       a_IOwatch_remove_fd(fd, DIO_READ);
 
    } else {
-      if (IO_callback(fd, io) == 0)
+      if (IO_callback(io) == 0)
          a_IOwatch_remove_fd(fd, DIO_READ);
    }
 }
@@ -274,7 +294,7 @@ static void IO_fd_read_cb(int fd, void *data)
  */
 static void IO_fd_write_cb(int fd, void *data)
 {
-   int io_key = (int)data;
+   int io_key = VOIDP2INT(data);
    IOData_t *io = IO_get(io_key);
 
    if (io == NULL) {
@@ -283,7 +303,7 @@ static void IO_fd_write_cb(int fd, void *data)
       a_IOwatch_remove_fd(fd, DIO_WRITE);
 
    } else {
-      if (IO_callback(fd, io) == 0)
+      if (IO_callback(io) == 0)
          a_IOwatch_remove_fd(fd, DIO_WRITE);
    }
 }
@@ -298,21 +318,19 @@ static void IO_submit(IOData_t *r_io)
    IO_ins(r_io);
 
    _MSG("IO_submit:: (%s) FD = %d\n",
-        (io->Op == IORead) ? "IORead" : "IOWrite", io->FD);
+        (r_io->Op == IORead) ? "IORead" : "IOWrite", r_io->FD);
 
    /* Set FD to background and to close on exec. */
    fcntl(r_io->FD, F_SETFL, O_NONBLOCK | fcntl(r_io->FD, F_GETFL));
    fcntl(r_io->FD, F_SETFD, FD_CLOEXEC | fcntl(r_io->FD, F_GETFD));
 
    if (r_io->Op == IORead) {
-      r_io->events = DIO_READ;
-      a_IOwatch_add_fd(r_io->FD, r_io->events,
-                       IO_fd_read_cb, (void*)(r_io->Key));
+      a_IOwatch_add_fd(r_io->FD, DIO_READ,
+                       IO_fd_read_cb, INT2VOIDP(r_io->Key));
 
    } else if (r_io->Op == IOWrite) {
-      r_io->events = DIO_WRITE;
-      a_IOwatch_add_fd(r_io->FD, r_io->events,
-                       IO_fd_write_cb, (void*)(r_io->Key));
+      a_IOwatch_add_fd(r_io->FD, DIO_WRITE,
+                       IO_fd_write_cb, INT2VOIDP(r_io->Key));
    }
 }
 
@@ -326,7 +344,7 @@ void a_IO_ccc(int Op, int Branch, int Dir, ChainLink *Info,
    IOData_t *io;
    DataBuf *dbuf;
 
-   a_Chain_debug_msg("a_IO_ccc", Op, Branch, Dir);
+   dReturn_if_fail( a_Chain_check("a_IO_ccc", Op, Branch, Dir, Info) );
 
    if (Branch == 1) {
       if (Dir == BCK) {
@@ -347,10 +365,10 @@ void a_IO_ccc(int Op, int Branch, int Dir, ChainLink *Info,
             io = Info->LocalKey;
             if (io->Buf->len > 0) {
                MSG_WARN("IO_write, closing with pending data not sent\n");
-               MSG_WARN(" \"%s\"\n", io->Buf->str);
+               MSG_WARN(" \"%s\"\n", dStr_printable(io->Buf, 2048));
             }
             /* close FD, remove from ValidIOs and remove its watch */
-            IO_close_fd(io, IO_StopRdWr);
+            IO_close_fd(io, Op == OpEnd ? IO_StopWr : IO_StopRdWr);
             IO_free(io);
             dFree(Info);
             break;
@@ -398,7 +416,7 @@ void a_IO_ccc(int Op, int Branch, int Dir, ChainLink *Info,
             break;
          case OpEnd:
             a_Chain_fcb(OpEnd, Info, NULL, NULL);
-            IO_close_fd(io, IO_StopRdWr);
+            IO_close_fd(io, IO_StopRdWr); /* IO_StopRd would leak FDs */
             IO_free(io);
             dFree(Info);
             break;

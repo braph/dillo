@@ -3,11 +3,11 @@
 
 #include "bw.h"
 
-
-/* useful macros for the navigation stack */
-#define NAV_IDX(bw, i)   (bw)->nav_stack[i]
-#define NAV_TOP(bw)      (bw)->nav_stack[(bw)->nav_stack_ptr]
-
+/*
+ * useful macros for the navigation stack
+ */
+#define NAV_UIDX(bw, i)       a_Nav_get_uidx(bw, i)
+#define NAV_TOP_UIDX(bw)      a_Nav_get_top_uidx(bw)
 
 #ifdef __cplusplus
 extern "C" {
@@ -16,6 +16,7 @@ extern "C" {
 void a_Nav_push(BrowserWindow *bw, const DilloUrl *url);
 void a_Nav_push_nw(BrowserWindow *bw, const DilloUrl *url);
 void a_Nav_vpush(void *vbw, const DilloUrl *url);
+void a_Nav_repush(BrowserWindow *bw);
 void a_Nav_back(BrowserWindow *bw);
 void a_Nav_forw(BrowserWindow *bw);
 void a_Nav_home(BrowserWindow *bw);
@@ -26,10 +27,13 @@ void a_Nav_cancel_expect (BrowserWindow *bw);
 void a_Nav_expect_done(BrowserWindow *bw);
 int a_Nav_stack_ptr(BrowserWindow *bw);
 int a_Nav_stack_size(BrowserWindow *bw);
+int a_Nav_get_uidx(BrowserWindow *bw, int i);
+int a_Nav_get_top_uidx(BrowserWindow *bw);
 
 void a_Nav_save_url(BrowserWindow *bw,
                     const DilloUrl *url, const char *filename);
 int a_Nav_get_buf(const DilloUrl *Url, char **PBuf, int *BufSize);
+void a_Nav_unref_buf(const DilloUrl *Url);
 
 #ifdef __cplusplus
 }

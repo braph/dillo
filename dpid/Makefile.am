@@ -3,7 +3,7 @@ AM_CPPFLAGS=-DDPIDRC_SYS='"$(sysconfdir)/dpidrc"'
 bin_PROGRAMS = dpid
 dpid_LDADD = ../dpip/libDpip.a ../dlib/libDlib.a
 
-EXTRA_DIST = dpidc
+EXTRA_DIST = dpidc dpidrc.in
 bin_SCRIPTS = dpidc
 
 dpid_SOURCES = \
@@ -21,6 +21,9 @@ dpid_SOURCES = \
 	main.c \
 	misc_new.c
 
-install-data-local :
-	$(mkinstalldirs) $(DESTDIR)$(sysconfdir)
-	echo dpi_dir=$(libdir)/dillo/dpi > $(DESTDIR)$(sysconfdir)/dpidrc
+sysconf_DATA = dpidrc
+CLEANFILES = $(sysconf_DATA)
+
+dpidrc: $(srcdir)/dpidrc.in Makefile
+	sed -e 's|[@]libdir[@]|$(libdir)|' $(srcdir)/dpidrc.in > dpidrc
+
