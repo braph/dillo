@@ -17,8 +17,6 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-
-
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -46,6 +44,8 @@ void StyleAttrs::initValues ()
    valign = VALIGN_BASELINE;
    backgroundColor = NULL;
    width = height = lineHeight = LENGTH_AUTO;
+   vloat = FLOAT_NONE;
+   clear = CLEAR_NONE;
    margin.setVal (0);
    borderWidth.setVal (0);
    padding.setVal (0);
@@ -70,6 +70,8 @@ void StyleAttrs::resetValues ()
 
    valign = VALIGN_BASELINE;
    textAlignChar = '.';
+   vloat = FLOAT_NONE; /** \todo Correct? Check specification. */
+   clear = CLEAR_NONE; /** \todo Correct? Check specification. */
    backgroundColor = NULL;
    width = LENGTH_AUTO;
    height = LENGTH_AUTO;
@@ -237,6 +239,8 @@ void Style::copyAttrs (StyleAttrs *attrs)
    textAlign = attrs->textAlign;
    valign = attrs->valign;
    textAlignChar = attrs->textAlignChar;
+   vloat = attrs->vloat;
+   clear = attrs->clear;
    hBorderSpacing = attrs->hBorderSpacing;
    vBorderSpacing = attrs->vBorderSpacing;
    wordSpacing = attrs->wordSpacing;
