@@ -173,6 +173,9 @@ protected:
     */
    virtual void markExtremesChange (int ref);
 
+   virtual void notifySetAsTopLevel();
+   virtual void notifySetParent();
+
    virtual bool buttonPressImpl (EventButton *event);
    virtual bool buttonReleaseImpl (EventButton *event);
    virtual bool motionNotifyImpl (EventMotion *event);
