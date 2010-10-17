@@ -428,7 +428,7 @@ void CssStyleSheet::apply (CssPropertyList *props,
       }
    }
 
-   ruleList[numLists] = elementTable[docTree->top ()->element];
+   ruleList[numLists] = elementTable[node->element];
    if (ruleList[numLists])
       numLists++;
 
@@ -512,9 +512,8 @@ CssContext::~CssContext () {
  * This allows e.g. user styles to overwrite author styles.
  */
 void CssContext::apply (CssPropertyList *props, Doctree *docTree,
+         DoctreeNode *node,
          CssPropertyList *tagStyle, CssPropertyList *nonCssHints) {
-   const DoctreeNode *node = docTree->top ();
-
    if (sheet[CSS_PRIMARY_USER_AGENT])
       sheet[CSS_PRIMARY_USER_AGENT]->apply (props, docTree, node);
 
@@ -558,8 +557,7 @@ void CssContext::addRule (CssSelector *sel, CssPropertyList *props,
  */
 void CssContext::buildUserAgentStyle () {
    const char *cssBuf =
-     "body  {background-color: #e0e0a3; font-family: sans-serif; color: black;"
-     "       margin: 5px}"
+     "body  {margin: 5px}"
      "big {font-size: 1.17em}"
      "blockquote, dd {margin-left: 40px; margin-right: 40px}"
      "center {text-align: center}"
