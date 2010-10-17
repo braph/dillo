@@ -50,7 +50,8 @@ StyleEngine::StyleEngine (dw::core::Layout *layout) {
 
    n->style = Style::create (layout, &style_attrs);
    n->wordStyle = NULL;
-   n->styleAttribute = NULL;
+   n->styleAttrProperties = NULL;
+   n->nonCssProperties = NULL;
    n->inheritBackgroundColor = false;
 }
 
@@ -67,17 +68,19 @@ StyleEngine::~StyleEngine () {
  */
 void StyleEngine::startElement (int element) {
    if (stack->getRef (stack->size () - 1)->style == NULL)
-      style0 ();
+      style0 (stack->size () - 1);
 
    stack->increase ();
    Node *n = stack->getRef (stack->size () - 1);
+   n->styleAttrProperties = NULL;
+   n->nonCssProperties = NULL;
    n->style = NULL;
    n->wordStyle = NULL;
-   n->styleAttribute = NULL;
    n->inheritBackgroundColor = false;
 
    DoctreeNode *dn = doctree->push ();
    dn->element = element;
+   n->doctreeNode = dn;
 }
 
 void StyleEngine::startElement (const char *tagname) {
@@ -121,20 +124,36 @@ void StyleEngine::setClass (const char *klass) {
    dn->klass = splitStr (klass, ' ');
 };
 
-void StyleEngine::setStyle (const char *style) {
+void StyleEngine::setStyle (const char *styleAttr) {
    Node *n = stack->getRef (stack->size () - 1);
-   assert (n->styleAttribute == NULL);
-   n->styleAttribute = dStrdup (style);
+   assert (n->styleAttrProperties == NULL);
+   // parse style information from style="" attribute, if it exists
+   if (styleAttr && prefs.parse_embedded_css)
+      n->styleAttrProperties =
+         CssParser::parseDeclarationBlock (styleAttr,
+                                           strlen (styleAttr));
 };
 
 /**
- * \brief set properties that were definded using (mostly deprecated) HTML
- *    attributes (e.g. bgColor).
+ * \brief Instruct StyleEngine to use the nonCssHints from parent element
+ * This is only used for tables where nonCssHints on the TABLE-element
+ * (e.g. border=1) also affect child elements like TD.
  */
-void StyleEngine::setNonCssHints (CssPropertyList *nonCssHints) {
-   if (stack->getRef (stack->size () - 1)->style)
-      stack->getRef (stack->size () - 1)->style->unref ();
-   style0 (nonCssHints); // evaluate now, so caller can free nonCssHints
+void StyleEngine::inheritNonCssHints () {
+   Node *pn = stack->getRef (stack->size () - 2);
+   Node *n = stack->getRef (stack->size () - 1);
+
+   if (pn->nonCssProperties)
+      n->nonCssProperties = new CssPropertyList (*pn->nonCssProperties, true);
+}
+
+void StyleEngine::clearNonCssHints () {
+   Node *n = stack->getRef (stack->size () - 1);
+
+   if (n->nonCssProperties) {
+      delete n->nonCssProperties;
+      n->nonCssProperties = NULL;
+   }
 }
 
 /**
@@ -145,6 +164,17 @@ void StyleEngine::setNonCssHints (CssPropertyList *nonCssHints) {
  */
 void StyleEngine::inheritBackgroundColor () {
    stack->getRef (stack->size () - 1)->inheritBackgroundColor = true;
+}
+
+dw::core::style::Color *StyleEngine::backgroundColor () {
+   for (int i = 1; i < stack->size (); i++) {
+      Node *n = stack->getRef (i);
+
+      if (n->style && n->style->backgroundColor)
+         return n->style->backgroundColor;
+   }
+
+   return NULL;
 }
 
 /**
@@ -172,12 +202,14 @@ void StyleEngine::endElement (int element) {
 
    Node *n = stack->getRef (stack->size () - 1);
 
+   if (n->styleAttrProperties)
+      delete n->styleAttrProperties;
+   if (n->nonCssProperties)
+      delete n->nonCssProperties;
    if (n->style)
       n->style->unref ();
    if (n->wordStyle)
       n->wordStyle->unref ();
-   if (n->styleAttribute)
-      dFree ((void*) n->styleAttribute);
 
    doctree->pop ();
    stack->setSize (stack->size () - 1);
@@ -227,9 +259,9 @@ void StyleEngine::postprocessAttrs (dw::core::style::StyleAttrs *attrs) {
 /**
  * \brief Make changes to StyleAttrs attrs according to CssPropertyList props.
  */
-void StyleEngine::apply (StyleAttrs *attrs, CssPropertyList *props) {
+void StyleEngine::apply (int i, StyleAttrs *attrs, CssPropertyList *props) {
    FontAttrs fontAttrs = *attrs->font;
-   Font *parentFont = stack->get (stack->size () - 2).style->font;
+   Font *parentFont = stack->get (i - 1).style->font;
    char *c, *fontName;
    int lineHeight;
 
@@ -641,58 +673,69 @@ Style * StyleEngine::backgroundStyle () {
  * HTML elements and the nonCssProperties that have been set.
  * This method is private. Call style() to get a current style object.
  */
-Style * StyleEngine::style0 (CssPropertyList *nonCssProperties) {
-   CssPropertyList props, *styleAttributeProps = NULL;
-   const char *styleAttribute =
-      stack->getRef (stack->size () - 1)->styleAttribute;
+Style * StyleEngine::style0 (int i) {
+   CssPropertyList props, *styleAttrProperties, *nonCssProperties;
    // get previous style from the stack
-   StyleAttrs attrs = *stack->getRef (stack->size () - 2)->style;
+   StyleAttrs attrs = *stack->getRef (i - 1)->style;
 
    // Ensure that StyleEngine::style0() has not been called before for
    // this element.
    // Style computation is expensive so limit it as much as possible.
    // If this assertion is hit, you need to rearrange the code that is
-   // doing styleEngine calls to call setNonCssHints() before calling
+   // doing styleEngine calls to call setNonCssHint() before calling
    // style() or wordStyle() for each new element.
-   assert (stack->getRef (stack->size () - 1)->style == NULL);
+   assert (stack->getRef (i)->style == NULL);
 
    // reset values that are not inherited according to CSS
    attrs.resetValues ();
    preprocessAttrs (&attrs);
 
-   // parse style information from style="" attribute, if it exists
-   if (styleAttribute && prefs.parse_embedded_css)
-      styleAttributeProps =
-         CssParser::parseDeclarationBlock (styleAttribute,
-                                           strlen (styleAttribute));
+   styleAttrProperties = stack->getRef (i)->styleAttrProperties;
+   nonCssProperties = stack->getRef (i)->nonCssProperties;
 
    // merge style information
-   cssContext->apply (&props, doctree, styleAttributeProps, nonCssProperties);
+   cssContext->apply (&props, doctree, stack->getRef(i)->doctreeNode,
+                      styleAttrProperties, nonCssProperties);
 
    // apply style
-   apply (&attrs, &props);
+   apply (i, &attrs, &props);
 
    postprocessAttrs (&attrs);
 
-   stack->getRef (stack->size () - 1)->style = Style::create (layout, &attrs);
+   stack->getRef (i)->style = Style::create (layout, &attrs);
 
-   if (styleAttributeProps)
-      delete styleAttributeProps;
-
-   return stack->getRef (stack->size () - 1)->style;
+   return stack->getRef (i)->style;
 }
 
-Style * StyleEngine::wordStyle0 (CssPropertyList *nonCssProperties) {
+Style * StyleEngine::wordStyle0 () {
    StyleAttrs attrs = *style ();
    attrs.resetValues ();
 
-   if (stack->getRef (stack->size () - 1)->inheritBackgroundColor)
+   if (stack->getRef (stack->size() - 1)->inheritBackgroundColor)
       attrs.backgroundColor = style ()->backgroundColor;
 
    attrs.valign = style ()->valign;
 
    stack->getRef(stack->size() - 1)->wordStyle = Style::create(layout, &attrs);
    return stack->getRef (stack->size () - 1)->wordStyle;
+}
+
+/**
+ * \brief Recompute all style information from scratch
+ * This is used to take into account CSS styles for the HTML-element. 
+ * The CSS data is only completely available after parsing the HEAD-section
+ * and thereby after the HTML-element has been opened.
+ * Note that restyle() does not change any styles in the widget tree.
+ */
+void StyleEngine::restyle () {
+   for (int i = 1; i < stack->size (); i++) {
+      Node *n = stack->getRef (i);
+      if (n->style) {
+         n->style->unref ();
+         n->style = NULL;
+      }
+      style0 (i);
+   }
 }
 
 void StyleEngine::parse (DilloHtml *html, DilloUrl *url, const char *buf,

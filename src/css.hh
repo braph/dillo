@@ -304,25 +304,30 @@ class CssPropertyList : public lout::misc::SimpleVector <CssProperty> {
          refCount = 0;
          this->ownerOfStrings = ownerOfStrings;
       };
-      inline CssPropertyList(const CssPropertyList &p) :
+      inline CssPropertyList(const CssPropertyList &p, bool deep = false) :
          lout::misc::SimpleVector <CssProperty> (p) {
          refCount = 0;
-         ownerOfStrings = false;
+         if (deep) {
+            for (int i = 0; i < size (); i++) {
+               CssProperty *p = getRef(i);
+               switch (p->type) {
+                  case CSS_TYPE_STRING:
+                  case CSS_TYPE_SYMBOL:
+                     p->value.strVal = dStrdup (p->value.strVal);
+                     break;
+                  default:
+                     break;
+               }
+            }
+            ownerOfStrings = true;
+         } else {
+            ownerOfStrings = false;
+         }
       };
       ~CssPropertyList ();
 
       void set (CssPropertyName name, CssValueType type,
                 CssPropertyValue value);
-      inline void set (CssPropertyName name, CssValueType type, char *value) {
-         CssPropertyValue v;
-         v.strVal = value;
-         set (name, type, v);
-      };
-      inline void set (CssPropertyName name, CssValueType type, int value) {
-         CssPropertyValue v;
-         v.intVal = value;
-         set (name, type, v);
-      };
       void apply (CssPropertyList *props);
       void print ();
       inline void ref () { refCount++; }
@@ -488,7 +493,7 @@ class CssContext {
       void addRule (CssSelector *sel, CssPropertyList *props,
                     CssPrimaryOrder order);
       void apply (CssPropertyList *props,
-         Doctree *docTree,
+         Doctree *docTree, DoctreeNode *node,
          CssPropertyList *tagStyle, CssPropertyList *nonCssHints);
 };
 
