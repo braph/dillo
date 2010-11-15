@@ -47,6 +47,7 @@ void StyleAttrs::initValues ()
    valign = VALIGN_BASELINE;
    backgroundColor = NULL;
    width = height = lineHeight = LENGTH_AUTO;
+   textIndent = 0;
    margin.setVal (0);
    borderWidth.setVal (0);
    padding.setVal (0);
@@ -122,6 +123,7 @@ bool StyleAttrs::equals (object::Object *other) {
        width == otherAttrs->width &&
        height == otherAttrs->height &&
        lineHeight == otherAttrs->lineHeight &&
+       textIndent == otherAttrs->textIndent &&
        margin.equals (&otherAttrs->margin) &&
        borderWidth.equals (&otherAttrs->borderWidth) &&
        padding.equals (&otherAttrs->padding) &&
@@ -158,6 +160,7 @@ int StyleAttrs::hashValue () {
       width +
       height +
       lineHeight +
+      textIndent +
       margin.hashValue () +
       borderWidth.hashValue () +
       padding.hashValue () +
@@ -247,6 +250,7 @@ void Style::copyAttrs (StyleAttrs *attrs)
    width = attrs->width;
    height = attrs->height;
    lineHeight = attrs->lineHeight;
+   textIndent = attrs->textIndent;
    margin = attrs->margin;
    borderWidth = attrs->borderWidth;
    padding = attrs->padding;
