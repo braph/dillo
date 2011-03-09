@@ -14,73 +14,63 @@
 #include <unistd.h>
 #include <stdio.h>
 
-#include <fltk/HighlightButton.h>
-#include <fltk/run.h>
-#include <fltk/damage.h>
-#include <fltk/xpmImage.h>
-#include <fltk/events.h>        // for mouse buttons and keys
-#include <fltk/Font.h>          // UI label font for tabs
-#include <fltk/InvisibleBox.h>
-#include <fltk/PopupMenu.h>
-#include <fltk/Item.h>
-#include <fltk/Divider.h>
-
 #include "keys.hh"
 #include "ui.hh"
 #include "msg.h"
 #include "timeout.hh"
 #include "utf8.hh"
 
-using namespace fltk;
-
+#include <FL/Fl.H>
+#include <FL/Fl_Pixmap.H>
+#include <FL/Fl_Box.H>
 
 // Include image data
 #include "pixmaps.h"
 #include "uicmd.hh"
 
 struct iconset {
-   Image *ImgMeterOK, *ImgMeterBug,
-         *ImgHome, *ImgReload, *ImgSave, *ImgBook, *ImgTools,
-         *ImgClear,*ImgSearch, *ImgHelp;
-   MultiImage *ImgLeftMulti, *ImgRightMulti, *ImgStopMulti;
+   Fl_Image *ImgMeterOK, *ImgMeterBug,
+            *ImgHome, *ImgReload, *ImgSave, *ImgBook, *ImgTools,
+            *ImgClear,*ImgSearch, *ImgHelp, *ImgLeft, *ImgLeftIn,
+            *ImgRight, *ImgRightIn, *ImgStop, *ImgStopIn;
 };
 
 static struct iconset standard_icons = {
-   new xpmImage(mini_ok_xpm),
-   new xpmImage(mini_bug_xpm),
-   new xpmImage(home_xpm),
-   new xpmImage(reload_xpm),
-   new xpmImage(save_xpm),
-   new xpmImage(bm_xpm),
-   new xpmImage(tools_xpm),
-   new xpmImage(new_s_xpm),
-   new xpmImage(search_xpm),
-   new xpmImage(help_xpm),
-   new MultiImage(*new xpmImage(left_xpm), INACTIVE_R,
-                  *new xpmImage(left_i_xpm)),
-   new MultiImage(*new xpmImage(right_xpm), INACTIVE_R,
-                  *new xpmImage(right_i_xpm)),
-   new MultiImage(*new xpmImage(stop_xpm), INACTIVE_R,
-                  *new xpmImage(stop_i_xpm)),
+   new Fl_Pixmap(mini_ok_xpm),
+   new Fl_Pixmap(mini_bug_xpm),
+   new Fl_Pixmap(home_xpm),
+   new Fl_Pixmap(reload_xpm),
+   new Fl_Pixmap(save_xpm),
+   new Fl_Pixmap(bm_xpm),
+   new Fl_Pixmap(tools_xpm),
+   new Fl_Pixmap(new_s_xpm),
+   new Fl_Pixmap(search_xpm),
+   new Fl_Pixmap(help_xpm),
+   new Fl_Pixmap(left_xpm),
+   new Fl_Pixmap(left_i_xpm),
+   new Fl_Pixmap(right_xpm),
+   new Fl_Pixmap(right_i_xpm),
+   new Fl_Pixmap(stop_xpm),
+   new Fl_Pixmap(stop_i_xpm),
 };
 
 static struct iconset small_icons = {
    standard_icons.ImgMeterOK,
    standard_icons.ImgMeterBug,
-   new xpmImage(home_s_xpm),
-   new xpmImage(reload_s_xpm),
-   new xpmImage(save_s_xpm),
-   new xpmImage(bm_s_xpm),
-   new xpmImage(tools_s_xpm),
-   new xpmImage(new_s_xpm),
+   new Fl_Pixmap(home_s_xpm),
+   new Fl_Pixmap(reload_s_xpm),
+   new Fl_Pixmap(save_s_xpm),
+   new Fl_Pixmap(bm_s_xpm),
+   new Fl_Pixmap(tools_s_xpm),
+   new Fl_Pixmap(new_s_xpm),
    standard_icons.ImgSearch,
    standard_icons.ImgHelp,
-   new MultiImage(*new xpmImage(left_s_xpm), INACTIVE_R,
-                  *new xpmImage(left_si_xpm)),
-   new MultiImage(*new xpmImage(right_s_xpm), INACTIVE_R,
-                  *new xpmImage(right_si_xpm)),
-   new MultiImage(*new xpmImage(stop_s_xpm), INACTIVE_R,
-                  *new xpmImage(stop_si_xpm)),
+   new Fl_Pixmap(left_s_xpm),
+   new Fl_Pixmap(left_si_xpm),
+   new Fl_Pixmap(right_i_xpm),
+   new Fl_Pixmap(right_si_xpm),
+   new Fl_Pixmap(stop_s_xpm),
+   new Fl_Pixmap(stop_si_xpm),
 };
 
 
@@ -95,49 +85,51 @@ static struct iconset *icons = &standard_icons;
 /*
  * (Used to avoid certain shortcuts in the location bar)
  */
-class CustInput : public Input {
+class CustInput : public Fl_Input {
 public:
    CustInput (int x, int y, int w, int h, const char* l=0) :
-      Input(x,y,w,h,l) {};
+      Fl_Input(x,y,w,h,l) {};
    int handle(int e);
 };
 
 /*
- * Disable: UpKey, DownKey, PageUpKey, PageDownKey and
- * CTRL+{o,r,HomeKey,EndKey}
+ * Disable keys: Up, Down, Page_Up, Page_Down and
+ * CTRL+{o,r,Home,End}
  */
 int CustInput::handle(int e)
 {
-   int k = event_key();
+   int k = Fl::event_key();
 
    _MSG("CustInput::handle event=%d\n", e);
 
    // We're only interested in some flags
-   unsigned modifier = event_state() & (SHIFT | CTRL | ALT);
+   //unsigned modifier = Fl::event_state() & (FL_SHIFT | FL_CTRL | FL_ALT);
 
    // Don't focus with arrow keys
-   if (e == FOCUS &&
-       (k == UpKey || k == DownKey || k == LeftKey || k == RightKey)) {
+   if (e == FL_FOCUS &&
+       (k == FL_Up || k == FL_Down || k == FL_Left || k == FL_Right)) {
       return 0;
-   } else if (e == KEY) {
-      if (modifier == CTRL) {
+   }
+#if 0
+   } else if (e == FL_KEYBOARD) {
+      if (modifier == FL_CTRL) {
          if (k == 'l') {
             // Make text selected when already focused.
             position(size(), 0);
             return 1;
-         } else if (k == 'o' || k == 'r' || k == HomeKey || k == EndKey)
+         } else if (k == 'o' || k == 'r' || k == FL_Home || k == FL_End)
             return 0;
-      } else if (modifier == SHIFT) {
-         if (k == LeftKey || k == RightKey) {
-            _MSG(" CustInput::handle > SHIFT+RightKey\n");
+      } else if (modifier == FL_SHIFT) {
+         if (k == FL_Left || k == FL_Right) {
+            _MSG(" CustInput::handle > FL_SHIFT+FL_Right\n");
             a_UIcmd_send_event_to_tabs_by_wid(e, this);
             return 1;
          }
       }
    }
    _MSG("\n");
-
-   return Input::handle(e);
+#endif
+   return Fl_Input::handle(e);
 }
 
 //----------------------------------------------------------------------------
@@ -145,24 +137,24 @@ int CustInput::handle(int e)
 /*
  * Used to handle "paste" within the toolbar's Clear button.
  */
-class CustHighlightButton : public HighlightButton {
+class CustButton : public Fl_Button {
 public:
-   CustHighlightButton(int x, int y, int w, int h, const char *l=0) :
-      HighlightButton(x,y,w,h,l) {};
+   CustButton(int x, int y, int w, int h, const char *l=0) :
+      Fl_Button(x,y,w,h,l) {};
    int handle(int e);
 };
 
-int CustHighlightButton::handle(int e)
+int CustButton::handle(int e)
 {
-   if (e == PASTE) {
-      const char* t = event_text();
+   if (e == FL_PASTE) {
+      const char* t = Fl::event_text();
       if (t && *t) {
          a_UIcmd_set_location_text(a_UIcmd_get_bw_by_widget(this), t);
          a_UIcmd_open_urlstr(a_UIcmd_get_bw_by_widget(this), t);
          return 1;
       }
    }
-   return HighlightButton::handle(e);
+   return Fl_Button::handle(e);
 }
 
 //----------------------------------------------------------------------------
@@ -170,11 +162,11 @@ int CustHighlightButton::handle(int e)
 /*
  * Used to resize the progress boxes automatically.
  */
-class CustProgressBox : public InvisibleBox {
+class CustProgressBox : public Fl_Box {
    int padding;
 public:
    CustProgressBox(int x, int y, int w, int h, const char *l=0) :
-      InvisibleBox(x,y,w,h,l) { padding = 0; };
+      Fl_Box(x,y,w,h,l) { padding = 0; };
    void update_label(const char *lbl) {
       int w,h;
       if (!padding) {
@@ -183,8 +175,8 @@ public:
          padding = w > 2 ? w/2 : 1;
       }
       copy_label(lbl);
-      measure_label(w,h);
-      resize(w+padding,h);
+      //measure_label(w,h);
+      //size(w+padding,this->h());
       redraw_label();
    }
 };
@@ -205,15 +197,15 @@ public:
 /*
  * Callback for the search button.
  */
-static void search_cb(Widget *wid, void *data)
+static void search_cb(Fl_Widget *wid, void *data)
 {
-   int k = event_key();
+   int b = Fl::event_button();
 
-   if (k == 1) {
+   if (b == FL_LEFT_MOUSE) {
       a_UIcmd_search_dialog(a_UIcmd_get_bw_by_widget(wid));
-   } else if (k == 2) {
+   } else if (b == FL_MIDDLE_MOUSE) {
       ((UI*)data)->color_change_cb_i();
-   } else if (k == 3) {
+   } else if (b == FL_RIGHT_MOUSE) {
       ((UI*)data)->panel_cb_i();
    }
 }
@@ -221,7 +213,7 @@ static void search_cb(Widget *wid, void *data)
 /*
  * Callback for the help button.
  */
-static void help_cb(Widget *w, void *)
+static void help_cb(Fl_Widget *w, void *)
 {
    char *path = dStrconcat(DILLO_DOCDIR, "user_help.html", NULL);
    BrowserWindow *bw = a_UIcmd_get_bw_by_widget(w);
@@ -241,10 +233,10 @@ static void help_cb(Widget *w, void *)
 /*
  * Callback for the File menu button.
  */
-static void filemenu_cb(Widget *wid, void *)
+static void filemenu_cb(Fl_Widget *wid, void *)
 {
-   int k = event_key();
-   if (k == 1 || k == 3) {
+   int b = Fl::event_button();
+   if (b == FL_LEFT_MOUSE || b == FL_RIGHT_MOUSE) {
       a_UIcmd_file_popup(a_UIcmd_get_bw_by_widget(wid), wid);
    }
 }
@@ -252,15 +244,15 @@ static void filemenu_cb(Widget *wid, void *)
 /*
  * Callback for the location's clear-button.
  */
-static void clear_cb(Widget *w, void *data)
+static void clear_cb(Fl_Widget *w, void *data)
 {
    UI *ui = (UI*)data;
 
-   int k = event_key();
-   if (k == 1) {
+   int b = Fl::event_button();
+   if (b == FL_LEFT_MOUSE) {
       ui->set_location("");
       ui->focus_location();
-   } if (k == 2) {
+   } if (b == FL_MIDDLE_MOUSE) {
       ui->paste_url();
    }
 }
@@ -268,7 +260,7 @@ static void clear_cb(Widget *w, void *data)
 /*
  * Change the color of the location bar.
  *
-static void color_change_cb(Widget *wid, void *data)
+static void color_change_cb(Fl_Widget *wid, void *data)
 {
    ((UI*)data)->color_change_cb_i();
 }
@@ -278,9 +270,9 @@ static void color_change_cb(Widget *wid, void *data)
 /*
  * Send the browser to the new URL in the location.
  */
-static void location_cb(Widget *wid, void *data)
+static void location_cb(Fl_Widget *wid, void *data)
 {
-   Input *i = (Input*)wid;
+   Fl_Input *i = (Fl_Input*)wid;
    UI *ui = (UI*)data;
 
    _MSG("location_cb()\n");
@@ -288,7 +280,7 @@ static void location_cb(Widget *wid, void *data)
     * other events we're not interested in. For instance pressing
     * The Back or Forward, buttons, or the first click on a rendered
     * page. BUG: this must be investigated and reported to FLTK2 team */
-   if (event_key() == ReturnKey) {
+   if (Fl::event_key() == FL_Enter) {
       a_UIcmd_open_urlstr(a_UIcmd_get_bw_by_widget(i), i->value());
    }
    if (ui->get_panelmode() == UI_TEMPORARILY_SHOW_PANELS) {
@@ -300,56 +292,56 @@ static void location_cb(Widget *wid, void *data)
 /*
  * Callback handler for button press on the panel
  */
-static void b1_cb(Widget *wid, void *cb_data)
+static void b1_cb(Fl_Widget *wid, void *cb_data)
 {
    int bn = VOIDP2INT(cb_data);
-   int k = event_key();
-   if (k && k <= 7) {
-      _MSG("[%s], mouse button %d was pressed\n", button_names[bn], k);
-      _MSG("mouse button %d was pressed\n", k);
+   int b = Fl::event_button();
+   if (b >= FL_LEFT_MOUSE && b <= FL_RIGHT_MOUSE) {
+      _MSG("[%s], mouse button %d was pressed\n", button_names[bn], b);
+      _MSG("mouse button %d was pressed\n", b);
    }
    switch (bn) {
    case UI_BACK:
-      if (k == 1) {
+      if (b == FL_LEFT_MOUSE) {
          a_UIcmd_back(a_UIcmd_get_bw_by_widget(wid));
-      } else if (k == 3) {
+      } else if (b == FL_RIGHT_MOUSE) {
          a_UIcmd_back_popup(a_UIcmd_get_bw_by_widget(wid));
       }
       break;
    case UI_FORW:
-      if (k == 1) {
+      if (b == FL_LEFT_MOUSE) {
          a_UIcmd_forw(a_UIcmd_get_bw_by_widget(wid));
-      } else if (k == 3) {
+      } else if (b == FL_RIGHT_MOUSE) {
          a_UIcmd_forw_popup(a_UIcmd_get_bw_by_widget(wid));
       }
       break;
    case UI_HOME:
-      if (k == 1) {
+      if (b == FL_LEFT_MOUSE) {
          a_UIcmd_home(a_UIcmd_get_bw_by_widget(wid));
       }
       break;
    case UI_RELOAD:
-      if (k == 1) {
+      if (b == FL_LEFT_MOUSE) {
          a_UIcmd_reload(a_UIcmd_get_bw_by_widget(wid));
       }
       break;
    case UI_SAVE:
-      if (k == 1) {
+      if (b == FL_LEFT_MOUSE) {
          a_UIcmd_save(a_UIcmd_get_bw_by_widget(wid));
       }
       break;
    case UI_STOP:
-      if (k == 1) {
+      if (b == FL_LEFT_MOUSE) {
          a_UIcmd_stop(a_UIcmd_get_bw_by_widget(wid));
       }
       break;
    case UI_BOOK:
-      if (k == 1) {
+      if (b == FL_LEFT_MOUSE) {
          a_UIcmd_book(a_UIcmd_get_bw_by_widget(wid));
       }
       break;
    case UI_TOOLS:
-      if (k == 1 || k == 3) {
+      if (b == FL_LEFT_MOUSE || b == FL_RIGHT_MOUSE) {
          a_UIcmd_tools(a_UIcmd_get_bw_by_widget(wid), wid);
       }
       break;
@@ -361,7 +353,7 @@ static void b1_cb(Widget *wid, void *cb_data)
 /*
  * Callback handler for fullscreen button press
  */
-//static void fullscreen_cb(Widget *wid, void *data)
+//static void fullscreen_cb(Fl_Widget *wid, void *data)
 //{
 //   /* TODO: do we want to toggle fullscreen or panelmode?
 //            maybe we need to add another button?*/
@@ -371,12 +363,12 @@ static void b1_cb(Widget *wid, void *cb_data)
 /*
  * Callback for the bug meter button.
  */
-static void bugmeter_cb(Widget *wid, void *data)
+static void bugmeter_cb(Fl_Widget *wid, void *data)
 {
-   int k = event_key();
-   if (k == 1) {
+   int b = Fl::event_button();
+   if (b == FL_LEFT_MOUSE) {
       a_UIcmd_view_page_bugs(a_UIcmd_get_bw_by_widget(wid));
-   } else if (k == 3) {
+   } else if (b == FL_RIGHT_MOUSE) {
       a_UIcmd_bugmeter_popup(a_UIcmd_get_bw_by_widget(wid));
    }
 }
@@ -390,56 +382,40 @@ static void bugmeter_cb(Widget *wid, void *data)
 //----------------------------
 
 /*
+ * Make a generic navigation button
+ */
+Fl_Button *UI::make_button(const char *label, Fl_Image *img, Fl_Image *deimg,
+                           int b_n, int start)
+{
+   if (start)
+      p_xpos = 0;
+
+   Fl_Button *b = new Fl_Button(p_xpos, 0, bw, bh, (lbl) ? label : NULL);
+   if (img)
+      b->image(img);
+   if (deimg)
+      b->deimage(deimg);
+   b->callback(b1_cb, (void *)b_n);
+   b->clear_visible_focus();
+   b->labelsize(12);
+   b->box(FL_NO_BOX);
+   p_xpos += bw;
+   return b;
+}
+
+/*
  * Create the archetipic browser buttons
  */
-PackedGroup *UI::make_toolbar(int tw, int th)
+void UI::make_toolbar(int tw, int th)
 {
-   HighlightButton *b;
-   PackedGroup *p1=new PackedGroup(0,0,tw,th);
-   p1->begin();
-    Back = b = new HighlightButton(xpos, 0, bw, bh, (lbl) ? "Back" : 0);
-    b->image(icons->ImgLeftMulti);
-    b->callback(b1_cb, (void *)UI_BACK);
-    b->clear_tab_to_focus();
-    HighlightButton::default_style->highlight_color(CuteColor);
-
-    Forw = b = new HighlightButton(xpos, 0, bw, bh, (lbl) ? "Forw" : 0);
-    b->image(icons->ImgRightMulti);
-    b->callback(b1_cb, (void *)UI_FORW);
-    b->clear_tab_to_focus();
-
-    Home = b = new HighlightButton(xpos, 0, bw, bh, (lbl) ? "Home" : 0);
-    b->image(icons->ImgHome);
-    b->callback(b1_cb, (void *)UI_HOME);
-    b->clear_tab_to_focus();
-
-    Reload = b = new HighlightButton(xpos, 0, bw, bh, (lbl) ? "Reload" : 0);
-    b->image(icons->ImgReload);
-    b->callback(b1_cb, (void *)UI_RELOAD);
-    b->clear_tab_to_focus();
-
-    Save = b = new HighlightButton(xpos, 0, bw, bh, (lbl) ? "Save" : 0);
-    b->image(icons->ImgSave);
-    b->callback(b1_cb, (void *)UI_SAVE);
-    b->clear_tab_to_focus();
-
-    Stop = b = new HighlightButton(xpos, 0, bw, bh, (lbl) ? "Stop" : 0);
-    b->image(icons->ImgStopMulti);
-    b->callback(b1_cb, (void *)UI_STOP);
-    b->clear_tab_to_focus();
-
-    Bookmarks = b = new HighlightButton(xpos, 0, bw, bh, (lbl) ? "Book" : 0);
-    b->image(icons->ImgBook);
-    b->callback(b1_cb, (void *)UI_BOOK);
-    b->clear_tab_to_focus();
-
-    Tools = b = new HighlightButton(xpos, 0, bw, bh, (lbl) ? "Tools" : 0);
-    b->image(icons->ImgTools);
-    b->callback(b1_cb, (void *)UI_TOOLS);
-    b->clear_tab_to_focus();
-
-   p1->type(PackedGroup::ALL_CHILDREN_VERTICAL);
-   p1->end();
+   Back = make_button("Back", icons->ImgLeft, icons->ImgLeftIn, UI_BACK, 1);
+   Forw = make_button("Forw", icons->ImgRight, icons->ImgRightIn, UI_FORW);
+   Home = make_button("Home", icons->ImgHome, NULL, UI_HOME);
+   Reload = make_button("Reload", icons->ImgReload, NULL, UI_RELOAD);
+   Save = make_button("Save", icons->ImgSave, NULL, UI_SAVE);
+   Stop = make_button("Stop", icons->ImgStop, icons->ImgStopIn, UI_STOP);
+   Bookmarks = make_button("Book", icons->ImgBook, NULL, UI_BOOK);
+   Tools = make_button("Tools", icons->ImgTools, NULL, UI_TOOLS);
 
    if (prefs.show_tooltip) {
       Back->tooltip("Previous page");
@@ -451,41 +427,41 @@ PackedGroup *UI::make_toolbar(int tw, int th)
       Bookmarks->tooltip("View bookmarks");
       Tools->tooltip("Settings");
    }
-   return p1;
 }
 
 /*
  * Create the location box (Clear/Input/Search)
  */
-PackedGroup *UI::make_location()
+void UI::make_location(int ww)
 {
-   Button *b;
-   PackedGroup *pg = new PackedGroup(0,0,0,0);
-   pg->begin();
-    Clear = b = new CustHighlightButton(2,2,16,22,0);
+   Fl_Button *b;
+
+    Clear = b = new CustButton(p_xpos,0,16,lh,0);
     b->image(icons->ImgClear);
     b->callback(clear_cb, this);
-    b->clear_tab_to_focus();
+    b->clear_visible_focus();
+    b->box(FL_THIN_UP_BOX);
+    p_xpos += b->w();
 
-    Input *i = Location = new CustInput(0,0,0,0,0);
+    Fl_Input *i = Location = new CustInput(p_xpos,0,ww-p_xpos-32,lh,0);
     i->color(CuteColor);
-    i->when(WHEN_ENTER_KEY);
+    i->when(FL_WHEN_ENTER_KEY);
     i->callback(location_cb, this);
-    i->set_click_to_focus();
+    p_xpos += i->w();
 
-    Search = b = new HighlightButton(0,0,16,22,0);
+    Search = b = new Fl_Button(p_xpos,0,16,lh,0);
     b->image(icons->ImgSearch);
     b->callback(search_cb, this);
-    b->clear_tab_to_focus();
+    b->clear_visible_focus();
+    b->box(FL_THIN_UP_BOX);
+    p_xpos += b->w();
 
-    Help = b = new HighlightButton(0,0,16,22,0);
+    Help = b = new Fl_Button(p_xpos,0,16,lh,0);
     b->image(icons->ImgHelp);
     b->callback(help_cb, this);
-    b->clear_tab_to_focus();
-
-   pg->type(PackedGroup::ALL_CHILDREN_VERTICAL);
-   pg->resizable(i);
-   pg->end();
+    b->clear_visible_focus();
+    b->box(FL_THIN_UP_BOX);
+    p_xpos += b->w();
 
    if (prefs.show_tooltip) {
       Clear->tooltip("Clear the URL box.\nMiddle-click to paste a URL.");
@@ -493,55 +469,52 @@ PackedGroup *UI::make_location()
       Search->tooltip("Search the Web");
       Help->tooltip("Help");
    }
-   return pg;
 }
 
 /*
  * Create the progress bars
  */
-PackedGroup *UI::make_progress_bars(int wide, int thin_up)
+void UI::make_progress_bars(int wide, int thin_up)
 {
-   ProgBox = new PackedGroup(0,0,0,0);
-   ProgBox->begin();
     // Images
-    IProg = new CustProgressBox(0,0,0,0);
-    IProg->box(thin_up ? THIN_UP_BOX : EMBOSSED_BOX);
-    IProg->labelcolor(GRAY10);
+    IProg = new CustProgressBox(p_xpos,p_ypos,pw,bh);
+    IProg->labelsize(12);
+    IProg->box(thin_up ? FL_THIN_UP_BOX : FL_EMBOSSED_BOX);
+    IProg->labelcolor(FL_GRAY_RAMP + 2);
     IProg->update_label(wide ? "Images\n0 of 0" : "0 of 0");
+    p_xpos += pw;
     // Page
-    PProg = new CustProgressBox(0,0,0,0);
-    PProg->box(thin_up ? THIN_UP_BOX : EMBOSSED_BOX);
-    PProg->labelcolor(GRAY10);
+    PProg = new CustProgressBox(p_xpos,p_ypos,pw,bh);
+    PProg->labelsize(12);
+    PProg->box(thin_up ? FL_THIN_UP_BOX : FL_EMBOSSED_BOX);
+    PProg->labelcolor(FL_GRAY_RAMP + 2);
     PProg->update_label(wide ? "Page\n0.0KB" : "0.0KB");
-   ProgBox->type(PackedGroup::ALL_CHILDREN_VERTICAL);
-   ProgBox->end();
-
-   return ProgBox;
 }
 
 /*
  * Create the "File" menu
  * Static function for File menu callbacks.
  */
-Widget *UI::make_filemenu_button()
+Fl_Widget *UI::make_filemenu_button()
 {
-   HighlightButton *btn;
+   Fl_Button *btn;
    int w,h, padding;
 
-   FileButton = btn = new HighlightButton(0,0,0,0,"W");
+   FileButton = btn = new Fl_Button(p_xpos,0,0,0,"W");
    btn->measure_label(w, h);
    padding = w;
    btn->copy_label(PanelSize == P_tiny ? "&F" : "&File");
    btn->measure_label(w,h);
    if (PanelSize == P_large)
       h = fh;
-   btn->resize(w+padding,h);
+   btn->size(w+padding,PanelSize == P_tiny ? bh : lh);
+   p_xpos += btn->w();
    _MSG("UI::make_filemenu_button w=%d h=%d padding=%d\n", w, h, padding);
-   btn->box(PanelSize == P_large ? FLAT_BOX : THIN_UP_BOX);
+   btn->box(PanelSize == P_large ? FL_FLAT_BOX : FL_THIN_UP_BOX);
    btn->callback(filemenu_cb, this);
    if (prefs.show_tooltip)
       btn->tooltip("File menu");
-   btn->clear_tab_to_focus();
+   btn->clear_visible_focus();
    if (!prefs.show_filemenu && PanelSize != P_large)
       btn->hide();
    return btn;
@@ -551,11 +524,9 @@ Widget *UI::make_filemenu_button()
 /*
  * Create the control panel
  */
-Group *UI::make_panel(int ww)
+void UI::make_panel(int ww)
 {
-   Widget *w;
-   Group *g1, *g2, *g3;
-   PackedGroup *pg;
+   Fl_Widget *w;
 
    if (PanelSize > P_large) {
       PanelSize = P_tiny;
@@ -567,145 +538,125 @@ Group *UI::make_panel(int ww)
    else
       icons = &standard_icons;
 
+   pw = 70;
+   p_xpos = p_ypos = 0;
    if (PanelSize == P_tiny) {
       if (Small_Icons)
-         xpos = 0, bw = 22, bh = 22, fh = 0, lh = 22, lbl = 0;
+         bw = 22, bh = 22, fh = 0, lh = 22, lbl = 0;
       else
-         xpos = 0, bw = 28, bh = 28, fh = 0, lh = 28, lbl = 0;
+         bw = 28, bh = 28, fh = 0, lh = 28, lbl = 0;
    } else if (PanelSize == P_small) {
       if (Small_Icons)
-         xpos = 0, bw = 20, bh = 20, fh = 0, lh = 20, lbl = 0;
+         bw = 20, bh = 20, fh = 0, lh = 20, lbl = 0;
       else
-         xpos = 0, bw = 28, bh = 28, fh = 0, lh = 28, lbl = 0;
+         bw = 28, bh = 28, fh = 0, lh = 28, lbl = 0;
    } else if (PanelSize == P_medium) {
       if (Small_Icons)
-         xpos = 0, bw = 42, bh = 36, fh = 0, lh = 22, lbl = 1;
+         bw = 42, bh = 36, fh = 0, lh = 22, lbl = 1;
       else
-         xpos = 0, bw = 45, bh = 45, fh = 0, lh = 28, lbl = 1;
+         bw = 45, bh = 45, fh = 0, lh = 28, lbl = 1;
    } else {   // P_large
       if (Small_Icons)
-         xpos = 0, bw = 42, bh = 36, fh = 22, lh = 22, lbl = 1;
+         bw = 42, bh = 36, fh = 22, lh = 22, lbl = 1;
       else
-         xpos = 0, bw = 45, bh = 45, fh = 24, lh = 28, lbl = 1;
+         bw = 45, bh = 45, fh = 24, lh = 28, lbl = 1;
    }
+   nh = bh, sh = 24;
 
    if (PanelSize == P_tiny) {
-      g1 = new Group(0,0,ww,bh);
-       // Toolbar
-       pg = make_toolbar(ww,bh);
-       pg->box(EMBOSSED_BOX);
-       g1->add(pg);
-       w = make_filemenu_button();
-       pg->add(w);
-       w = make_location();
-       pg->add(w);
-       pg->resizable(w);
-       w = make_progress_bars(0,1);
-       pg->add(w);
-
-      g1->resizable(pg);
-
+      NavBar = new CustGroup(0,0,ww,bh);
+      NavBar->begin();
+       make_toolbar(ww,bh);
+       make_filemenu_button();
+       make_location(ww);
+       NavBar->resizable(Location);
+       make_progress_bars(0,1);
+      NavBar->box(FL_THIN_UP_FRAME);
+      NavBar->end();
    } else {
-      g1 = new Group(0,0,ww,fh+lh+bh);
-      g1->begin();
-        // File menu
-        if (PanelSize == P_large) {
-           g3 = new Group(0,0,ww,lh);
-           g3->box(FLAT_BOX);
-           Widget *bn = make_filemenu_button();
-           g3->add(bn);
-           g3->add_resizable(*new InvisibleBox(bn->w(),0,ww - bn->w(),lh));
+       // File menu
+       if (PanelSize == P_large) {
+          Fl_Group *g3 = new Fl_Group(0,0,ww,lh);
+          g3->begin();
+           g3->box(FL_FLAT_BOX);
+           Fl_Widget *bn = make_filemenu_button();
+           g3->add_resizable(*new Fl_Box(bn->w(),0,ww - bn->w(),lh));
+          g3->end();
 
-           g2 = new Group(0,fh,ww,lh);
-           g2->begin();
-           pg = make_location();
-           pg->resize(ww,lh);
-        } else {
-           g2 = new PackedGroup(0,fh,ww,lh);
-           g2->type(PackedGroup::ALL_CHILDREN_VERTICAL);
-           g2->begin();
+          LocBar = new CustGroup(0,0,ww,lh);
+          LocBar->begin();
+           make_location(ww);
+          LocBar->end();
+       } else {
+          LocBar = new CustGroup(0,0,ww,lh);
+           p_xpos = 0;
            make_filemenu_button();
-           pg = make_location();
-        }
-
-       g2->resizable(pg);
-       g2->end();
+           make_location(ww);
+           LocBar->resizable(Location);
+          LocBar->end();
+       }
 
        // Toolbar
-       g3 = new Group(0,fh+lh,ww,bh);
-       g3->begin();
-        pg = make_toolbar(ww,bh);
-        //w = new InvisibleBox(0,0,0,0,"i n v i s i b l e");
-        w = new InvisibleBox(0,0,0,0,0);
-        pg->add(w);
-        pg->resizable(w);
-
+       p_ypos = 0;
+       NavBar = new CustGroup(0,0,ww,bh);
+       NavBar->begin();
+        make_toolbar(ww,bh);
+        w = new Fl_Box(p_xpos,0,ww-p_xpos-2*pw,bh);
+        w->box(FL_NO_BOX);
+        NavBar->resizable(w);
+        p_xpos = ww - 2*pw;
         if (PanelSize == P_small) {
-           w = make_progress_bars(0,0);
+           make_progress_bars(0,0);
         } else {
-           w = make_progress_bars(1,0);
+           make_progress_bars(1,0);
         }
-        pg->add(w);
-
-       g3->resizable(pg); // Better than 'w3' and it also works
-       pg->box(BORDER_FRAME);
-       //g3->box(EMBOSSED_BOX);
-       g3->end();
-
-      g1->resizable(g3);
-      g1->end();
+       NavBar->end();
    }
-
-   return g1;
 }
 
 /*
  * Create the status panel
  */
-Group *UI::make_status_panel(int ww)
+void UI::make_status_panel(int ww)
 {
    const int s_h = 20, bm_w = 16;
-   Group *g = new Group(0, 0, ww, s_h, 0);
+   // HACK: we need a defined StatusOutput
+   StatusPanel = new Fl_Group(0, 400, 1, 1, 0);
+   StatusPanel->end();
 
    // Status box
-   Status = new Output(0, 0, ww-bm_w, s_h, 0);
-   Status->value("");
-   Status->box(THIN_DOWN_BOX);
-   Status->clear_click_to_focus();
-   Status->clear_tab_to_focus();
-   Status->color(GRAY80);
-   g->add(Status);
-   //Status->throw_focus();
+   StatusOutput = new Fl_Output(0, 0, ww-bm_w, s_h, 0);
+   StatusOutput->value("");
+   StatusOutput->box(FL_THIN_DOWN_BOX);
+   StatusOutput->clear_visible_focus();
+   StatusOutput->color(FL_GRAY_RAMP + 18);
+   //StatusOutput->throw_focus();
 
    // Bug Meter
-   BugMeter = new HighlightButton(ww-bm_w,0,bm_w,s_h,0);
+   BugMeter = new Fl_Button(ww-bm_w,0,bm_w,s_h,0);
    BugMeter->image(icons->ImgMeterOK);
-   BugMeter->box(THIN_DOWN_BOX);
-   BugMeter->align(ALIGN_INSIDE|ALIGN_CLIP|ALIGN_LEFT);
+   BugMeter->box(FL_THIN_DOWN_BOX);
+   BugMeter->align(FL_ALIGN_INSIDE|FL_ALIGN_CLIP|FL_ALIGN_LEFT);
    if (prefs.show_tooltip)
       BugMeter->tooltip("Show HTML bugs\n(right-click for menu)");
    BugMeter->callback(bugmeter_cb, this);
-   BugMeter->clear_tab_to_focus();
-   g->add(BugMeter);
-
-   g->resizable(Status);
-   return g;
+   BugMeter->clear_visible_focus();
 }
 
 /*
  * User Interface constructor
  */
-UI::UI(int x, int y, int ww, int wh, const char* label, const UI *cur_ui) :
-  Group(x, y, ww, wh, label)
+UI::UI(int x, int y, int ui_w, int ui_h, const char* label, const UI *cur_ui) :
+  Fl_Pack(x, y, ui_w, ui_h, label)
 {
    PointerOnLink = FALSE;
 
    Tabs = NULL;
    TabTooltip = NULL;
-   TopGroup = new PackedGroup(0, 0, ww, wh);
-   add(TopGroup);
-   resizable(TopGroup);
-   set_flag(RAW_LABEL);
+   TopGroup = this;
+   TopGroup->type(VERTICAL);
+   //resizable(TopGroup);
+   clear_flag(SHORTCUT_LABEL);
 
    if (cur_ui) {
       PanelSize = cur_ui->PanelSize;
@@ -726,32 +677,35 @@ UI::UI(int x, int y, int ww, int wh, const char* label, const UI *cur_ui) :
    }
 
    // Control panel
-   Panel = make_panel(ww);
-   TopGroup->add(Panel);
+   TopGroup->begin();
+    make_panel(ui_w);
+ 
+    // Render area
+    int mh = ui_h - (lh+bh+sh);
+    Main = new Fl_Group(0,0,0,mh,"Welcome...");
+    Main->align(FL_ALIGN_CENTER|FL_ALIGN_INSIDE);
+    Main->box(FL_FLAT_BOX);
+    Main->color(FL_GRAY_RAMP + 3);
+    Main->labelfont(FL_HELVETICA_BOLD_ITALIC);
+    Main->labelsize(36);
+    Main->labeltype(FL_SHADOW_LABEL);
+    Main->labelcolor(FL_WHITE);
+    TopGroup->resizable(Main);
+    MainIdx = TopGroup->find(Main);
+ 
+    // Find text bar
+    findbar = new Findbar(ui_w, 28);
+    //TopGroup->add(findbar);
+ 
+    // Status Panel
+    make_status_panel(ui_w);
+    //TopGroup->add(StatusPanel);
 
-   // Render area
-   Main = new Widget(0,0,1,1,"Welcome...");
-   Main->box(FLAT_BOX);
-   Main->color(GRAY15);
-   Main->labelfont(HELVETICA_BOLD_ITALIC);
-   Main->labelsize(36);
-   Main->labeltype(SHADOW_LABEL);
-   Main->labelcolor(WHITE);
-   TopGroup->add(Main);
-   TopGroup->resizable(Main);
-   MainIdx = TopGroup->find(Main);
-
-   // Find text bar
-   findbar = new Findbar(ww, 28);
-   TopGroup->add(findbar);
-
-   // Status Panel
-   StatusPanel = make_status_panel(ww);
-   TopGroup->add(StatusPanel);
+   TopGroup->end();
 
    // Make the full screen button (to be attached to the viewport later)
    // TODO: attach to the viewport
-   //FullScreen = new HighlightButton(0,0,15,15);
+   //FullScreen = new Fl_Button(0,0,15,15);
    //FullScreen->image(ImgFullScreenOn);
    //FullScreen->tooltip("Hide Controls");
    //FullScreen->callback(fullscreen_cb, this);
@@ -759,7 +713,7 @@ UI::UI(int x, int y, int ww, int wh, const char* label, const UI *cur_ui) :
    customize(0);
 
    if (Panelmode) {
-      Panel->hide();
+      //Panel->hide();
       StatusPanel->hide();
    }
 }
@@ -778,14 +732,14 @@ UI::~UI()
  */
 int UI::handle(int event)
 {
-   _MSG("UI::handle event=%d (%d,%d)\n", event, event_x(), event_y());
+   _MSG("UI::handle event=%d (%d,%d)\n", event, Fl::event_x(), Fl::event_y());
    _MSG("Panel->h()=%d Main->h()=%d\n", Panel->h() , Main->h());
 
    int ret = 0;
-
-   if (event == KEY) {
+#if 0
+   if (event == FL_KEYBOARD) {
       return 0; // Receive as shortcut
-   } else if (event == SHORTCUT) {
+   } else if (event == FL_SHORTCUT) {
       KeysCommand_t cmd = Keys::getKeyCmd();
       if (cmd == KEYS_NOP) {
          // Do nothing
@@ -851,19 +805,14 @@ int UI::handle(int event)
          a_Timeout_add(0.0, a_UIcmd_close_all_bw, NULL);
          ret = 1;
       }
-   } else if (event == PUSH) {
+   } else if (event == FL_PUSH) {
       if (prefs.middle_click_drags_page == 0 &&
-          event_button() == MiddleButton &&
+          Fl::event_button() == FL_MIDDLE_MOUSE &&
           !a_UIcmd_pointer_on_link(a_UIcmd_get_bw_by_widget(this))) {
-         if (Main->Rectangle::contains (event_x (), event_y ())) {
+         if (Main->contains(Fl::belowmouse())) {
             /* Offer the event to Main's children (form widgets) */
-            int save_x = e_x, save_y = e_y;
-
-            e_x -= Main->x();
-            e_y -= Main->y();
-            ret = ((Group *)Main)->Group::handle(event);
-            e_x = save_x;
-            e_y = save_y;
+            /* TODO: Try just offering it to Fl::belowmouse() */
+            ret = ((Fl_Group *)Main)->Fl_Group::handle(event);
          }
          if (!ret) {
             /* middle click was not on a link or a form widget */
@@ -872,9 +821,9 @@ int UI::handle(int event)
          }
       }
    }
-
+#endif
    if (!ret) {
-      ret = Group::handle(event);
+      ret = Fl_Group::handle(event);
    }
 
    return ret;
@@ -901,7 +850,7 @@ void UI::set_location(const char *str)
    if (!str) str = "";
    // This text() call clears fl_pending_callback, avoiding
    // an extra location_cb() call.
-   Location->text(str);
+   Location->value(str);
    Location->position(strlen(str));
 }
 
@@ -932,7 +881,7 @@ void UI::focus_main()
  */
 void UI::set_status(const char *str)
 {
-   Status->value(str);
+   StatusOutput->value(str);
 }
 
 /*
@@ -998,7 +947,7 @@ void UI::set_bug_prog(int n_bug)
       BugMeter->redraw_label();
       new_w = strlen(str)*8 + 20;
    }
-   Status->resize(0,0,StatusPanel->w()-new_w,Status->h());
+   StatusOutput->resize(0,0,StatusPanel->w()-new_w,StatusOutput->h());
    BugMeter->resize(StatusPanel->w()-new_w, 0, new_w, BugMeter->h());
    StatusPanel->init_sizes();
 }
@@ -1034,8 +983,10 @@ void UI::customize(int flags)
       Search->hide();
    if ( !prefs.show_help )
       Help->hide();
-   if ( !prefs.show_progress_box )
-      ProgBox->hide();
+// if ( !prefs.show_progress_box )
+//    ProgBox->hide();
+
+   NavBar->rearrange();
 }
 
 /*
@@ -1043,16 +994,18 @@ void UI::customize(int flags)
  */
 void UI::panel_cb_i()
 {
-   Group *NewPanel;
+#if 0
+   Fl_Group *NewPanel;
 
    // Create a new Panel
    ++PanelSize;
    NewPanel = make_panel(TopGroup->w());
-   TopGroup->replace(*Panel, *NewPanel);
+   TopGroup->remove(Panel);
    delete(Panel);
+   TopGroup->add(NewPanel);
    Panel = NewPanel;
    customize(0);
-
+#endif
    Location->take_focus();
 }
 
@@ -1069,7 +1022,6 @@ void UI::color_change_cb_i()
    MSG("Location color %d\n", CuteColor);
    Location->color(CuteColor);
    Location->redraw();
-   HighlightButton::default_style->highlight_color(CuteColor);
 }
 
 /*
@@ -1078,11 +1030,11 @@ void UI::color_change_cb_i()
 void UI::set_panelmode(UIPanelmode mode)
 {
    if (mode == UI_HIDDEN) {
-      Panel->hide();
+      //Panel->hide();
       StatusPanel->hide();
    } else {
       /* UI_NORMAL or UI_TEMPORARILY_SHOW_PANELS */
-      Panel->show();
+      //Panel->show();
       StatusPanel->show();
    }
    Panelmode = mode;
@@ -1107,50 +1059,15 @@ void UI::panelmode_cb_i()
 /*
  * Set 'nw' as the main render area widget
  */
-void UI::set_render_layout(Widget &nw)
+void UI::set_render_layout(Fl_Group &nw)
 {
-   // BUG: replace() is not working as it should.
-   // In our case, replacing the rendering area leaves the vertical
-   // scrollbar without events.
-   //
-   // We'll use a workaround in a_UIcmd_browser_window_new() instead.
-   TopGroup->replace(MainIdx, nw);
+   TopGroup->remove(MainIdx);
    delete(Main);
+   TopGroup->insert(nw, MainIdx);
    Main = &nw;
-   //TopGroup->box(DOWN_BOX);
-   //TopGroup->box(BORDER_FRAME);
-   TopGroup->resizable(TopGroup->child(MainIdx));
-}
-
-/*
- * Set the tab title
- */
-void UI::set_tab_title(const char *label)
-{
-   char title[128];
-
-   dReturn_if_fail(label != NULL);
-
-   if (*label) {
-      // Make a label for this tab
-      size_t tab_chars = 18, label_len = strlen(label);
-
-      if (label_len > tab_chars)
-         tab_chars = a_Utf8_end_of_char(label, tab_chars - 1) + 1;
-      snprintf(title, tab_chars + 1, "%s", label);
-      if (label_len > tab_chars)
-         snprintf(title + tab_chars, 4, "...");
-      // Avoid unnecessary redraws
-      if (strcmp(this->label(), title)) {
-         this->copy_label(title);
-         this->redraw_label();
-      }
-
-      // Disabled because of a bug in fltk::Tabgroup
-      //dFree(TabTooltip);
-      //TabTooltip = dStrdup(label);
-      //this->tooltip(TabTooltip);
-   }
+   TopGroup->resizable(Main);
+   //TopGroup->box(FL_DOWN_BOX);
+   //TopGroup->box(FL_BORDER_FRAME);
 }
 
 /*
@@ -1161,15 +1078,15 @@ void UI::button_set_sens(UIButton btn, int sens)
    switch (btn) {
    case UI_BACK:
       (sens) ? Back->activate() : Back->deactivate();
-      Back->redraw(DAMAGE_HIGHLIGHT);
+//    Back->redraw(DAMAGE_HIGHLIGHT);
       break;
    case UI_FORW:
       (sens) ? Forw->activate() : Forw->deactivate();
-      Forw->redraw(DAMAGE_HIGHLIGHT);
+//    Forw->redraw(DAMAGE_HIGHLIGHT);
       break;
    case UI_STOP:
       (sens) ? Stop->activate() : Stop->deactivate();
-      Stop->redraw(DAMAGE_HIGHLIGHT);
+//    Stop->redraw(DAMAGE_HIGHLIGHT);
       break;
    default:
       break;
@@ -1181,7 +1098,7 @@ void UI::button_set_sens(UIButton btn, int sens)
  */
 void UI::paste_url()
 {
-   paste(*Clear, false);
+   Fl::paste(*Clear, false);
 }
 
 /*

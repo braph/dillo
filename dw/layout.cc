@@ -219,14 +219,19 @@ Layout::Layout (Platform *platform)
 
 Layout::~Layout ()
 {
+   widgetAtPoint = NULL;
+
    if (scrollIdleId != -1)
       platform->removeIdle (scrollIdleId);
    if (resizeIdleId != -1)
       platform->removeIdle (resizeIdleId);
    if (bgColor)
       bgColor->unref ();
-   if (topLevel)
-      delete topLevel;
+   if (topLevel) {
+      Widget *w = topLevel;
+      topLevel = NULL;
+      delete w;
+   }
    delete platform;
    delete view;
    delete anchorsTable;
@@ -278,9 +283,12 @@ void Layout::removeWidget ()
 
 void Layout::setWidget (Widget *widget)
 {
-   if (topLevel)
-      delete topLevel;
    widgetAtPoint = NULL;
+   if (topLevel) {
+      Widget *w = topLevel;
+      topLevel = NULL;
+      delete w;
+   }
    textZone->zoneFree ();
    addWidget (widget);
 
