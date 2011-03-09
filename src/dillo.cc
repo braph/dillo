@@ -24,10 +24,9 @@
 #include <signal.h>
 #include <locale.h>
 
-#include <fltk/Window.h>
-#include <fltk/TabGroup.h>
-#include <fltk/Font.h>
-#include <fltk/run.h>
+#include <FL/Fl.H>
+#include <FL/Fl_Window.H>
+#include <FL/fl_draw.H>
 
 #include "msg.h"
 #include "paths.hh"
@@ -170,6 +169,26 @@ static OptID getCmdOption(const CLI_options *options, int argc, char **argv,
    return opt_id;
 }
 
+static void custLabelDraw(const Fl_Label* o, int X, int Y, int W, int H,
+                          Fl_Align align)
+{
+   const int interpret_symbols = 0;
+
+   fl_font(o->font, o->size);
+   fl_color((Fl_Color)o->color);
+   fl_draw(o->value, X, Y, W, H, align, o->image, interpret_symbols);
+}
+
+static void custLabelMeasure(const Fl_Label* o, int& W, int& H)
+{
+   const int interpret_symbols = 0;
+
+   fl_font(o->font, o->size);
+   fl_measure(o->value, W, H, interpret_symbols);
+}
+
+#if 0
+PORT1.3
 /*
  * Tell the user if default/pref fonts can't be found.
  */
@@ -187,7 +206,7 @@ static void checkPreferredFonts()
    checkFont(prefs.font_cursive, "cursive");
    checkFont(prefs.font_fantasy, "fantasy");
 }
-
+#endif
 /*
  * Given a command line argument, build a DilloUrl for it.
  */
@@ -318,11 +337,13 @@ int main(int argc, char **argv)
    }
 
    // Sets WM_CLASS hint on X11
-   fltk::Window::xclass("dillo");
+   Fl_Window::default_xclass("dillo");
 
-   // WORKAROUND: sometimes the default pager triggers redraw storms
-   fltk::TabGroup::default_pager(fltk::PAGER_SHRINK);
+   // Disable '@' interpretation in labels
+   Fl::set_labeltype(FL_NORMAL_LABEL, custLabelDraw, custLabelMeasure);
 
+#if 0
+PORT1.3
    checkPreferredFonts();
    /* use preferred font for UI */
    fltk::Font *dfont = fltk::font(prefs.font_sans_serif, 0);
@@ -330,9 +351,15 @@ int main(int argc, char **argv)
       fltk::Widget::default_style->textfont(dfont);
       fltk::Widget::default_style->labelfont(dfont);
    }
-
+#endif
    // Create a new UI/bw pair
    BrowserWindow *bw = a_UIcmd_browser_window_new(0, 0, xid, NULL);
+
+   /* We need this so that fl_text_extents() in dw/fltkplatform.cc can
+    * work when FLTK is configured without XFT and Dillo is opening
+    * immediately-available URLs from the cmdline (e.g. about:splash).
+    */
+   ((Fl_Widget *)bw->ui)->window()->make_current();
 
    /* Proxy authentication */
    if (prefs.http_proxyuser && !a_Http_proxy_auth()) {
@@ -369,7 +396,7 @@ int main(int argc, char **argv)
       }
    }
 
-   fltk::run();
+   Fl::run();
 
    /*
     * Memory deallocating routines
