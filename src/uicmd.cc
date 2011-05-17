@@ -56,7 +56,6 @@ using namespace dw::fltk;
  * Local data
  */
 static char *save_dir = NULL;
-static UI *Gui;
 
 /*
  * Forward declarations
@@ -150,6 +149,7 @@ int CustTabs::handle(int e)
          ret = 1;
       } else if (cmd == KEYS_NOP) {
          // Do nothing
+         _MSG("CustTabs::handle KEYS_NOP\n");
       } else if (cmd == KEYS_NEW_TAB) {
          a_UIcmd_open_url_nt(bw, NULL, 1);
          ret = 1;
@@ -157,10 +157,10 @@ int CustTabs::handle(int e)
          a_UIcmd_close_bw(bw);
          ret = 1;
       } else if (cmd == KEYS_LEFT_TAB) {
-         MSG("CustTabs::handle KEYS_LEFT_TAB\n");
+         prev_tab();
          ret = 1;
       } else if (cmd == KEYS_RIGHT_TAB) {
-         MSG("CustTabs::handle KEYS_RIGHT_TAB\n");
+         next_tab();
          ret = 1;
       } else if (cmd == KEYS_NEW_WINDOW) {
          a_UIcmd_open_url_nw(bw, NULL);
@@ -171,19 +171,6 @@ int CustTabs::handle(int e)
       } else if (cmd == KEYS_CLOSE_ALL) {
          a_Timeout_add(0.0, a_UIcmd_close_all_bw, NULL);
          ret = 1;
-      }
-
-   } else if (e == FL_KEYUP) {
-      int k = Fl::event_key();
-      // We're only interested in some flags
-      unsigned modifier = Fl::event_state() & (FL_SHIFT | FL_CTRL | FL_ALT);
-      if (k == FL_Up || k == FL_Down || k == FL_Tab) {
-         ;
-      } else if (k == FL_Left || k == FL_Right) {
-         if (modifier == FL_SHIFT) {
-            (k == FL_Left) ? prev_tab() : next_tab();
-            ret = 1;
-         }
       }
    }
 
@@ -286,16 +273,16 @@ void CustTabs::prev_tab()
 {
    int idx;
 
-   if ((idx = get_btn_idx((UI*)Wizard->value())) > 1)
-      switch_tab( (CustTabButton*)child(idx-1) );
+   if ((idx = get_btn_idx((UI*)Wizard->value())) != -1)
+      switch_tab( (CustTabButton*)child(idx > 1 ? idx-1 : num_tabs()) );
 }
 
 void CustTabs::next_tab()
 {
    int idx;
 
-   if ((idx = get_btn_idx((UI*)Wizard->value())) > 0 && idx < num_tabs())
-      switch_tab( (CustTabButton*)child(idx+1) );
+   if ((idx = get_btn_idx((UI*)Wizard->value())) != -1)
+      switch_tab( (CustTabButton*)child(idx < num_tabs() ? idx+1 : 1) );
 }
 
 /*
@@ -398,7 +385,7 @@ BrowserWindow *a_UIcmd_browser_window_new(int ww, int wh,
 
    int focus = 1;
    new_bw = UIcmd_tab_new(DilloTabs, old_ui, focus);
-   win->resizable(Gui);
+   win->resizable(BW2UI(new_bw));
    win->show();
 
    if (old_bw == NULL && prefs.xpos >= 0 && prefs.ypos >= 0) {
@@ -421,7 +408,6 @@ static BrowserWindow *UIcmd_tab_new(CustTabs *tabs, UI *old_ui, int focus)
 
    // Create and set the UI
    UI *new_ui = tabs->add_new_tab(old_ui, focus);
-   Gui = new_ui;
 
    // Now create the Dw render layout and viewport
    FltkPlatform *platform = new FltkPlatform ();
