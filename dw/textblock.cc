@@ -17,13 +17,13 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-
-
 #include "textblock.hh"
+#include "table.hh" // Yes, this is ugly. -- SG
 #include "../lout/msg.h"
 #include "../lout/misc.hh"
 
 #include <stdio.h>
+#include <math.h> // remove again
 #include <limits.h>
 
 using namespace lout;
@@ -59,6 +59,7 @@ Textblock::Textblock (bool limitTextWidth)
     */
    lines = new misc::SimpleVector <Line> (1);
    words = new misc::SimpleVector <Word> (1);
+   leftFloatSide = rightFloatSide = NULL;
    anchors = new misc::SimpleVector <Anchor> (1);
 
    //DBG_OBJ_SET_NUM(page, "num_lines", num_lines);
@@ -114,6 +115,11 @@ Textblock::~Textblock ()
    delete lines;
    delete words;
    delete anchors;
+   
+   if(leftFloatSide)
+      delete leftFloatSide;
+   if(rightFloatSide)
+      delete rightFloatSide;
 
    /* Make sure we don't own widgets anymore. Necessary before call of
       parent class destructor. (???) */
@@ -425,11 +431,16 @@ void Textblock::sizeAllocateImpl (core::Allocation *allocation)
          xCursor += (word->size.width + word->effSpace);
       }
    }
-
+   
+   if(leftFloatSide)
+      leftFloatSide->sizeAllocate(allocation);
+   if(rightFloatSide)
+      rightFloatSide->sizeAllocate(allocation);
+      
    for (int i = 0; i < anchors->size(); i++) {
       Anchor *anchor = anchors->getRef(i);
       int y;
-
+      
       if (anchor->wordIndex >= words->size()) {
          y = allocation->y + allocation->ascent + allocation->descent;
       } else {
@@ -469,15 +480,65 @@ void Textblock::markExtremesChange (int ref)
  */
 void Textblock::markChange (int ref)
 {
-   if (ref != -1) {
+   printf("markChange(%d)\n", ref);
+
+   int refEquiv = (ref == 0) ? 1 | (dw::core::style::FLOAT_NONE << 1) : ref;
+   
+   if (refEquiv != -1 && (refEquiv & 1)) {
       //DBG_MSGF (page, "wrap", 0, "Dw_page_mark_size_change (ref = %d)", ref);
 
-      if (wrapRef == -1)
-         wrapRef = ref;
-      else
-         wrapRef = misc::min (wrapRef, ref);
+	  // ABC
+      switch((refEquiv >> 1) & 3)
+      {
+      case dw::core::style::FLOAT_NONE:
+         if (wrapRef == -1)
+            wrapRef = refEquiv >> 3;
+         else
+            wrapRef = misc::min (wrapRef, refEquiv >> 3);
+         //DBG_OBJ_SET_NUM (page, "wrap_ref", page->wrap_ref);
+         printf("wrapRef = %d\n", wrapRef);
+         break;
+      
+      case dw::core::style::FLOAT_LEFT:
+         leftFloatSide->queueResize(refEquiv);
+         break;
+         
+      case dw::core::style::FLOAT_RIGHT:
+         rightFloatSide->queueResize(refEquiv);
+         break;
+      }
+   }
+}
 
-      //DBG_OBJ_SET_NUM (page, "wrap_ref", page->wrap_ref);
+void Textblock::notifySetAsTopLevel()
+{
+	containingBox = this;
+}
+
+void Textblock::notifySetParent()
+{
+   // Search for containing Box. It can be assumed that this widget has a
+   // parent, otherwise, notifySetAsToplevel would have been called.
+   containingBox = NULL;
+   Textblock *topmostTextblock = this;
+
+   for(Widget *widget = getParent(); widget != NULL; widget = widget->getParent())
+   {
+      if(widget->instanceOf(Textblock::CLASS_ID))
+         topmostTextblock = (Textblock*)widget;
+   }
+  
+   for(Widget *widget = getParent(); containingBox == NULL; widget = widget->getParent())
+   {
+      if(widget->getParent() == NULL)
+         // No other widget left.
+         containingBox = topmostTextblock;
+      else if(widget->instanceOf(Textblock::CLASS_ID))
+      {
+         if(widget->getParent()->instanceOf(Table::CLASS_ID) /* this widget is a table cell */ ||
+            widget->getStyle()->vloat != dw::core::style::FLOAT_NONE /* this widget is a float */)
+            containingBox = (Textblock*)widget;
+      }
    }
 }
 
@@ -492,7 +553,11 @@ void Textblock::setWidth (int width)
       //          page->num_words);
 
       availWidth = width;
+//<<<<<<< textblock.cc
+//      queueResize (false, dw::core::style::FLOAT_NONE, false);
+//=======
       queueResize (0, false);
+//>>>>>>> 1.24
       mustQueueResize = false;
       redrawY = 0;
    }
@@ -507,7 +572,11 @@ void Textblock::setAscent (int ascent)
       //          page->num_words);
 
       availAscent = ascent;
+//<<<<<<< textblock.cc
+//      queueResize (false, dw::core::style::FLOAT_NONE, false);
+//=======
       queueResize (0, false);
+//>>>>>>> 1.24
       mustQueueResize = false;
    }
 }
@@ -521,7 +590,11 @@ void Textblock::setDescent (int descent)
       //          page->num_words);
 
       availDescent = descent;
+//<<<<<<< textblock.cc
+//      queueResize (false, dw::core::style::FLOAT_NONE, false);
+//=======
       queueResize (0, false);
+//>>>>>>> 1.24
       mustQueueResize = false;
    }
 }
@@ -808,6 +881,8 @@ Textblock::Line *Textblock::addLine (int wordIndex, bool newPar)
    lastLine->marginDescent = 0;
    lastLine->breakSpace = 0;
    lastLine->leftOffset = 0;
+   lastLine->boxLeft = 0;
+   lastLine->boxRight = 0;
 
    //DBG_OBJ_ARRSET_NUM (page, "lines.%d.ascent", page->num_lines - 1,
    //                    lastLine->boxAscent);
@@ -907,6 +982,19 @@ void Textblock::wordWrap(int wordIndex)
       }
    }
 
+   if(word->content.type == dw::core::Content::FLOAT_REF)
+   {
+      Line *line = lines->size() > 0 ? lines->getRef(lines->size() - 1) : NULL;
+      int y =
+         allocation.y - containingBox->allocation.y + getStyle()->boxOffsetY() +
+         (line ? line->top : 0);
+      int lineHeight = line ? line->boxAscent + line->boxDescent : 0;
+
+      containingBox->handleFloatInContainer(word->content.widget, misc::max(lines->size() - 1, 0), y, lastLineWidth, lineHeight);
+   }
+   
+   
+
    if (lines->size () == 0) {
       //DBG_MSG (page, "wrap", 0, "first line");
       newLine = true;
@@ -936,7 +1024,7 @@ void Textblock::wordWrap(int wordIndex)
          //          page->lastLine_width, prevWord->orig_space,
          //          word->size.width, availWidth);
          newLine = lastLineWidth + prevWord->origSpace + word->size.width >
-                   availWidth;
+            availWidth - (lastLine->boxLeft + lastLine->boxRight);
          //DBG_MSGF (page, "wrap", 0, "... %s.",
          //          newLine ? "No" : "Yes");
       }
@@ -1049,7 +1137,7 @@ void Textblock::wordWrap(int wordIndex)
       case core::style::TEXT_ALIGN_LEFT:
       case core::style::TEXT_ALIGN_JUSTIFY:  /* see some lines above */
       case core::style::TEXT_ALIGN_STRING:   /* handled elsewhere (in the
-                                                * future) */
+                                              * future) */
          leftOffset = 0;
          break;
       case core::style::TEXT_ALIGN_RIGHT:
@@ -1076,9 +1164,15 @@ void Textblock::wordWrap(int wordIndex)
       } else {
          lastLine->leftOffset = leftOffset;
       }
+
+      int y =    
+         allocation.y - containingBox->allocation.y +
+         getStyle()->boxOffsetY () + lastLine->top;
+      lastLine->boxLeft = calcLeftFloatBorder(y, this);
+      lastLine->boxRight = calcRightFloatBorder(y, this);
    }
    mustQueueResize = true;
-
+   
    //DBG_MSG_END (page);
 }
 
@@ -1199,7 +1293,9 @@ void Textblock::rewrap ()
       wordWrap (wordIndex);
 
       if (word->content.type == core::Content::WIDGET) {
-         word->content.widget->parentRef = lines->size () - 1;
+         // ABC
+         word->content.widget->parentRef = 1 | (dw::core::style::FLOAT_NONE << 1) | ((lines->size () - 1) << 3);
+         printf("parentRef = %d\n", word->content.widget->parentRef);
          //DBG_OBJ_SET_NUM (word->content.widget, "parent_ref",
          //                 word->content.widget->parent_ref);
       }
@@ -1542,6 +1638,11 @@ void Textblock::draw (core::View *view, core::Rectangle *area)
 
       drawLine (line, view, area);
    }
+   
+   if(leftFloatSide)
+      leftFloatSide->draw(view, area);
+   if(rightFloatSide)
+      rightFloatSide->draw(view, area);
 }
 
 /**
@@ -1682,7 +1783,9 @@ void Textblock::addWidget (core::Widget *widget, core::style::Style *style)
    //                    word->content.widget);
 
    wordWrap (words->size () - 1);
-   word->content.widget->parentRef = lines->size () - 1;
+   // ABC
+   word->content.widget->parentRef = 1 | (dw::core::style::FLOAT_NONE << 1) | ((lines->size () - 1) << 3);
+   printf("parentRef = %d\n", word->content.widget->parentRef);
    //DBG_OBJ_SET_NUM (word->content.widget, "parent_ref",
    //                 word->content.widget->parent_ref);
 
@@ -1797,8 +1900,8 @@ void Textblock::addParbreak (int space, core::style::Style *style)
          if (!isfirst) {
             /* The page we searched for has been found. */
             Word *word2;
-            int lineno = widget->parentRef;
-
+            // ABC
+            int lineno = widget->parentRef >> 3;
             if (lineno > 0 &&
                 (word2 =
                  textblock2->words->getRef(textblock2->lines
@@ -1806,7 +1909,11 @@ void Textblock::addParbreak (int space, core::style::Style *style)
                 word2->content.type == core::Content::BREAK) {
                if (word2->content.breakSpace < space) {
                   word2->content.breakSpace = space;
+//<<<<<<< textblock.cc
+//                  textblock2->queueResize (false, 1 | (dw::core::style::FLOAT_NONE << 1) | (lineno << 3), false);
+//=======
                   textblock2->queueResize (lineno, false);
+//>>>>>>> 1.24
                   textblock2->mustQueueResize = false;
                }
             }
@@ -1856,6 +1963,22 @@ void Textblock::addLinebreak (core::style::Style *style)
 
    word->content.type = core::Content::BREAK;
    word->content.breakSpace = 0;
+   wordWrap (words->size () - 1);
+}
+
+/** \todo This MUST be commented! */
+void Textblock::addFloatIntoGenerator (core::Widget *widget, core::style::Style *style)
+{
+   Word *word;
+
+   widget->setStyle (style);
+   containingBox->addFloatIntoContainer(widget, this);
+
+   word = addWord (0, 0, 0, style);
+   word->content.type = core::Content::FLOAT_REF;
+   word->content.breakSpace = 0;
+   word->content.widget = widget;
+   word->style = style;
    wordWrap (words->size () - 1);
 }
 
@@ -1929,8 +2052,14 @@ void Textblock::handOverBreak (core::style::Style *style)
  */
 void Textblock::flush ()
 {
+//<<<<<<< textblock.cc
+//   if (asap || mustQueueResize) {
+//   	  printf("queueResize(%s, -1, true)\n", asap ? "true" : "false");
+//      queueResize (asap, -1, true);
+//=======
    if (mustQueueResize) {
       queueResize (-1, true);
+//>>>>>>> 1.24
       mustQueueResize = false;
    }
 }
@@ -1994,6 +2123,214 @@ void Textblock::changeLinkColor (int link, int newColor)
 void Textblock::changeWordStyle (int from, int to, core::style::Style *style,
                                  bool includeFirstSpace, bool includeLastSpace)
 {
+}
+
+// ----------------------------------------------------------------------
+
+/** \todo This MUST be commented! */
+void Textblock::addFloatIntoContainer(Widget *widget,
+                                      Textblock *floatGenerator)
+{
+   FloatSide *floatSide = NULL;
+   
+   switch(widget->getStyle()->vloat)
+   {
+   case dw::core::style::FLOAT_LEFT:
+      if(leftFloatSide == NULL)
+         leftFloatSide = new LeftFloatSide(this);
+      floatSide = leftFloatSide;
+      break;
+
+   case dw::core::style::FLOAT_RIGHT:
+      if(rightFloatSide == NULL)
+         rightFloatSide = new RightFloatSide(this);
+      floatSide = rightFloatSide;
+      break;
+   
+   default:
+      //TODO lout::misc::fail("invalid value %d for float to be added", widget->getStyle()->vloat);
+      break;
+   }
+   
+   // ABC
+   widget->parentRef = 1 | (widget->getStyle()->vloat << 1) | (floatSide->size() << 3);
+   widget->parentRef = 0;
+   printf("parentRef = %d\n", widget->parentRef);
+   widget->setParent(this);
+
+   floatSide->addFloat(widget, floatGenerator);
+}
+
+void Textblock::handleFloatInContainer(Widget *widget, int lineNo,
+                                       int y, int lineWidth, int lineHeight)
+{
+   FloatSide *floatSide = NULL;
+   
+   switch(widget->getStyle()->vloat)
+   {
+   case dw::core::style::FLOAT_LEFT:
+      floatSide = leftFloatSide;
+      break;
+
+   case dw::core::style::FLOAT_RIGHT:
+      floatSide = rightFloatSide;
+      break;
+   
+   default:
+      //TODO lout::misc::fail("invalid value %d for float to be handled", widget->getStyle()->vloat);
+      break;
+   }
+   
+   floatSide->handleFloat(widget, lineNo, y, lineWidth, lineHeight);
+}
+
+Textblock::FloatSide::FloatSide(Textblock *floatContainer)
+{
+	this->floatContainer = floatContainer;
+	floats = new container::typed::Vector<Float>(1, false);
+	floatsByWidget =
+	   new container::typed::HashTable<object::TypedPointer<dw::core::Widget>, Float>(true, true);
+}
+
+Textblock::FloatSide::~FloatSide()
+{
+	delete floats;
+	delete floatsByWidget;
+}
+
+void Textblock::FloatSide::addFloat(Widget *widget, Textblock *floatGenerator)
+{
+   Float *vloat = new Float();
+   vloat->floatGenerator = floatGenerator;
+   vloat->widget = widget;
+   floats->put(vloat);
+   object::TypedPointer<Widget> *pointer = new object::TypedPointer<Widget>(widget);
+   floatsByWidget->put(pointer, vloat);
+}
+
+void Textblock::FloatSide::handleFloat(Widget *widget, int lineNo,
+                                       int y, int lineWidth, int lineHeight)
+{
+   /** \todo lineHeight may change afterwards */
+   object::TypedPointer<Widget> pointer(widget);
+   Float *vloat = floatsByWidget->get(&pointer);
+
+   printf("searching %s in %s\n", pointer.toString(), floatsByWidget->toString()); 
+
+   dw::core::Requisition requisition;
+   widget->sizeRequest(&requisition);
+
+   int effY;
+   /** \todo Check for another float. Futhermore: what, if the float does not fit
+    * into a line at all? */
+   if(requisition.width > vloat->floatGenerator->availWidth - lineWidth)
+      effY = y + lineHeight;
+   else
+      effY = y;
+
+   vloat->lineNo = lineNo;
+   vloat->y = effY;
+   vloat->width = requisition.width;
+   vloat->ascent = requisition.ascent;
+   vloat->descent = requisition.descent;
+}
+
+int Textblock::FloatSide::calcBorder(int y, Textblock *viewdFrom)
+{
+   Float *vloat = findFloat(y);
+   if(vloat) {
+      int fromContainer = calcBorderFromContainer(vloat);
+      int fromThisViewedFrom = fromContainer - calcBorderDiff(viewdFrom);
+      //printf("fromThisViewedFrom = %d\n", fromThisViewedFrom);
+      return misc::max(fromThisViewedFrom, 0); 
+   } else
+     return 0;
+}
+
+Textblock::FloatSide::Float *Textblock::FloatSide::findFloat(int y)
+{
+   for(int i = 0; i < floats->size(); i++)
+   {
+   	  Float *vloat = floats->get(i);
+   	  if(y >= vloat->y && y < vloat->y + vloat->ascent + vloat->descent)
+   	     return vloat;
+   }
+   
+   return NULL;
+}
+
+void Textblock::FloatSide::draw (core::View *view, core::Rectangle *area)
+{
+   for(int i = 0; i < floats->size(); i++)
+   {
+   	  Float *vloat = floats->get(i);
+   	  core::Rectangle childArea;
+      if (vloat->widget->intersects (area, &childArea))
+         vloat->widget->draw (view, &childArea);
+   }
+}
+
+void Textblock::FloatSide::queueResize(int ref)
+{
+	// TODO Float *vloat = floats->get(ref >> 3);
+	// TODO vloat->floatGenerator->queueResize(false, 1 | (dw::core::style::FLOAT_NONE << 1) | (vloat->lineNo << 3), true);
+}
+
+int Textblock::LeftFloatSide::calcBorderFromContainer(Textblock::FloatSide::Float *vloat)
+{
+   return vloat->width + floatContainer->getStyle()->boxOffsetX() +
+      vloat->floatGenerator->getStyle()->boxOffsetX();
+}
+
+int Textblock::LeftFloatSide::calcBorderDiff(Textblock *child)
+{
+	return child->getStyle()->boxOffsetX();
+}
+
+void Textblock::LeftFloatSide::sizeAllocate(core::Allocation *containingBoxAllocation)
+{
+   for(int i = 0; i < floats->size(); i++)
+   {
+   	  Float *vloat = floats->get(i);
+   	  core::Allocation childAllocation;
+   	  childAllocation.x =
+   	     containingBoxAllocation->x + floatContainer->getStyle()->boxOffsetX() +
+           vloat->floatGenerator->getStyle()->boxOffsetX();
+      childAllocation.y = containingBoxAllocation->y + vloat->y;
+      childAllocation.width = vloat->width;
+      childAllocation.ascent = vloat->ascent;
+      childAllocation.descent = vloat->descent;
+      vloat->widget->sizeAllocate(&childAllocation);
+   }  
+}
+
+int Textblock::RightFloatSide::calcBorderFromContainer(Textblock::FloatSide::Float *vloat)
+{
+   return vloat->width + floatContainer->getStyle()->boxRestWidth() +
+     vloat->floatGenerator->getStyle()->boxRestWidth();
+}
+
+int Textblock::RightFloatSide::calcBorderDiff(Textblock *child)
+{
+	return child->getStyle()->boxRestWidth();
+}
+
+void Textblock::RightFloatSide::sizeAllocate(core::Allocation *containingBoxAllocation)
+{
+   for(int i = 0; i < floats->size(); i++)
+   {
+      Float *vloat = floats->get(i);
+      core::Allocation childAllocation;
+      childAllocation.x =
+         containingBoxAllocation->x + containingBoxAllocation->width -
+         floatContainer->getStyle()->boxRestWidth() - vloat->width -
+         vloat->floatGenerator->getStyle()->boxRestWidth();
+      childAllocation.y = containingBoxAllocation->y + vloat->y;
+      childAllocation.width = vloat->width;
+      childAllocation.ascent = vloat->ascent;
+      childAllocation.descent = vloat->descent;
+      vloat->widget->sizeAllocate(&childAllocation);
+   }  
 }
 
 // ----------------------------------------------------------------------
