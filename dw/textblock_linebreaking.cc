@@ -796,6 +796,11 @@ void Textblock::accumulateWordData (int wordIndex)
 
 int Textblock::calcAvailWidth (int lineIndex)
 {
+   // BUG: This method must also include Line::boxLeft and Line::boxRight
+   // (introduced by floats), but since the recent changes in line breaking
+   // (together with hyphenation), this line is often not yet created, so
+   // these values cannot be determined.
+
    int availWidth =
       this->availWidth - getStyle()->boxDiffWidth() - innerPadding;
    if (limitTextWidth &&
@@ -805,9 +810,9 @@ int Textblock::calcAvailWidth (int lineIndex)
    if (lineIndex == 0)
       availWidth -= line1OffsetEff;
 
-   //PRINTF("[%p] CALC_AVAIL_WIDTH => %d - %d - %d = %d\n",
-   //       this, this->availWidth, getStyle()->boxDiffWidth(), innerPadding,
-   //       availWidth);
+   PRINTF ("[%p] CALC_AVAIL_WIDTH (%d of %d) => %d - %d - %d = %d\n",
+           this, lineIndex, lines->size(), this->availWidth, 
+           getStyle()->boxDiffWidth(), innerPadding, availWidth);
 
    return availWidth;
 }
@@ -916,8 +921,11 @@ void Textblock::rewrap ()
    for (int i = firstWord; i < words->size (); i++) {
       Word *word = words->getRef (i);
          
-      if (word->content.type == core::Content::WIDGET)
-         calcWidgetSize (word->content.widget, &word->size);
+      if (word->content.type == core::Content::WIDGET &&
+         // ABC
+          word->content.widget->parentRef ==
+          (1 | (dw::core::style::FLOAT_NONE << 1) | ((lines->size () - 1) << 3)))
+          calcWidgetSize (word->content.widget, &word->size);
       
       wordWrap (i, false);
 

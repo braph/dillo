@@ -190,8 +190,9 @@ struct Content
       TEXT              = 1 << 2,
       WIDGET            = 1 << 3,
       BREAK             = 1 << 4,
+      FLOAT_REF         = 1 << 6, /** \todo A bit ugly. */
       ALL               = 0xff,
-      REAL_CONTENT      = 0xff ^ (START | END),
+      REAL_CONTENT      = 0xff ^ (START | END | FLOAT_REF),
       SELECTION_CONTENT = TEXT | WIDGET | BREAK
    };
 
