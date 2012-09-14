@@ -18,10 +18,11 @@ namespace dw {
  *    of paragraphs.
  *
  * <div style="border: 2px solid #ffff00; margin-top: 0.5em;
- * margin-bottom: 0.5em; padding: 0.5em 1em;
- * background-color: #ffffe0"><b>Info:</b> The recent changes (line
- * breaking and hyphenation) have not yet been incorporated into this
- * documentation. See \ref dw-line-breaking.</div>
+ * margin-bottom: 0.5em; padding: 0.5em 1em; background-color:
+ * #ffffe0"><b>Info:</b> The recent changes (line breaking and
+ * hyphenation on one hand, floats on the other hand) have not yet
+ * been incorporated into this documentation. See \ref
+ * dw-line-breaking and \ref dw-special-textflow.</div>
  *
  * <h3>Signals</h3>
  *
@@ -144,6 +145,11 @@ namespace dw {
 class Textblock: public core::Widget
 {
 private:
+   // Hint: the following is somewhat chaotic, as a result of the merge
+   // of dillo_hyphen and dillo_floats
+   
+   // Part 1 -- Line-Breaking and Hyphenation
+
    /**
     * This class encapsulates the badness/penalty calculation, and so
     * (i) makes changes (hopefully) simpler, and (ii) hides the
@@ -207,6 +213,69 @@ private:
       void print ();
    };
 
+   // Part 2 -- Floats
+
+   Textblock *containingBox;
+
+   class FloatSide
+   {
+   protected:
+      class Float: public lout::object::Object
+      {
+      public:
+         Textblock *floatGenerator;
+         core::Widget *widget;
+         int lineNo, y, width, ascent, descent;
+      };
+
+      Textblock *floatContainer;
+      lout::container::typed::Vector<Float> *floats;
+      lout::container::typed::HashTable<lout::object::TypedPointer<dw::core::Widget>, Float> *floatsByWidget;
+
+      Float *findFloat(int y);
+
+      virtual int calcBorderFromContainer(Float *vloat) = 0;
+      virtual int calcBorderDiff(Textblock *child) = 0;
+
+   public:
+      FloatSide(Textblock *floatContainer);
+      virtual ~FloatSide();
+      
+      inline int size() { return floats->size(); }
+      void addFloat(Widget *widget, Textblock *floatGenerator);
+      void handleFloat(Widget *widget, int lineNo, int y, int lineWidth, int lineHeight);
+      int calcBorder(int y, Textblock *viewdFrom);
+      virtual void sizeAllocate(core::Allocation *containingBoxAllocation) = 0;
+      void draw (core::View *view, core::Rectangle *area);
+      void queueResize(int ref);
+   };
+   
+   class LeftFloatSide: public FloatSide
+   {
+   protected:
+      int calcBorderFromContainer(Float *vloat);
+      int calcBorderDiff(Textblock *child);
+   
+   public:
+      LeftFloatSide(Textblock *floatContainer) : FloatSide(floatContainer) { }
+      void sizeAllocate(core::Allocation *containingBoxAllocation);
+   };
+
+   class RightFloatSide: public FloatSide
+   {
+   protected:
+      int calcBorderFromContainer(Float *vloat);
+      int calcBorderDiff(Textblock *child);
+   
+   public:
+      RightFloatSide(Textblock *floatContainer) : FloatSide(floatContainer) { }
+      void sizeAllocate(core::Allocation *containingBoxAllocation);
+   };
+   
+   FloatSide *leftFloatSide, *rightFloatSide;
+
+   // End of merge chaos.
+
 protected:
    enum {
       /**
@@ -226,7 +295,8 @@ protected:
        * page->lines[0].top is always 0. */
       int top, boxAscent, boxDescent, contentAscent, contentDescent,
           breakSpace, leftOffset;
-
+      int boxLeft, boxRight;
+      
       /* This is similar to descent, but includes the bottom margins of the
        * widgets within this line. */
       int marginDescent;
@@ -419,6 +489,15 @@ protected:
    void calcTextSize (const char *text, size_t len, core::style::Style *style,
                       core::Requisition *size);
 
+   void addFloatIntoContainer(core::Widget *widget, Textblock *floatGenerator);
+   void handleFloatInContainer(Widget *widget, int lineNo,
+                              int y, int lineWidth, int lineHeight);
+   
+   inline int calcLeftFloatBorder(int y, Textblock *viewedFrom)
+   { return containingBox->leftFloatSide ? containingBox->leftFloatSide->calcBorder(y, viewedFrom) : 0; }
+   inline int calcRightFloatBorder(int y, Textblock *viewedFrom)
+   { return containingBox->rightFloatSide ? containingBox->rightFloatSide->calcBorder(y, viewedFrom) : 0; }
+   
    /**
     * \brief Returns the x offset (the indentation plus any offset needed for
     *    centering or right justification) for the line.
@@ -428,7 +507,7 @@ protected:
     */
    inline int lineXOffsetContents (Line *line)
    {
-      return innerPadding + line->leftOffset +
+      return innerPadding + line->leftOffset + line->boxLeft +
          (line == lines->getFirstRef() ? line1OffsetEff : 0);
    }
 
@@ -499,6 +578,8 @@ protected:
 
    void markSizeChange (int ref);
    void markExtremesChange (int ref);
+   void notifySetAsTopLevel();
+   void notifySetParent();
    void setWidth (int width);
    void setAscent (int ascent);
    void setDescent (int descent);
@@ -557,6 +638,8 @@ public:
    void addHyphen();
    void addParbreak (int space, core::style::Style *style);
    void addLinebreak (core::style::Style *style);
+
+   void addFloatIntoGenerator (core::Widget *widget, core::style::Style *style);
 
    core::Widget *getWidgetAtPoint (int x, int y, int level);
    void handOverBreak (core::style::Style *style);
