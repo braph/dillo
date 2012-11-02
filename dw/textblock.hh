@@ -4,6 +4,7 @@
 #include <limits.h>
 
 #include "core.hh"
+#include "outofflowmgr.hh"
 #include "../lout/misc.hh"
 
 // These were used when improved line breaking and hyphenation were
@@ -18,10 +19,11 @@ namespace dw {
  *    of paragraphs.
  *
  * <div style="border: 2px solid #ffff00; margin-top: 0.5em;
- * margin-bottom: 0.5em; padding: 0.5em 1em;
- * background-color: #ffffe0"><b>Info:</b> The recent changes (line
- * breaking and hyphenation) have not yet been incorporated into this
- * documentation. See \ref dw-line-breaking.</div>
+ * margin-bottom: 0.5em; padding: 0.5em 1em; background-color:
+ * #ffffe0"><b>Info:</b> The recent changes (line breaking and
+ * hyphenation on one hand, floats on the other hand) have not yet
+ * been incorporated into this documentation. See \ref
+ * dw-line-breaking and \ref dw-out-of-flow.</div>
  *
  * <h3>Signals</h3>
  *
@@ -141,7 +143,7 @@ namespace dw {
  * necessary, or otherwise the line from which a rewrap is necessary.
  *
  */
-class Textblock: public core::Widget
+class Textblock: public core::Widget, public OutOfFlowMgr::ContainingBlock
 {
 private:
    /**
@@ -208,6 +210,9 @@ private:
 
       void print ();
    };
+
+   Textblock *containingBlock;
+   OutOfFlowMgr *outOfFlowMgr;
 
 protected:
    enum {
@@ -301,6 +306,7 @@ protected:
                                          later set by a_Dw_page_add_space */
    };
 
+   void printWordShort (Word *word);
    void printWord (Word *word);
 
    struct Anchor
@@ -312,13 +318,14 @@ protected:
    class TextblockIterator: public core::Iterator
    {
    private:
+      bool oofm;
       int index;
 
    public:
       TextblockIterator (Textblock *textblock, core::Content::Type mask,
                          bool atEnd);
       TextblockIterator (Textblock *textblock, core::Content::Type mask,
-                         int index);
+                         bool oofm, int index);
 
       lout::object::Object *clone();
       int compareTo(lout::misc::Comparable *other);
@@ -369,7 +376,8 @@ protected:
    /* These values are set by set_... */
    int availWidth, availAscent, availDescent;
 
-   int wrapRef;  /* [0 based] */
+   int wrapRef;  /* 0-based. Important: This is the line number, not
+                    the value stored in parentRef. */
 
    lout::misc::SimpleVector <Line> *lines;
    int nonTemporaryLines;
@@ -423,25 +431,90 @@ protected:
                       core::Requisition *size);
 
    /**
-    * \brief Returns the x offset (the indentation plus any offset needed for
-    *    centering or right justification) for the line.
-    *
-    * The offset returned is relative to the page *content* (i.e. without
-    * border etc.).
+    * Of nested text blocks, only the most inner one must regard the
+    * borders of floats.
     */
-   inline int lineXOffsetContents (Line *line)
+   inline bool mustBorderBeRegarded (Line *line)
    {
-      return innerPadding + line->leftOffset +
-         (line == lines->getFirstRef() ? line1OffsetEff : 0);
+      return getTextblockForLine (line) == NULL;
    }
 
+   inline bool mustBorderBeRegarded (int lineNo)
+   {
+      return getTextblockForLine (lineNo) == NULL;
+   }
+
+   void borderChanged (int yWidget, bool extremesChanges);
+
+   int diffXToContainingBlock, restWidthToContainingBlock,
+      diffYToContainingBlock;
+
    /**
-    * \brief Like lineXOffset, but relative to the allocation (i.e.
-    *    including border etc.).
+    * \brief Returns the x offset (the indentation plus any offset
+    *    needed for centering or right justification) for the line,
+    *    relative to the allocation (i.e.  including border etc.).
     */
    inline int lineXOffsetWidget (Line *line)
    {
-      return lineXOffsetContents (line) + getStyle()->boxOffsetX ();
+      assert (diffXToContainingBlock != -1);
+      assert (diffYToContainingBlock != -1);
+
+      int resultFromOOFM;
+      if (containingBlock->outOfFlowMgr && mustBorderBeRegarded (line))
+         resultFromOOFM =
+            containingBlock->outOfFlowMgr->getLeftBorder
+            (line->top + getStyle()->boxOffsetY() + diffYToContainingBlock)
+            - diffXToContainingBlock;
+      else
+         resultFromOOFM = 0;
+            
+      return innerPadding + line->leftOffset +
+         (line == lines->getFirstRef() ? line1OffsetEff : 0) +
+         lout::misc::max (getStyle()->boxOffsetX(), resultFromOOFM);
+   }
+
+   inline int lineLeftBorder (int lineNo)
+   {
+      assert (diffXToContainingBlock != -1);
+      assert (diffYToContainingBlock != -1);
+
+      // Note that the line must not exist yet (but unless it is not
+      // the first line, the previous line, lineNo - 1, must).
+      int resultFromOOFM;
+      if (containingBlock->outOfFlowMgr && mustBorderBeRegarded (lineNo))
+         resultFromOOFM =
+            containingBlock->outOfFlowMgr->getLeftBorder
+            (topOfPossiblyMissingLine (lineNo) + diffYToContainingBlock)
+            - diffXToContainingBlock;
+      else
+         resultFromOOFM = 0;
+
+      // TODO: line->leftOffset is not regarded, which is correct, depending
+      // on where this method is called. Document; perhaps rename this method.
+      // (Update: was renamed.)
+      return innerPadding +
+         (lineNo == 0 ? line1OffsetEff : 0) +
+         lout::misc::max (getStyle()->boxOffsetX(), resultFromOOFM);
+   }
+
+   inline int lineRightBorder (int lineNo)
+   {
+      assert (restWidthToContainingBlock != -1);
+      assert (diffYToContainingBlock != -1);
+
+      // Similar to lineLeftBorder().
+
+      int resultFromOOFM;
+      // TODO sizeRequest?
+      if (containingBlock->outOfFlowMgr && mustBorderBeRegarded (lineNo))
+         resultFromOOFM =
+            containingBlock->outOfFlowMgr->getRightBorder
+            (topOfPossiblyMissingLine (lineNo) + diffYToContainingBlock)
+            - restWidthToContainingBlock;
+      else
+         resultFromOOFM = 0;
+
+      return lout::misc::max (getStyle()->boxRestWidth(), resultFromOOFM);
    }
 
    inline int lineYOffsetWidgetAllocation (Line *line,
@@ -482,6 +555,11 @@ protected:
       return lineYOffsetCanvas (lines->getRef (lineIndex));
    }
 
+   Textblock *getTextblockForLine (Line *line);
+   Textblock *getTextblockForLine (int lineNo);
+   Textblock *getTextblockForLine (int firstWord, int lastWord);
+   int topOfPossiblyMissingLine (int lineNo);
+
    bool sendSelectionEvent (core::SelectionState::EventType eventType,
                             core::MousePositionEvent *event);
 
@@ -502,6 +580,8 @@ protected:
 
    void markSizeChange (int ref);
    void markExtremesChange (int ref);
+   void notifySetAsTopLevel();
+   void notifySetParent();
    void setWidth (int width);
    void setAscent (int ascent);
    void setDescent (int descent);
@@ -521,6 +601,7 @@ protected:
                        core::style::Style *style,
                        int numBreaks, int *breakPos,
                        core::Requisition *wordSize);
+   static bool isContainingBlock (Widget *widget);
 
 public:
    static int CLASS_ID;
@@ -561,6 +642,11 @@ public:
    void changeLinkColor (int link, int newColor);
    void changeWordStyle (int from, int to, core::style::Style *style,
                          bool includeFirstSpace, bool includeLastSpace);
+
+   // From OutOfFlowMgr::ContainingBlock:
+   void borderChanged (int y);
+   core::style::Style *getCBStyle ();
+   core::Allocation *getCBAllocation ();
 };
 
 } // namespace dw
