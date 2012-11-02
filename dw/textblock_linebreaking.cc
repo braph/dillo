@@ -206,23 +206,36 @@ void Textblock::BadnessAndPenalty::print ()
    }
 }
 
-void Textblock::printWord (Word *word)
+void Textblock::printWordShort (Word *word)
 {
    switch(word->content.type) {
    case core::Content::TEXT:
       printf ("\"%s\"", word->content.text);
       break;
-   case core::Content::WIDGET:
-      printf ("<widget: %p>\n", word->content.widget);
+   case core::Content::WIDGET_IN_FLOW:
+      printf ("<widget in flow: %p (%s)>",
+              word->content.widget, word->content.widget->getClassName());
+      break;
+   case core::Content::WIDGET_OOF_REF:
+      printf ("<widget oof ref: %p (%s)>",
+              word->content.widget, word->content.widget->getClassName());
+      break;
+   case core::Content::WIDGET_OOF_CONT:
+      printf ("<widge oof cont: %p (%s)>",
+              word->content.widget, word->content.widget->getClassName());
       break;
    case core::Content::BREAK:
-      printf ("<break>\n");
+      printf ("<break>");
       break;
    default:
-      printf ("<?>\n");
+      printf ("<?>");
       break;              
    }
-                 
+}
+
+void Textblock::printWord (Word *word)
+{
+   printWordShort (word);
    printf (" [%d / %d + %d - %d => %d + %d - %d] => ",
            word->size.width, word->origSpace, word->stretchability,
            word->shrinkability, word->totalWidth, word->totalStretchability,
@@ -288,6 +301,12 @@ Textblock::Line *Textblock::addLine (int firstWord, int lastWord,
 {
    PRINTF ("[%p] ADD_LINE (%d, %d) => %d\n",
            this, firstWord, lastWord, lines->size ());
+
+   //for (int i = firstWord; i <= lastWord; i++) {
+   //   printf ("      word %d: ", i);
+   //   printWord (words->getRef (i));
+   //   printf ("\n");
+   //}
 
    Word *lastWordOfLine = words->getRef(lastWord);
    // Word::totalWidth includes the hyphen (which is what we want here).
@@ -446,18 +465,39 @@ void Textblock::wordWrap (int wordIndex, bool wrapAll)
    PRINTF ("[%p] WORD_WRAP (%d, %s)\n",
            this, wordIndex, wrapAll ? "true" : "false");
 
-   Word *word;
-   //core::Extremes wordExtremes;
-
    if (!wrapAll)
       removeTemporaryLines ();
 
    initLine1Offset (wordIndex);
 
-   word = words->getRef (wordIndex);
+   Word *word = words->getRef (wordIndex);
    word->effSpace = word->origSpace;
 
    accumulateWordData (wordIndex);
+
+   if (word->content.type == core::Content::WIDGET_OOF_REF) {
+      int top;
+      if (lines->size() == 0)
+         top = 0;
+      else {
+         Line *prevLine = lines->getLastRef ();
+         top = prevLine->top + prevLine->boxAscent +
+            prevLine->boxDescent + prevLine->breakSpace;
+      }
+      containingBlock->outOfFlowMgr->tellPosition
+         (word->content.widget,
+          // "diffYToContainingBlock" is already defined here; it is
+          // set by the parent, or, when this is the containing block,
+          // even earlier.
+          diffYToContainingBlock + top + getStyle()->boxOffsetY());
+
+
+      // TODO: compare old/new values of calcAvailWidth(...);
+      int firstIndex =
+         lines->size() == 0 ? 0 : lines->getLastRef()->lastWord + 1;
+      for (int i = firstIndex; i <= wordIndex; i++)
+         accumulateWordData (i);
+   }
 
    bool newLine;
    do {
@@ -478,7 +518,7 @@ void Textblock::wordWrap (int wordIndex, bool wrapAll)
          PRINTF ("   NEW LINE: forced break\n");
       } else if (wordIndex > firstIndex &&
                  word->badnessAndPenalty.lineTooTight () &&
-                 words->getRef(wordIndex- 1)
+                 words->getRef(wordIndex - 1)
                  ->badnessAndPenalty.lineCanBeBroken ()) {
          // TODO Comment the last condition (also below where the minimum is
          // searched for)
@@ -496,6 +536,10 @@ void Textblock::wordWrap (int wordIndex, bool wrapAll)
          // calls this method again, with wrapAll == true, so that
          // newLine is calculated as "true".
          mustQueueResize = true;
+
+      PRINTF ("[%p] special case? newLine = %s, wrapAll = %s => "
+              "mustQueueResize = %s\n", this, newLine ? "true" : "false",
+              wrapAll ? "true" : "false", mustQueueResize ? "true" : "false");
 
       if(newLine) {
          accumulateWordData (wordIndex);
@@ -672,9 +716,16 @@ int Textblock::hyphenateWord (int wordIndex)
                PRINTF ("      [%d] + nothing\n", wordIndex + i);
             }
          }
-
-         accumulateWordData (wordIndex + i);
       }
+
+      // AccumulateWordData() will calculate the width, which depends
+      // on the borders (possibly limited by floats), which depends on
+      // the widgeds so far. For this reason, it is important to first
+      // make all words consistent before calling
+      // accumulateWordData(); therefore the second loop.
+
+      for (int i = 0; i < numBreaks + 1; i++)
+         accumulateWordData (wordIndex + i);
 
       PRINTF ("   finished\n");
       
@@ -695,8 +746,12 @@ void Textblock::accumulateWordForLine (int lineIndex, int wordIndex)
    Line *line = lines->getRef (lineIndex);
    Word *word = words->getRef (wordIndex);
 
-   PRINTF ("      %d + %d / %d + %d\n", line->boxAscent, line->boxDescent,
+   PRINTF ("[%p] ACCUMULATE_WORD_FOR_LINE (%d, %d): %d + %d / %d + %d\n",
+           this, lineIndex, wordIndex, line->boxAscent, line->boxDescent,
            word->size.ascent, word->size.descent);
+   //printf ("   ");
+   //printWord (word);
+   //printf ("\n");
 
    line->boxAscent = misc::max (line->boxAscent, word->size.ascent);
    line->boxDescent = misc::max (line->boxDescent, word->size.descent);
@@ -711,7 +766,7 @@ void Textblock::accumulateWordForLine (int lineIndex, int wordIndex)
       len += word->style->font->ascent / 3;
    line->contentDescent = misc::max (line->contentDescent, len);
 
-   if (word->content.type == core::Content::WIDGET) {
+   if (word->content.type == core::Content::WIDGET_IN_FLOW) {
       int collapseMarginTop = 0;
 
       line->marginDescent =
@@ -735,7 +790,8 @@ void Textblock::accumulateWordForLine (int lineIndex, int wordIndex)
                        + word->content.widget->getStyle()->margin.top
                        - collapseMarginTop);
 
-      word->content.widget->parentRef = lineIndex;
+      word->content.widget->parentRef =
+         OutOfFlowMgr::createRefNormalFlow (lineIndex);
    } else {
       line->marginDescent =
          misc::max (line->marginDescent, line->boxDescent);
@@ -801,18 +857,27 @@ void Textblock::accumulateWordData (int wordIndex)
 
 int Textblock::calcAvailWidth (int lineIndex)
 {
-   int availWidth =
-      this->availWidth - getStyle()->boxDiffWidth() - innerPadding;
+   int availWidth = this->availWidth - innerPadding;
    if (limitTextWidth &&
        layout->getUsesViewport () &&
-       availWidth > layout->getWidthViewport () - 10)
+       // margin/border/padding will be subtracted later,  via OOFM.
+       availWidth - getStyle()->boxDiffWidth()
+       > layout->getWidthViewport () - 10)
       availWidth = layout->getWidthViewport () - 10;
    if (lineIndex == 0)
       availWidth -= line1OffsetEff;
 
-   //PRINTF("[%p] CALC_AVAIL_WIDTH => %d - %d - %d = %d\n",
-   //       this, this->availWidth, getStyle()->boxDiffWidth(), innerPadding,
-   //       availWidth);
+   // TODO if the result is too small, but only in some cases
+   // (e. g. because of floats), the caller should skip a
+   // line. General distinction?
+   int leftBorder = lineLeftBorder (lineIndex);
+   int rightBorder = lineRightBorder (lineIndex);
+   availWidth -= (leftBorder + rightBorder);
+
+   PRINTF ("[%p] CALC_AVAIL_WIDTH (%d of %d) => %d - %d - (%d + %d)"
+           " = %d\n", this, lineIndex, lines->size(), this->availWidth, 
+           innerPadding, leftBorder, rightBorder,
+           availWidth);
 
    return availWidth;
 }
@@ -829,7 +894,7 @@ void Textblock::initLine1Offset (int wordIndex)
       } else {
          int indent = 0;
 
-         if (word->content.type == core::Content::WIDGET &&
+         if (word->content.type == core::Content::WIDGET_IN_FLOW &&
              word->content.widget->blockLevel() == true) {
             /* don't use text-indent when nesting blocks */
          } else {
@@ -920,8 +985,14 @@ void Textblock::rewrap ()
 
    for (int i = firstWord; i < words->size (); i++) {
       Word *word = words->getRef (i);
-         
-      if (word->content.type == core::Content::WIDGET)
+      if (word->content.type == core::Content::WIDGET_OOF_REF)
+         containingBlock->outOfFlowMgr->tellNoPosition (word->content.widget);
+   }
+
+   for (int i = firstWord; i < words->size (); i++) {
+      Word *word = words->getRef (i);
+
+      if (word->content.type == core::Content::WIDGET_IN_FLOW)
          calcWidgetSize (word->content.widget, &word->size);
       
       wordWrap (i, false);
@@ -931,9 +1002,9 @@ void Textblock::rewrap ()
       // changed, so getRef() must be called again.
       word = words->getRef (i);
 
-      if (word->content.type == core::Content::WIDGET) {
-         word->content.widget->parentRef = lines->size () - 1;
-      }
+      if (word->content.type == core::Content::WIDGET_IN_FLOW)
+         word->content.widget->parentRef =
+            OutOfFlowMgr::createRefNormalFlow (lines->size () - 1);
    }
 
    /* Next time, the page will not have to be rewrapped. */
