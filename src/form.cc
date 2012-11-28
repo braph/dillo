@@ -872,7 +872,7 @@ void Html_tag_open_button(DilloHtml *html, const char *tag, int tagsize)
          html->styleEngine->setNonCssHint (PROPERTY_X_TOOLTIP, CSS_TYPE_STRING,
                                            attrbuf);
       }
-      /* We used to have Textblock (prefs.limit_text_width) here,
+      /* We used to have Textblock (prefs.limit_text_width, ...) here,
        * but it caused 100% CPU usage.
        */
       page = new Textblock (false);
