@@ -458,7 +458,7 @@ void DilloHtml::initDw()
    dReturn_if_fail (dw == NULL);
 
    /* Create the main widget */
-   dw = stack->getRef(0)->textblock = new Textblock (prefs.limit_text_width);
+   dw = stack->getRef(0)->textblock =  new Textblock (prefs.limit_text_width);
 
    bw->num_page_bugs = 0;
    dStr_truncate(bw->page_bugs, 0);
