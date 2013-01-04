@@ -108,6 +108,8 @@ void Widget::setParent (Widget *parent)
    if (!buttonSensitiveSet)
       buttonSensitive = parent->buttonSensitive;
 
+	notifySetParent();
+
    //DBG_OBJ_ASSOC (widget, parent);
    //printf ("The %s %p becomes a child of the %s %p\n",
    //        getClassName(), this, parent->getClassName(), parent);
@@ -116,7 +118,8 @@ void Widget::setParent (Widget *parent)
 void Widget::queueDrawArea (int x, int y, int width, int height)
 {
    /** \todo Maybe only the intersection? */
-   layout->queueDraw (x + allocation.x, y + allocation.y, width, height);
+   if (layout)
+      layout->queueDraw (x + allocation.x, y + allocation.y, width, height);
    _MSG("Widget::queueDrawArea x=%d y=%d w=%d h=%d\n", x, y, width, height);
 }
 
@@ -127,10 +130,8 @@ void Widget::queueResize (int ref, bool extremesChanged)
 {
    Widget *widget2, *child;
 
-   //DEBUG_MSG (DEBUG_SIZE,
-   //           "a %stop-level %s with parent_ref = %d has changed its size\n",
-   //           widget->parent ? "non-" : "",
-   //           gtk_type_name (GTK_OBJECT_TYPE (widget)), widget->parent_ref);
+   //printf("The %stop-level %s %p with parentRef = %d has changed its size.\n",
+   //       parent ? "non-" : "", getClassName(), this, parentRef);
 
    setFlags (NEEDS_RESIZE);
    setFlags (NEEDS_ALLOCATE);
@@ -148,12 +149,10 @@ void Widget::queueResize (int ref, bool extremesChanged)
       widget2->markSizeChange (child->parentRef);
       widget2->setFlags (NEEDS_ALLOCATE);
 
-      //DEBUG_MSG (DEBUG_ALLOC,
-      //           "setting DW_NEEDS_ALLOCATE for a %stop-level %s "
-      //           "with parent_ref = %d\n",
-      //           widget2->parent ? "non-" : "",
-      //           gtk_type_name (GTK_OBJECT_TYPE (widget2)),
-      //           widget2->parent_ref);
+      //printf ("   Setting DW_NEEDS_RESIZE and NEEDS_ALLOCATE for the "
+      //        "%stop-level %s %p with parentRef = %d\n",
+      //        widget2->parent ? "non-" : "", widget2->getClassName(), widget2,
+      //        widget2->parentRef);
 
       if (extremesChanged) {
          widget2->setFlags (EXTREMES_CHANGED);
@@ -172,6 +171,10 @@ void Widget::queueResize (int ref, bool extremesChanged)
  */
 void Widget::sizeRequest (Requisition *requisition)
 {
+   //printf ("The %stop-level %s %p with parentRef = %d: needsResize: %s\n",
+   //        parent ? "non-" : "", getClassName(), this, parentRef,
+   //        needsResize () ? "true" : "false");
+
    if (needsResize ()) {
       /** \todo Check requisition == &(this->requisition) and do what? */
       sizeRequestImpl (requisition);
@@ -183,6 +186,9 @@ void Widget::sizeRequest (Requisition *requisition)
       DBG_OBJ_SET_NUM (this, "requisition->descent", requisition->descent);
    } else
       *requisition = this->requisition;
+
+   //printf ("   ==> Result: %d x (%d + %d)\n",
+   //        requisition->width, requisition->ascent, requisition->descent);
 }
 
 /**
@@ -524,7 +530,9 @@ Widget *Widget::getWidgetAtPoint (int x, int y, int level)
        * is such a child, it is returned. Otherwise, this widget is returned.
        */
       childAtPoint = NULL;
-      it = iterator (Content::WIDGET, false);
+      it = iterator ((Content::Type)
+                     (Content::WIDGET_IN_FLOW | Content::WIDGET_OOF_CONT),
+                     false);
 
       while (childAtPoint == NULL && it->next ())
          childAtPoint = it->getContent()->widget->getWidgetAtPoint (x, y,
@@ -565,6 +573,25 @@ void Widget::markSizeChange (int ref)
 }
 
 void Widget::markExtremesChange (int ref)
+{
+}
+
+/**
+ * \brief This method is called after a widget has been set as the top of a
+ *    widget tree.
+ * 
+ * A widget may override this method when it is necessary to be notified.
+ */
+void Widget::notifySetAsTopLevel()
+{
+}
+
+/**
+ * \brief This method is called after a widget has been added to a parent. 
+ * 
+ * A widget may override this method when it is necessary to be notified.
+ */
+void Widget::notifySetParent()
 {
 }
 
