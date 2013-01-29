@@ -17,8 +17,6 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-
-
 #include "identity.hh"
 
 #include <stdio.h>
@@ -78,6 +76,7 @@ void IdentifiableObject::registerName (const char *className, int *classId)
    }
 
    this->classId = klass->id;
+   *classId = klass->id;
    currentlyConstructedClass = klass;
 }
 
