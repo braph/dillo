@@ -24,13 +24,14 @@
 #include "../lout/unicode.hh"
 
 #include <stdio.h>
-#include <math.h>
+#include <math.h> // remove again?
+#include <limits.h>
 
 /*
  * Local variables
  */
- /* The tooltip under mouse pointer in current textblock. No ref. hold.
-  * (having one per view looks not worth the extra clutter). */
+/* The tooltip under mouse pointer in current textblock. No ref. hold.
+ * (having one per view looks not worth the extra clutter). */
 static dw::core::style::Tooltip *hoverTooltip = NULL;
 
 
@@ -144,6 +145,7 @@ Textblock::Textblock (bool limitTextWidth)
    nonTemporaryLines = 0;
    words = new misc::NotSoSimpleVector <Word> (1);
    anchors = new misc::SimpleVector <Anchor> (1);
+   outOfFlowMgr = NULL;
 
    //DBG_OBJ_SET_NUM(this, "num_lines", num_lines);
 
@@ -181,8 +183,9 @@ Textblock::~Textblock ()
 
    for (int i = 0; i < words->size(); i++) {
       Word *word = words->getRef (i);
-      if (word->content.type == core::Content::WIDGET)
+      if (word->content.type == core::Content::WIDGET_IN_FLOW)
          delete word->content.widget;
+      /** \todo Widget references? What about texts? */
       word->style->unref ();
       word->spaceStyle->unref ();
    }
@@ -197,6 +200,9 @@ Textblock::~Textblock ()
    delete lines;
    delete words;
    delete anchors;
+
+   if(outOfFlowMgr)
+      delete outOfFlowMgr;
 
    /* Make sure we don't own widgets anymore. Necessary before call of
       parent class destructor. (???) */
@@ -252,6 +258,21 @@ void Textblock::sizeRequestImpl (core::Requisition *requisition)
    requisition->ascent += getStyle()->boxOffsetY ();
    requisition->descent += getStyle()->boxRestHeight ();
 
+   // Dealing with parts out of flow, which may overlap the borders of
+   // the text block. Base lines are ignored here: they do not play a
+   // role (currently) and caring about them (for the future) would
+   // cause too much problems.
+
+   if (outOfFlowMgr) {
+      int oofWidth, oofHeight;
+      outOfFlowMgr->getSize (requisition->width,
+                             requisition->ascent + requisition->descent,
+                             &oofWidth, &oofHeight);
+      requisition->width = misc::max (requisition->width, oofWidth);
+      if (oofHeight > requisition->ascent + requisition->descent)
+         requisition->descent = oofHeight - requisition->ascent;
+   }   
+
    if (requisition->width < availWidth)
       requisition->width = availWidth;
 
@@ -264,7 +285,7 @@ void Textblock::sizeRequestImpl (core::Requisition *requisition)
  */
 void Textblock::getWordExtremes (Word *word, core::Extremes *extremes)
 {
-   if (word->content.type == core::Content::WIDGET) {
+   if (word->content.type == core::Content::WIDGET_IN_FLOW) {
       if (word->content.widget->usesHints ())
          word->content.widget->getExtremes (extremes);
       else {
@@ -312,6 +333,19 @@ void Textblock::getExtremesImpl (core::Extremes *extremes)
    extremes->minWidth += diff;
    extremes->maxWidth += diff;
 
+   if (outOfFlowMgr) {
+      int oofMinWidth, oofMaxWidth;
+      outOfFlowMgr->getExtremes (extremes->minWidth, extremes->maxWidth,
+                                 &oofMinWidth, &oofMaxWidth);
+      
+      //printf ("[%p] extremes: %d / %d, corrected: %d / %d\n",
+      //        this, extremes->minWidth, extremes->maxWidth,
+      //        oofMinWidth, oofMaxWidth);
+
+      extremes->minWidth = misc::max (extremes->minWidth, oofMinWidth);
+      extremes->maxWidth = misc::max (extremes->maxWidth, oofMaxWidth);     
+   }   
+
    PRINTF ("[%p] GET_EXTREMES => %d / %d\n",
            this, extremes->minWidth, extremes->maxWidth);
 }
@@ -338,7 +372,7 @@ void Textblock::sizeAllocateImpl (core::Allocation *allocation)
 
    for (lineIndex = 0; lineIndex < lines->size (); lineIndex++) {
       line = lines->getRef (lineIndex);
-      xCursor = lineXOffsetWidget (line);
+      xCursor = line->offsetCompleteWidget;
 
       for (wordIndex = line->firstWord; wordIndex <= line->lastWord;
            wordIndex++) {
@@ -348,7 +382,7 @@ void Textblock::sizeAllocateImpl (core::Allocation *allocation)
             redrawY = misc::min (redrawY, lineYOffsetWidget (line));
          }
 
-         if (word->content.type == core::Content::WIDGET) {
+         if (word->content.type == core::Content::WIDGET_IN_FLOW) {
             /** \todo Justification within the line is done here. */
             childAllocation.x = xCursor + allocation->x;
             /* align=top:
@@ -420,6 +454,9 @@ void Textblock::sizeAllocateImpl (core::Allocation *allocation)
       }
    }
 
+   if(outOfFlowMgr)
+      outOfFlowMgr->sizeAllocate(allocation);
+      
    for (int i = 0; i < anchors->size(); i++) {
       Anchor *anchor = anchors->getRef(i);
       int y;
@@ -450,47 +487,114 @@ void Textblock::resizeDrawImpl ()
 
 void Textblock::markSizeChange (int ref)
 {
-   PRINTF ("[%p] MARK_SIZE_CHANGE (%d): %d => ...\n", this, ref, wrapRefLines);
+   if (OutOfFlowMgr::isRefOutOfFlow (ref)) {
+      assert (outOfFlowMgr != NULL);
+      outOfFlowMgr->markSizeChange (ref);
+   } else {
+      PRINTF ("[%p] MARK_SIZE_CHANGE (%d): %d => ...\n",
+              this, ref, wrapRefLines);
 
-   /* By the way: ref == -1 may have two different causes: (i) flush()
-      calls "queueResize (-1, true)", when no rewrapping is necessary;
-      and (ii) a word may have parentRef == -1 , when it is not yet
-      added to a line.  In the latter case, nothing has to be done
-      now, but addLine(...) will do everything necessary. */
-   if (ref != -1) {
-      if (wrapRefLines == -1)
-         wrapRefLines = ref;
-      else
-         wrapRefLines = misc::min (wrapRefLines, ref);
+      /* By the way: ref == -1 may have two different causes: (i) flush()
+         calls "queueResize (-1, true)", when no rewrapping is necessary;
+         and (ii) a word may have parentRef == -1 , when it is not yet
+         added to a line.  In the latter case, nothing has to be done
+         now, but addLine(...) will do everything necessary. */
+      if (ref != -1) {
+         if (wrapRefLines == -1)
+            wrapRefLines = OutOfFlowMgr::getLineNoFromRef (ref);
+         else
+            wrapRefLines = misc::min (wrapRefLines,
+                                      OutOfFlowMgr::getLineNoFromRef (ref));
+      }
+
+      PRINTF ("       ... => %d\n", wrapRefLine);
+      
+      // It seems that sometimes (even without floats) the lines
+      // structure is changed, so that wrapRefLines may refers to a
+      // line which does not exist anymore. Should be examined
+      // again. Until then, setting wrapRefLines to the same value is
+      // a workaround.
+      markExtremesChange (ref);
    }
-
-   PRINTF ("       ... => %d\n", wrapRefLine);
-
-   // It seems that sometimes the lines structure is changed, so that
-   // wrapRefLines may refers to a line which does not exist
-   // anymore. Should be examined again. Until then, setting
-   // wrapRefLines to the same value is a workaround.
-   markExtremesChange (ref);
 }
 
 void Textblock::markExtremesChange (int ref)
 {
-   PRINTF ("[%p] MARK_EXTREMES_CHANGE (%d): %d => ...\n",
-           this, ref, wrapRefParagraphs);
+   PRINTF ("[%p] MARK_SIZE_CHANGE (%d): %d => ...\n", this, ref, wrapRefLines);
 
-   /* By the way: ref == -1 may have two different causes: (i) flush()
-      calls "queueResize (-1, true)", when no rewrapping is necessary;
-      and (ii) a word may have parentRef == -1 , when it is not yet
-      added to a line.  In the latter case, nothing has to be done
-      now, but addLine(...) will do everything necessary. */
-   if (ref != -1) {
-      if (wrapRefParagraphs == -1)
-         wrapRefParagraphs = ref;
-      else
-         wrapRefParagraphs = misc::min (wrapRefParagraphs, ref);
+   if (OutOfFlowMgr::isRefOutOfFlow (ref)) {
+      assert (outOfFlowMgr != NULL);
+      outOfFlowMgr->markExtremesChange (ref);
+   } else {
+      PRINTF ("[%p] MARK_EXTREMES_CHANGE (%d): %d => ...\n",
+              this, ref, wrapRefParagraphs);
+
+      /* By the way: ref == -1 may have two different causes: (i) flush()
+         calls "queueResize (-1, true)", when no rewrapping is necessary;
+         and (ii) a word may have parentRef == -1 , when it is not yet
+         added to a line.  In the latter case, nothing has to be done
+         now, but addLine(...) will do everything necessary. */
+      if (ref != -1) {
+         if (wrapRefParagraphs == -1)
+            wrapRefParagraphs = OutOfFlowMgr::getLineNoFromRef (ref);
+         else
+            wrapRefParagraphs =
+               misc::min (wrapRefParagraphs,
+                          OutOfFlowMgr::getLineNoFromRef (ref));
+      }
+
+      PRINTF ("       ... => %d\n", wrapRefParagraphs);
    }
+}
 
-   PRINTF ("       ... => %d\n", wrapRefParagraphs);
+void Textblock::notifySetAsTopLevel()
+{
+   PRINTF ("%p becomes toplevel\n", this);
+   containingBlock = this;
+   PRINTF ("-> %p is its own containing block\n", this);
+}
+
+bool Textblock::isContainingBlock (Widget *widget)
+{
+   return
+      // Of course, only textblocks are considered as containing
+      // blocks.
+      widget->instanceOf (Textblock::CLASS_ID) &&
+      // The second condition: that this block is "out of flow", in a
+      // wider sense.
+      (// The toplevel widget is "out of flow", since there is no
+       // parent, and so no context.
+       widget->getParent() == NULL ||
+       // A similar reasoning applies to a widget with another parent
+       // than a textblock (typical example: a table cell (this is
+       // also a text block) within a table widget).
+       !widget->getParent()->instanceOf (Textblock::CLASS_ID) ||
+       // Finally, "out of flow" in a narrower sense: floats and
+       // absolute positions.
+       OutOfFlowMgr::isWidgetOutOfFlow (widget));
+}
+
+void Textblock::notifySetParent ()
+{
+   PRINTF ("%p becomes a child of %p\n", this, getParent());
+
+   // Search for containing Box.
+   containingBlock = NULL;
+
+   for (Widget *widget = this; widget != NULL && containingBlock == NULL;
+        widget = widget->getParent())
+      if (isContainingBlock (widget)) {
+         containingBlock = (Textblock*)widget;
+
+         if (containingBlock == this) {
+            PRINTF ("-> %p is its own containing block\n", this);
+         } else {
+            PRINTF ("-> %p becomes containing block of %p\n",
+                    containingBlock, this);
+         }
+      }
+   
+   assert (containingBlock != NULL);
 }
 
 void Textblock::setWidth (int width)
@@ -504,7 +608,7 @@ void Textblock::setWidth (int width)
       //          words->size());
 
       availWidth = width;
-      queueResize (0, false);
+      queueResize (OutOfFlowMgr::createRefNormalFlow (0), false);
       mustQueueResize = false;
       redrawY = 0;
    }
@@ -519,7 +623,7 @@ void Textblock::setAscent (int ascent)
       //          words->size());
 
       availAscent = ascent;
-      queueResize (0, false);
+      queueResize (OutOfFlowMgr::createRefNormalFlow (0), false);
       mustQueueResize = false;
    }
 }
@@ -533,7 +637,7 @@ void Textblock::setDescent (int descent)
       //          words->size());
 
       availDescent = descent;
-      queueResize (0, false);
+      queueResize (OutOfFlowMgr::createRefNormalFlow (0), false);
       mustQueueResize = false;
    }
 }
@@ -650,11 +754,11 @@ bool Textblock::sendSelectionEvent (core::SelectionState::EventType eventType,
             // Choose this break.
             wordIndex = line->lastWord;
             charPos = core::SelectionState::END_OF_WORD;
-         } else if (event->xWidget < lineXOffsetWidget (line)) {
+         } else if (event->xWidget < line->offsetCompleteWidget) {
             // Left of the first word in the line.
             wordIndex = line->firstWord;
          } else {
-            int nextWordStartX = lineXOffsetWidget (line);
+            int nextWordStartX = line->offsetCompleteWidget;
 
             for (wordIndex = line->firstWord;
                  wordIndex <= line->lastWord;
@@ -749,8 +853,9 @@ bool Textblock::sendSelectionEvent (core::SelectionState::EventType eventType,
          }
       }
    }
-   it = new TextblockIterator (this, core::Content::SELECTION_CONTENT,
-                               wordIndex);
+
+   it = new TextblockIterator (this, core::Content::maskForSelection (true),
+                               false, wordIndex);
    r = selectionHandleEvent (eventType, it, charPos, link, event);
    it->unref ();
    return r;
@@ -1133,7 +1238,7 @@ void Textblock::drawSpace(int wordIndex, core::View *view,
  */
 void Textblock::drawLine (Line *line, core::View *view, core::Rectangle *area)
 {
-   int xWidget = lineXOffsetWidget(line);
+   int xWidget = line->offsetCompleteWidget;
    int yWidgetBase = lineYOffsetWidget (line) + line->boxAscent;
 
    for (int wordIndex = line->firstWord;
@@ -1144,10 +1249,10 @@ void Textblock::drawLine (Line *line, core::View *view, core::Rectangle *area)
 
       if (xWidget + wordSize + word->hyphenWidth + word->effSpace >= area->x) {
          if (word->content.type == core::Content::TEXT ||
-             word->content.type == core::Content::WIDGET) {
+             word->content.type == core::Content::WIDGET_IN_FLOW) {
 
             if (word->size.width > 0) {
-               if (word->content.type == core::Content::WIDGET) {
+               if (word->content.type == core::Content::WIDGET_IN_FLOW) {
                   core::Widget *child = word->content.widget;
                   core::Rectangle childArea;
 
@@ -1291,7 +1396,7 @@ Textblock::Word *Textblock::findWord (int x, int y, bool *inSpace)
    if (yWidgetBase + line->boxDescent <= y)
       return NULL;
 
-   xCursor = lineXOffsetWidget (line);
+   xCursor = line->offsetCompleteWidget;
    for (wordIndex = line->firstWord; wordIndex <= line->lastWord;wordIndex++) {
       word = words->getRef (wordIndex);
       lastXCursor = xCursor;
@@ -1337,6 +1442,9 @@ void Textblock::draw (core::View *view, core::Rectangle *area)
 
       drawLine (line, view, area);
    }
+   
+   if(outOfFlowMgr)
+      outOfFlowMgr->draw(view, area);
 }
 
 /**
@@ -1750,6 +1858,12 @@ void Textblock::addText0 (const char *text, size_t len, short flags,
    word->content.type = core::Content::TEXT;
    word->content.text = layout->textZone->strndup(text, len);
 
+   // The following debug message may be useful to identify the
+   // different textblocks.
+
+   //if (words->size() == 1)
+   //   printf ("[%p] first word: '%s'\n", this, text);
+
    processWord (words->size () - 1);
 }
 
@@ -1758,28 +1872,42 @@ void Textblock::addText0 (const char *text, size_t len, short flags,
  */
 void Textblock::addWidget (core::Widget *widget, core::style::Style *style)
 {
-   Word *word;
-   core::Requisition size;
-
    /* We first assign -1 as parent_ref, since the call of widget->size_request
     * will otherwise let this Textblock be rewrapped from the beginning.
     * (parent_ref is actually undefined, but likely has the value 0.) At the,
     * end of this function, the correct value is assigned. */
    widget->parentRef = -1;
 
-   PRINTF ("%p becomes child of %p\n", widget, this);
-   
-   widget->setParent (this);
    widget->setStyle (style);
 
-   calcWidgetSize (widget, &size);
-   word = addWord (size.width, size.ascent, size.descent, 0, style);
+   PRINTF ("adding the %s %p to %p ...\n",
+           widget->getClassName(), widget, this);
+      
+   if (OutOfFlowMgr::isWidgetOutOfFlow (widget)) {
+      PRINTF ("   -> out of flow.\n");
 
-   word->content.type = core::Content::WIDGET;
-   word->content.widget = widget;
+      if (containingBlock->outOfFlowMgr == NULL)
+         containingBlock->outOfFlowMgr = new OutOfFlowMgr (containingBlock);
 
-   //DBG_OBJ_ARRSET_PTR (page, "words.%d.content.widget", words->size() - 1,
-   //                    word->content.widget);
+      widget->setParent (containingBlock);
+      widget->setGenerator (this);
+      containingBlock->outOfFlowMgr->addWidget (widget, this);
+      Word *word = addWord (0, 0, 0, false, style);
+      word->content.type = core::Content::WIDGET_OOF_REF;
+      word->content.widget = widget;
+      word->style = style;
+   } else {
+      PRINTF ("   -> within flow.\n");
+
+      widget->setParent (this);
+
+      core::Requisition size;
+      calcWidgetSize (widget, &size);
+      Word *word =
+         addWord (size.width, size.ascent, size.descent, 0, style);
+      word->content.type = core::Content::WIDGET_IN_FLOW;
+      word->content.widget = widget;
+   }
 
    processWord (words->size () - 1);
    //DBG_OBJ_SET_NUM (word->content.widget, "parent_ref",
@@ -1934,7 +2062,7 @@ void Textblock::addParbreak (int space, core::style::Style *style)
 
    /* A break may not be the first word of a page, or directly after
       the bullet/number (which is the first word) in a list item. (See
-      also comment in Dw_page_size_request.) */
+      also comment in sizeRequest.) */
    if (words->size () == 0 ||
        (hasListitemValue && words->size () == 1)) {
       /* This is a bit hackish: If a break is added as the
@@ -1943,23 +2071,23 @@ void Textblock::addParbreak (int space, core::style::Style *style)
          a widget is used as a text box (lists, blockquotes, list
          items etc) -- then we simply adjust the break before, in a
          way that the space is in any case visible. */
-      Widget *widget;
-
-      /* Find the widget where to adjust the breakSpace. */
-      for (widget = this;
-           widget->getParent() &&
-              widget->getParent()->instanceOf (Textblock::CLASS_ID);
+      /* Find the widget where to adjust the breakSpace. (Only
+         consider normal flow, no floats etc.) */
+      for (Widget *widget = this;
+           widget->getParent() != NULL &&
+              widget->getParent()->instanceOf (Textblock::CLASS_ID) &&
+              !OutOfFlowMgr::isRefOutOfFlow (widget->parentRef);
            widget = widget->getParent ()) {
          Textblock *textblock2 = (Textblock*)widget->getParent ();
          int index = textblock2->hasListitemValue ? 1 : 0;
          bool isfirst = (textblock2->words->getRef(index)->content.type
-                         == core::Content::WIDGET
+                         == core::Content::WIDGET_IN_FLOW
                          && textblock2->words->getRef(index)->content.widget
                          == widget);
          if (!isfirst) {
-            /* The page we searched for has been found. */
+            /* The text block we searched for has been found. */
             Word *word2;
-            int lineno = widget->parentRef;
+            int lineno = OutOfFlowMgr::getLineNoFromRef (widget->parentRef);
 
             if (lineno > 0 &&
                 (word2 =
@@ -1968,7 +2096,8 @@ void Textblock::addParbreak (int space, core::style::Style *style)
                 word2->content.type == core::Content::BREAK) {
                if (word2->content.breakSpace < space) {
                   word2->content.breakSpace = space;
-                  textblock2->queueResize (lineno, false);
+                  textblock2->queueResize
+                     (OutOfFlowMgr::createRefNormalFlow (lineno), false);
                   textblock2->mustQueueResize = false;
                }
             }
@@ -1976,6 +2105,7 @@ void Textblock::addParbreak (int space, core::style::Style *style)
          }
          /* Otherwise continue to examine parents. */
       }
+
       /* Return in any case. */
       return;
    }
@@ -2024,7 +2154,6 @@ void Textblock::addLinebreak (core::style::Style *style)
    processWord (words->size () - 1);
 }
 
-
 /**
  * \brief Search recursively through widget.
  *
@@ -2033,6 +2162,10 @@ void Textblock::addLinebreak (core::style::Style *style)
  */
 core::Widget  *Textblock::getWidgetAtPoint(int x, int y, int level)
 {
+   //printf ("%*s-> examining the %s %p (%d, %d, %d x (%d + %d))\n",
+   //        3 * level, "", getClassName (), this, allocation.x, allocation.y,
+   //        allocation.width, allocation.ascent, allocation.descent);
+
    int lineIndex, wordIndex;
    Line *line;
 
@@ -2042,6 +2175,14 @@ core::Widget  *Textblock::getWidgetAtPoint(int x, int y, int level)
        y > allocation.y + getHeight ()) {
       return NULL;
    }
+
+   // First, search for widgets out of flow, notably floats, since
+   // there are cases where they overlap child textblocks. Should
+   // later be refined using z-index.
+   Widget *oofWidget =
+      outOfFlowMgr ? outOfFlowMgr->getWidgetAtPoint (x, y, level) : NULL;
+   if (oofWidget)
+      return oofWidget;
 
    lineIndex = findLineIndex (y - allocation.y);
 
@@ -2054,7 +2195,7 @@ core::Widget  *Textblock::getWidgetAtPoint(int x, int y, int level)
    for (wordIndex = line->firstWord; wordIndex <= line->lastWord;wordIndex++) {
       Word *word =  words->getRef (wordIndex);
 
-      if (word->content.type == core::Content::WIDGET) {
+      if (word->content.type == core::Content::WIDGET_IN_FLOW) {
          core::Widget * childAtPoint;
          childAtPoint = word->content.widget->getWidgetAtPoint (x, y,
                                                                 level + 1);
@@ -2135,7 +2276,7 @@ void Textblock::changeLinkColor (int link, int newColor)
                old_style->unref();
                break;
             }
-            case core::Content::WIDGET:
+            case core::Content::WIDGET_IN_FLOW:
             {  core::Widget *widget = word->content.widget;
                styleAttrs = *widget->getStyle();
                styleAttrs.color = core::style::Color::create (layout,
@@ -2185,6 +2326,114 @@ void Textblock::queueDrawRange (int index1, int index2)
 
       queueDrawArea (0, y, allocation.width, h);
    }
+}
+
+void Textblock::borderChanged (int y)
+{
+   PRINTF ("[%p] Border has changed: %d\n", this, y);
+
+   int lineIndex = findLineIndex (y);
+   // Nothing to do at all, when lineIndex >= lines->size (),
+   // i. e. the change is below the bottom od this widget.
+   if (lineIndex < lines->size ()) {
+      int wrapLineIndex;
+      if (lineIndex < 0)
+         // Rewrap all.
+         wrapLineIndex = 0;
+      else
+         wrapLineIndex = lineIndex;
+      
+      PRINTF ("[%p] Rewrapping from line %d.\n", this, wrapLineIndex);
+      queueResize (OutOfFlowMgr::createRefNormalFlow (wrapLineIndex), true);
+   }
+}
+
+Textblock *Textblock::getTextblockForLine (Line *line)
+{
+   return getTextblockForLine (line->firstWord, line->lastWord);
+}
+
+Textblock *Textblock::getTextblockForLine (int lineNo)
+{
+   int firstWord = lineNo == 0 ? 0 :lines->getRef(lineNo - 1)->lastWord + 1;
+   int lastWord = lineNo < lines->size() ?
+      lines->getRef(lineNo)->lastWord : words->size() - 1;
+   return getTextblockForLine (firstWord, lastWord);
+}
+
+Textblock *Textblock::getTextblockForLine (int firstWord, int lastWord)
+{
+   if (firstWord < words->size ()) {
+      for (int wordIndex = firstWord; wordIndex <= lastWord;
+           wordIndex++) {
+         Word *word = words->getRef (wordIndex);
+         
+         if (word->content.type == core::Content::WIDGET_IN_FLOW &&
+             word->content.widget->instanceOf (Textblock::CLASS_ID)) {
+            //printf ("[%p]    (line %d of %d (from %d to %d), word %d) ",
+            //        this, lineNo, lines->size (), firstWord, lastWord,
+            //        wordIndex);
+            //printWordShort (word);
+            //printf ("\n");
+            
+            return (Textblock*)word->content.widget;
+         }
+      }
+   }
+
+   return NULL;
+}
+
+/**
+ * Includes margin, border, and padding.
+ */
+int Textblock::topOfPossiblyMissingLine (int lineNo)
+{
+   if (lineNo == 0)
+      return getStyle()->boxOffsetY();
+   else {
+      Line *prevLine = lines->getRef (lineNo - 1);
+      return prevLine->top + prevLine->boxAscent + prevLine->boxDescent +
+         prevLine->breakSpace + getStyle()->boxOffsetY();
+   }
+}
+
+int Textblock::heightOfPossiblyMissingLine (int lineNo)
+{
+   PRINTF ("[%p] HEIGHT_OF_POSSIBLY_MISSING_LINE (%d)\n", this, lineNo);
+   
+   if (lineNo < lines->size()) {
+      // An existing line.
+      Line *line = lines->getRef (lineNo);
+      PRINTF ("      exists; height = %d + %d = %d\n", line->boxAscent,
+              line->boxDescent,  line->boxAscent + line->boxDescent);
+      return line->boxAscent + line->boxDescent;
+   } else if (lineNo == lines->size()) {
+      // The line to be constructed: some words exist, but not the
+      // line. Accumulate the word heights. TODO Could be faster by
+      // accumulating them when words are added.
+      
+      // Furthermore, this is in some cases incomplete: see
+      // doc/dw-out-of-flow.doc.
+
+      int h = 1;
+      int firstWord = lines->size() > 0 ? lines->getLastRef()->lastWord + 1 : 0;
+
+      PRINTF ("      does not exist; accumulating words from %d to %d\n",
+              firstWord, words->size());
+
+      for (int i = firstWord; i < words->size(); i++) {
+         Word *word = words->getRef (i);
+         h = misc::max (h, word->size.ascent + word->size.descent);
+         //printf ("          word %d: ", i);
+         //printWordShort (word);
+         //printf (" => %d + %d = %d\n", word->size.ascent, word->size.descent,
+         //        word->size.ascent + word->size.descent);
+      }
+      PRINTF ("      => %d\n", h);
+      return h;
+   } else
+      return 1;
 }
 
 } // namespace dw
