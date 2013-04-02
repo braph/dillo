@@ -504,6 +504,9 @@ void StyleEngine::apply (int i, StyleAttrs *attrs, CssPropertyList *props) {
          case CSS_PROPERTY_DISPLAY:
             attrs->display = (DisplayType) p->value.intVal;
             break;
+         case CSS_PROPERTY_FLOAT:
+            attrs->vloat = (FloatType) p->value.intVal;
+            break;
          case CSS_PROPERTY_LINE_HEIGHT:
             if (p->type == CSS_TYPE_ENUM) { //only valid enum value is "normal"
                attrs->lineHeight = dw::core::style::LENGTH_AUTO;

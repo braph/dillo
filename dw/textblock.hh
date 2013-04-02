@@ -4,12 +4,15 @@
 #include <limits.h>
 
 #include "core.hh"
+#include "outofflowmgr.hh"
 #include "../lout/misc.hh"
 
 // These were used when improved line breaking and hyphenation were
 // implemented. Should be cleaned up; perhaps reactivate RTFL again.
 #define PRINTF(fmt, ...)
 #define PUTCHAR(ch)
+
+//#define DEBUG
 
 namespace dw {
 
@@ -18,10 +21,11 @@ namespace dw {
  *    of paragraphs.
  *
  * <div style="border: 2px solid #ffff00; margin-top: 0.5em;
- * margin-bottom: 0.5em; padding: 0.5em 1em;
- * background-color: #ffffe0"><b>Info:</b> The recent changes (line
- * breaking and hyphenation) have not yet been incorporated into this
- * documentation. See \ref dw-line-breaking.</div>
+ * margin-bottom: 0.5em; padding: 0.5em 1em; background-color:
+ * #ffffe0"><b>Info:</b> The recent changes (line breaking and
+ * hyphenation on one hand, floats on the other hand) have not yet
+ * been incorporated into this documentation. See \ref
+ * dw-line-breaking and \ref dw-out-of-flow.</div>
  *
  * <h3>Signals</h3>
  *
@@ -236,6 +240,9 @@ private:
 
    static const char *hyphenDrawChar;
 
+   Textblock *containingBlock;
+   OutOfFlowMgr *outOfFlowMgr;
+
 protected:
    struct Paragraph
    {
@@ -275,7 +282,7 @@ protected:
       /* "top" is always relative to the top of the first line, i.e.
        * page->lines[0].top is always 0. */
       int top, boxAscent, boxDescent, contentAscent, contentDescent,
-          breakSpace, leftOffset;
+         breakSpace, leftOffset, offsetCompleteWidget;
 
       /* This is similar to descent, but includes the bottom margins of the
        * widgets within this line. */
@@ -367,13 +374,14 @@ protected:
    class TextblockIterator: public core::Iterator
    {
    private:
+      bool oofm;
       int index;
 
    public:
       TextblockIterator (Textblock *textblock, core::Content::Type mask,
                          bool atEnd);
       TextblockIterator (Textblock *textblock, core::Content::Type mask,
-                         int index);
+                         bool oofm, int index);
 
       lout::object::Object *clone();
       int compareTo(lout::object::Comparable *other);
@@ -383,6 +391,7 @@ protected:
       void highlight (int start, int end, core::HighlightLayer layer);
       void unhighlight (int direction, core::HighlightLayer layer);
       void getAllocation (int start, int end, core::Allocation *allocation);
+      void print ();
    };
 
    friend class TextblockIterator;
@@ -432,7 +441,10 @@ protected:
    /* These values are set by set_... */
    int availWidth, availAscent, availDescent;
 
-   int wrapRefLines, wrapRefParagraphs;  /* [0 based] */
+   int wrapRefLines, wrapRefParagraphs;  /* 0-based. Important: Both
+                                            are the line numbers, not
+                                            the value stored in
+                                            parentRef. */
 
    lout::misc::SimpleVector <Line> *lines;
    lout::misc::SimpleVector <Paragraph> *paragraphs;
@@ -490,25 +502,17 @@ protected:
                       core::Requisition *size, bool isStart, bool isEnd);
 
    /**
-    * \brief Returns the x offset (the indentation plus any offset needed for
-    *    centering or right justification) for the line.
-    *
-    * The offset returned is relative to the page *content* (i.e. without
-    * border etc.).
+    * Of nested text blocks, only the most inner one must regard the
+    * borders of floats.
     */
-   inline int lineXOffsetContents (Line *line)
+   inline bool mustBorderBeRegarded (Line *line)
    {
-      return innerPadding + line->leftOffset +
-         (line == lines->getFirstRef() ? line1OffsetEff : 0);
+      return getTextblockForLine (line) == NULL;
    }
 
-   /**
-    * \brief Like lineXOffset, but relative to the allocation (i.e.
-    *    including border etc.).
-    */
-   inline int lineXOffsetWidget (Line *line)
+   inline bool mustBorderBeRegarded (int lineNo)
    {
-      return lineXOffsetContents (line) + getStyle()->boxOffsetX ();
+      return getTextblockForLine (lineNo) == NULL;
    }
 
    inline int lineYOffsetWidgetAllocation (Line *line,
@@ -559,6 +563,12 @@ protected:
              (Word::DIV_CHAR_AT_EOL | Word::PERM_DIV_CHAR)) ? 1 : 0;
    }
 
+   Textblock *getTextblockForLine (Line *line);
+   Textblock *getTextblockForLine (int lineNo);
+   Textblock *getTextblockForLine (int firstWord, int lastWord);
+   int topOfPossiblyMissingLine (int lineNo);
+   int heightOfPossiblyMissingLine (int lineNo);
+
    bool sendSelectionEvent (core::SelectionState::EventType eventType,
                             core::MousePositionEvent *event);
 
@@ -566,6 +576,12 @@ protected:
                                 int *maxOfMinWidth, int *sumOfMaxWidth);
    void processWord (int wordIndex);
    virtual void wordWrap (int wordIndex, bool wrapAll);
+   void wrapWidgetOofRef (int wordIndex);
+   int searchMinBap (int firstWord, int lastWordm, int penaltyIndex,
+                     bool correctAtEnd);
+   int considerHyphenation (int breakPos);
+   bool isHyphenationCandidate (Word *word);
+   
    void handleWordExtremes (int wordIndex);
    void correctLastWordExtremes ();
 
@@ -585,6 +601,8 @@ protected:
 
    void markSizeChange (int ref);
    void markExtremesChange (int ref);
+   void notifySetAsTopLevel();
+   void notifySetParent();
    void setWidth (int width);
    void setAscent (int ascent);
    void setDescent (int descent);
@@ -604,6 +622,7 @@ protected:
                        core::style::Style *style,
                        int numBreaks, int *breakPos,
                        core::Requisition *wordSize);
+   static bool isContainingBlock (Widget *widget);
 
 public:
    static int CLASS_ID;
@@ -638,6 +657,11 @@ public:
    void changeLinkColor (int link, int newColor);
    void changeWordStyle (int from, int to, core::style::Style *style,
                          bool includeFirstSpace, bool includeLastSpace);
+
+   void borderChanged (int y, core::Widget *vloat);
+   inline int getAvailWidth () { return availWidth; }
+   inline int getAvailAscent () { return availAscent; }
+   inline int getAvailDescent () { return availDescent; }
 };
 
 } // namespace dw
