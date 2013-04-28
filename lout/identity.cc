@@ -17,8 +17,6 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-
-
 #include "identity.hh"
 
 #include <stdio.h>
@@ -39,6 +37,22 @@ IdentifiableObject::Class::Class (IdentifiableObject::Class *parent, int id,
    this->parent = parent;
    this->id = id;
    this->className = className;
+}
+
+void IdentifiableObject::Class::intoStringBuffer(misc::StringBuffer *sb)
+{
+   sb->append ("<class ");
+   sb->append (className);
+   sb->append (" (");
+   sb->appendInt (id);
+   sb->append (")");
+
+   if (parent) {
+      sb->append (", parent: ");
+      parent->intoStringBuffer (sb);
+   }
+
+   sb->append (">");
 }
 
 HashTable <ConstString, IdentifiableObject::Class>
@@ -78,6 +92,7 @@ void IdentifiableObject::registerName (const char *className, int *classId)
    }
 
    this->classId = klass->id;
+   *classId = klass->id;
    currentlyConstructedClass = klass;
 }
 

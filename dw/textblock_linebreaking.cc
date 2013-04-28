@@ -232,21 +232,7 @@ void Textblock::BadnessAndPenalty::print ()
 
 void Textblock::printWordShort (Word *word)
 {
-   switch(word->content.type) {
-   case core::Content::TEXT:
-      printf ("\"%s\"", word->content.text);
-      break;
-   case core::Content::WIDGET:
-      printf ("<widget: %p (%s)>",
-              word->content.widget, word->content.widget->getClassName());
-      break;
-   case core::Content::BREAK:
-      printf ("<break>");
-      break;
-   default:
-      printf ("<?>");
-      break;              
-   }
+   core::Content::print (&(word->content));
 }
 
 void Textblock::printWordFlags (short flags)
@@ -339,6 +325,12 @@ Textblock::Line *Textblock::addLine (int firstWord, int lastWord,
    PRINTF ("[%p] ADD_LINE (%d, %d) => %d\n",
            this, firstWord, lastWord, lines->size ());
 
+   //for (int i = firstWord; i <= lastWord; i++) {
+   //   printf ("      word %d: ", i);
+   //   printWord (words->getRef (i));
+   //   printf ("\n");
+   //}
+
    Word *lastWordOfLine = words->getRef(lastWord);
    // Word::totalWidth includes the hyphen (which is what we want here).
    int lineWidth = lastWordOfLine->totalWidth;
@@ -377,6 +369,7 @@ Textblock::Line *Textblock::addLine (int firstWord, int lastWord,
    line->marginDescent = 0;
    line->breakSpace = 0;
    line->leftOffset = 0;
+   line->finished = false;
 
    alignLine (lineIndex);
    for (int i = line->firstWord; i < line->lastWord; i++) {
@@ -398,6 +391,28 @@ Textblock::Line *Textblock::addLine (int firstWord, int lastWord,
    for(int i = line->firstWord; i <= line->lastWord; i++)
       accumulateWordForLine (lineIndex, i);
 
+   // Especially empty lines (possible when there are floats) have
+   // zero height, which may cause endless loops. For this reasons,
+   // the height should be positive.
+   line->boxAscent = misc::max (line->boxAscent, 1);
+
+   // Calculate offsetCompleteWidget, which includes also floats.
+   int leftBorder;
+   if (containingBlock->outOfFlowMgr && mustBorderBeRegarded (line)) {
+      int y = line->top + getStyle()->boxOffsetY();
+      int h = line->boxAscent + line->boxDescent;
+      leftBorder =
+         containingBlock->outOfFlowMgr->getLeftBorder (this, y, h, this,
+                                                       lastPositionedOofWidget);
+   } else
+      leftBorder = 0;
+
+   line->offsetCompleteWidget =
+      misc::max (leftBorder,
+                 getStyle()->boxOffsetX() + innerPadding
+                 + (lineIndex == 0 ? line1OffsetEff : 0))
+      + line->leftOffset;
+   
    PRINTF ("   line[%d].top = %d\n", lines->size () - 1, line->top);
    PRINTF ("   line[%d].boxAscent = %d\n", lines->size () - 1, line->boxAscent);
    PRINTF ("   line[%d].boxDescent = %d\n",
@@ -406,9 +421,10 @@ Textblock::Line *Textblock::addLine (int firstWord, int lastWord,
            line->contentAscent);
    PRINTF ("   line[%d].contentDescent = %d\n",
            lines->size () - 1, line->contentDescent);
-
    PRINTF ("   line[%d].maxLineWidth = %d\n",
            lines->size () - 1, line->maxLineWidth);
+   PRINTF ("   line[%d].offsetCompleteWidget = %d\n",
+           lines->size () - 1, line->offsetCompleteWidget);
 
    mustQueueResize = true;
 
@@ -419,6 +435,8 @@ Textblock::Line *Textblock::addLine (int firstWord, int lastWord,
    //words->getRef(line->lastWord)->badnessAndPenalty.print ();
    //printf ("\n");
    
+   line->finished = true;
+
    return line;
 }
 
@@ -476,14 +494,12 @@ void Textblock::wordWrap (int wordIndex, bool wrapAll)
    PRINTF ("[%p] WORD_WRAP (%d, %s)\n",
            this, wordIndex, wrapAll ? "true" : "false");
 
-   Word *word;
-
    if (!wrapAll)
       removeTemporaryLines ();
 
    initLine1Offset (wordIndex);
 
-   word = words->getRef (wordIndex);
+   Word *word = words->getRef (wordIndex);
    word->effSpace = word->origSpace;
 
    accumulateWordData (wordIndex);
@@ -492,16 +508,69 @@ void Textblock::wordWrap (int wordIndex, bool wrapAll)
    //printWord (word);
    //printf ("\n");
 
+   switch (word->content.type) {
+   case core::Content::WIDGET_OOF_REF:
+      wrapWordOofRef (wordIndex, wrapAll);
+      break;
+
+   default:
+      wrapWordInFlow (wordIndex, wrapAll);
+      break;
+   }
+}
+
+void Textblock::wrapWordInFlow (int wordIndex, bool wrapAll)
+{
+   Word *word = words->getRef (wordIndex);
    int penaltyIndex = calcPenaltyIndexForNewLine ();
 
    bool newLine;
    do {
+      // This variable is set to true, if, due to floats, this line is
+      // smaller than following lines will be (and, at the end, there
+      // will be surely lines without floats). If this is the case, lines
+      // may, in an extreme case, be left empty.
+
+      // (In other cases, lines are never left empty, even if this means
+      // that the contents is wider than the available witdh. Leaving
+      // lines empty does not make sense without floats, since there will
+      // be no possibility with more space anymore.)
+
+      bool thereWillBeMoreSpace;
+      if (containingBlock->outOfFlowMgr == NULL ||
+          !mustBorderBeRegarded (lines->size ())) {
+         thereWillBeMoreSpace = false;
+         PRINTF ("   thereWillBeMoreSpace = false (no OOFM or ...)\n");
+      } else {
+         int y =
+            topOfPossiblyMissingLine (lines->size ());
+         int h = heightOfPossiblyMissingLine (lines->size ());
+
+         // A previous version checked only the borders, not directly,
+         // whether there are floats. The distinction is rather
+         // disputable. (More on this later.)
+
+         thereWillBeMoreSpace =
+            containingBlock->outOfFlowMgr->hasFloatLeft (this, y, h, this,
+                                                     lastPositionedOofWidget) ||
+            containingBlock->outOfFlowMgr->hasFloatRight (this, y, h, this,
+                                                       lastPositionedOofWidget);
+
+         PRINTF ("   thereWillBeMoreSpace = %s (y = %d, h = %d)\n",
+                 thereWillBeMoreSpace ? "true" : "false", y, h);
+      }
+
       bool tempNewLine = false;
       int firstIndex =
          lines->size() == 0 ? 0 : lines->getLastRef()->lastWord + 1;
       int searchUntil;
 
-      if (wrapAll && wordIndex >= firstIndex && wordIndex == words->size() -1) {
+      if (wordIndex < firstIndex)
+          // Current word is already part of a line (ending with
+          // firstIndex - 1), so no new line has to be added.
+          newLine = false;
+      else if (wrapAll && wordIndex >= firstIndex &&
+               wordIndex == words->size() -1) {
          newLine = true;
          searchUntil = wordIndex;
          tempNewLine = true;
@@ -517,13 +586,21 @@ void Textblock::wordWrap (int wordIndex, bool wrapAll)
          // Break the line when too tight, but only when there is a
          // possible break point so far. (TODO: I've forgotten the
          // original bug which is fixed by this.)
+         
+         // Exception of the latter rule: thereWillBeMoreSpace; see
+         // above, where it is defined.
+
          bool possibleLineBreak = false;
-         for (int i = firstIndex; !possibleLineBreak && i <= wordIndex - 1; i++)
+         for (int i = firstIndex;
+              !(thereWillBeMoreSpace || possibleLineBreak)
+                 && i <= wordIndex - 1;
+              i++)
             if (words->getRef(i)->badnessAndPenalty
                 .lineCanBeBroken (penaltyIndex))
                possibleLineBreak = true;
 
-         if (possibleLineBreak && word->badnessAndPenalty.lineTooTight ()) {
+         if ((thereWillBeMoreSpace || possibleLineBreak)
+             && word->badnessAndPenalty.lineTooTight ()) {
             newLine = true;
             searchUntil = wordIndex - 1;
             PRINTF ("   NEW LINE: line too tight\n");
@@ -540,55 +617,68 @@ void Textblock::wordWrap (int wordIndex, bool wrapAll)
          // newLine is calculated as "true".
          mustQueueResize = true;
 
+      PRINTF ("[%p] special case? newLine = %s, wrapAll = %s => "
+              "mustQueueResize = %s\n", this, newLine ? "true" : "false",
+              wrapAll ? "true" : "false", mustQueueResize ? "true" : "false");
+
       if(newLine) {
          accumulateWordData (wordIndex);
          int wordIndexEnd = wordIndex;
 
          bool lineAdded;
          do {
-            int breakPos =
-               searchMinBap (firstIndex, searchUntil, penaltyIndex, wrapAll);
-            int hyphenatedWord = considerHyphenation (firstIndex, breakPos);
-
-            PRINTF ("[%p] breakPos = %d, hyphenatedWord = %d\n",
-                    this, breakPos, hyphenatedWord);
-
-            if(hyphenatedWord == -1) {
-               addLine (firstIndex, breakPos, tempNewLine);
-               PRINTF ("[%p]    new line %d (%s), from %d to %d\n",
-                       this, lines->size() - 1,
-                       tempNewLine ? "temporally" : "permanently",
-                       firstIndex, breakPos);
+            if (firstIndex > searchUntil) {
+               // empty line
+               assert (searchUntil == firstIndex - 1);
+               addLine (firstIndex, firstIndex - 1, tempNewLine);
                lineAdded = true;
                penaltyIndex = calcPenaltyIndexForNewLine ();
             } else {
-               // TODO hyphenateWord() should return whether something has
-               // changed at all. So that a second run, with
-               // !word->canBeHyphenated, is unnecessary.
-               // TODO Update: for this, searchUntil == 0 should be checked.
-               PRINTF ("[%p] old searchUntil = %d ...\n", this, searchUntil);
-               int n = hyphenateWord (hyphenatedWord);
-               searchUntil += n;
-               if (hyphenatedWord <= wordIndex)
-                  wordIndexEnd += n;
-               PRINTF ("[%p] -> new searchUntil = %d ...\n", this, searchUntil);
-               lineAdded = false;
+               int breakPos =
+                  searchMinBap (firstIndex, searchUntil, penaltyIndex, wrapAll);
+               int hyphenatedWord = considerHyphenation (firstIndex, breakPos);
                
-               // update word pointer as hyphenateWord() can trigger a
-               // reorganization of the words structure
-               word = words->getRef (wordIndex);
+               PRINTF ("[%p] breakPos = %d, hyphenatedWord = %d\n",
+                       this, breakPos, hyphenatedWord);
+               
+               if(hyphenatedWord == -1) {
+                  addLine (firstIndex, breakPos, tempNewLine);
+                  PRINTF ("[%p]    new line %d (%s), from %d to %d\n",
+                          this, lines->size() - 1,
+                          tempNewLine ? "temporally" : "permanently",
+                          firstIndex, breakPos);
+                  lineAdded = true;
+                  penaltyIndex = calcPenaltyIndexForNewLine ();
+               } else {
+                  // TODO hyphenateWord() should return whether
+                  // something has changed at all. So that a second
+                  // run, with !word->canBeHyphenated, is unnecessary.
+                  // TODO Update: for this, searchUntil == 0 should be
+                  // checked.
+                  PRINTF ("[%p] old searchUntil = %d ...\n", this, searchUntil);
+                  int n = hyphenateWord (hyphenatedWord);
+                  searchUntil += n;
+                  if (hyphenatedWord <= wordIndex)
+                     wordIndexEnd += n;
+                  PRINTF ("[%p] -> new searchUntil = %d ...\n",
+                          this, searchUntil);
+                  lineAdded = false;
+               
+                  // update word pointer as hyphenateWord() can trigger a
+                  // reorganization of the words structure
+                  word = words->getRef (wordIndex);
+               }
+               
+               PRINTF ("[%p]       accumulating again from %d to %d\n",
+                       this, breakPos + 1, wordIndexEnd);
+               for(int i = breakPos + 1; i <= wordIndexEnd; i++)
+                  accumulateWordData (i);
             }
-            
-            PRINTF ("[%p]       accumulating again from %d to %d\n",
-                    this, breakPos + 1, wordIndexEnd);
-            for(int i = breakPos + 1; i <= wordIndexEnd; i++)
-               accumulateWordData (i);
-
          } while(!lineAdded);
       }
    } while (newLine);
 
-   if(word->content.type == core::Content::WIDGET) {
+   if(word->content.type == core::Content::WIDGET_IN_FLOW) {
       // Set parentRef for the child, when necessary.
       //
       // parentRef is set for the child already, when a line is
@@ -605,12 +695,37 @@ void Textblock::wordWrap (int wordIndex, bool wrapAll)
          firstWordWithoutLine = lines->getLastRef()->lastWord + 1;
    
       if (wordIndex >= firstWordWithoutLine) {
-         word->content.widget->parentRef = lines->size ();
+         word->content.widget->parentRef =
+            OutOfFlowMgr::createRefNormalFlow (lines->size ());
          PRINTF ("The %s %p is assigned parentRef = %d.\n",
                  word->content.widget->getClassName(), word->content.widget,
                  word->content.widget->parentRef);
       }
    }
+}
+
+void Textblock::wrapWordOofRef (int wordIndex, bool wrapAll)
+{
+   int top;
+   if (lines->size() == 0)
+      top = 0;
+   else {
+      Line *prevLine = lines->getLastRef ();
+      top = prevLine->top + prevLine->boxAscent +
+         prevLine->boxDescent + prevLine->breakSpace;
+   }
+
+   containingBlock->outOfFlowMgr->tellPosition
+      (words->getRef(wordIndex)->content.widget,
+       top + getStyle()->boxOffsetY());
+   lastPositionedOofWidget = wordIndex;
+
+   // TODO: compare old/new values of calcAvailWidth(...) (?)
+   int firstIndex =
+      lines->size() == 0 ? 0 : lines->getLastRef()->lastWord + 1;
+   assert (firstIndex <= wordIndex);
+   for (int i = firstIndex; i <= wordIndex; i++)
+      accumulateWordData (i);
 }
 
 int Textblock::searchMinBap (int firstWord, int lastWord, int penaltyIndex,
@@ -709,7 +824,6 @@ bool Textblock::isHyphenationCandidate (Word *word)
       word->content.type == core::Content::TEXT &&
       Hyphenator::isHyphenationCandidate (word->content.text);
 }
-
 
 /**
  * Counter part to wordWrap(), but for extremes, not size calculation.
@@ -831,6 +945,10 @@ int Textblock::hyphenateWord (int wordIndex)
       words->insert (wordIndex, numBreaks);
       PRINTF ("[%p]       ... => %d words\n", this, words->size ());
 
+      if (containingBlock->outOfFlowMgr)
+         containingBlock->outOfFlowMgr->moveExternalIndices (this, wordIndex,
+                                                             numBreaks);
+
       // Adjust anchor indexes.
       for (int i = 0; i < anchors->size (); i++) {
          Anchor *anchor = anchors->getRef (i);
@@ -887,12 +1005,19 @@ int Textblock::hyphenateWord (int wordIndex)
             }
          }
 
-         accumulateWordData (wordIndex + i);
-
          //printf ("[%p] %d: hyphenated word part: ", this, wordIndex + i);
          //printWordWithFlags (w);
          //printf ("\n");
       }
+
+      // AccumulateWordData() will calculate the width, which depends
+      // on the borders (possibly limited by floats), which depends on
+      // the widgeds so far. For this reason, it is important to first
+      // make all words consistent before calling
+      // accumulateWordData(); therefore the second loop.
+
+      for (int i = 0; i < numBreaks + 1; i++)
+         accumulateWordData (wordIndex + i);
 
       PRINTF ("   finished\n");
       
@@ -912,8 +1037,12 @@ void Textblock::accumulateWordForLine (int lineIndex, int wordIndex)
    Line *line = lines->getRef (lineIndex);
    Word *word = words->getRef (wordIndex);
 
-   PRINTF ("      %d + %d / %d + %d\n", line->boxAscent, line->boxDescent,
+   PRINTF ("[%p] ACCUMULATE_WORD_FOR_LINE (%d, %d): %d + %d / %d + %d\n",
+           this, lineIndex, wordIndex, line->boxAscent, line->boxDescent,
            word->size.ascent, word->size.descent);
+   //printf ("   ");
+   //printWord (word);
+   //printf ("\n");
 
    line->boxAscent = misc::max (line->boxAscent, word->size.ascent);
    line->boxDescent = misc::max (line->boxDescent, word->size.descent);
@@ -928,7 +1057,7 @@ void Textblock::accumulateWordForLine (int lineIndex, int wordIndex)
       len += word->style->font->ascent / 3;
    line->contentDescent = misc::max (line->contentDescent, len);
 
-   if (word->content.type == core::Content::WIDGET) {
+   if (word->content.type == core::Content::WIDGET_IN_FLOW) {
       int collapseMarginTop = 0;
 
       line->marginDescent =
@@ -952,7 +1081,8 @@ void Textblock::accumulateWordForLine (int lineIndex, int wordIndex)
                        + word->content.widget->getStyle()->margin.top
                        - collapseMarginTop);
 
-      word->content.widget->parentRef = lineIndex;
+      word->content.widget->parentRef =
+         OutOfFlowMgr::createRefNormalFlow (lineIndex);
    } else {
       line->marginDescent =
          misc::max (line->marginDescent, line->boxDescent);
@@ -1018,18 +1148,46 @@ void Textblock::accumulateWordData (int wordIndex)
 
 int Textblock::calcAvailWidth (int lineIndex)
 {
-   int availWidth =
-      this->availWidth - getStyle()->boxDiffWidth() - innerPadding;
+   PRINTF ("[%p] CALC_AVAIL_WIDTH (%d of %d) ...\n",
+           this, lineIndex, lines->size());
+
+   int availWidth = this->availWidth - innerPadding;
    if (limitTextWidth &&
        layout->getUsesViewport () &&
-       availWidth > layout->getWidthViewport () - 10)
+       // margin/border/padding will be subtracted later,  via OOFM.
+       availWidth - getStyle()->boxDiffWidth()
+       > layout->getWidthViewport () - 10)
       availWidth = layout->getWidthViewport () - 10;
    if (lineIndex == 0)
       availWidth -= line1OffsetEff;
 
-   //PRINTF("[%p] CALC_AVAIL_WIDTH => %d - %d - %d = %d\n",
-   //       this, this->availWidth, getStyle()->boxDiffWidth(), innerPadding,
-   //       availWidth);
+   // TODO if the result is too small, but only in some cases
+   // (e. g. because of floats), the caller should skip a
+   // line. General distinction?
+   int leftBorder, rightBorder;
+   if (containingBlock->outOfFlowMgr && mustBorderBeRegarded (lineIndex)) {
+      int y = topOfPossiblyMissingLine (lineIndex);
+      int h = heightOfPossiblyMissingLine (lineIndex);
+      PRINTF ("[%p] borders for line %d: y = %d, h = %d\n",
+              this, lineIndex, y, h);
+      leftBorder =
+         containingBlock->outOfFlowMgr->getLeftBorder (this, y, h, this,
+                                                       lastPositionedOofWidget);
+      rightBorder =
+         containingBlock->outOfFlowMgr->getRightBorder (this, y, h, this,
+                                                       lastPositionedOofWidget);
+   } else
+      leftBorder = rightBorder = 0;
+
+   leftBorder = misc::max (leftBorder, getStyle()->boxOffsetX());
+   rightBorder = misc::max (rightBorder, getStyle()->boxRestWidth());
+
+   availWidth -= (leftBorder + rightBorder);
+
+   PRINTF ("[%p] CALC_AVAIL_WIDTH (%d of %d) => %d - %d - (%d + %d)"
+           " = %d\n", this, lineIndex, lines->size(), this->availWidth, 
+           innerPadding, leftBorder, rightBorder,
+           availWidth);
 
    return availWidth;
 }
@@ -1046,7 +1204,7 @@ void Textblock::initLine1Offset (int wordIndex)
       } else {
          int indent = 0;
 
-         if (word->content.type == core::Content::WIDGET &&
+         if (word->content.type == core::Content::WIDGET_IN_FLOW &&
              word->content.widget->blockLevel() == true) {
             /* don't use text-indent when nesting blocks */
          } else {
@@ -1118,7 +1276,7 @@ void Textblock::alignLine (int lineIndex)
  */
 void Textblock::rewrap ()
 {
-   PRINTF ("[%p] REWRAP: wrapRef = %d\n", this, wrapRef);
+   PRINTF ("[%p] REWRAP: wrapRefLines = %d\n", this, wrapRefLines);
 
    if (wrapRefLines == -1)
       /* page does not have to be rewrapped */
@@ -1128,6 +1286,7 @@ void Textblock::rewrap ()
     * the line list up from this position is rebuild. */
    lines->setSize (wrapRefLines);
    nonTemporaryLines = misc::min (nonTemporaryLines, wrapRefLines);
+   lastPositionedOofWidget = -1;
 
    int firstWord;
    if (lines->size () > 0)
@@ -1135,10 +1294,12 @@ void Textblock::rewrap ()
    else
       firstWord = 0;
 
+   PRINTF ("   starting with word %d\n", firstWord);
+
    for (int i = firstWord; i < words->size (); i++) {
       Word *word = words->getRef (i);
-         
-      if (word->content.type == core::Content::WIDGET)
+
+      if (word->content.type == core::Content::WIDGET_IN_FLOW)
          calcWidgetSize (word->content.widget, &word->size);
       
       wordWrap (i, false);

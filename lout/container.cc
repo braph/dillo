@@ -188,9 +188,10 @@ void Vector::remove(int pos)
 /**
  * Sort the elements in the vector. Assumes that all elements are Comparable's.
  */
-void Vector::sort()
+void Vector::sort(Comparator *comparator)
 {
-   qsort (array, numElements, sizeof(Object*), Comparable::compareFun);
+   Comparator::compareFunComparator = comparator;
+   qsort (array, numElements, sizeof(Object*), Comparator::compareFun);
 }
 
 /**
@@ -202,18 +203,19 @@ void Vector::sort()
  * size of the array. (This is the value which can be used for
  * insertion; see insertSortet()).
  */
-int Vector::bsearch(Object *key, bool mustExist)
+int Vector::bsearch(Object *key, bool mustExist, int start, int end,
+                    Comparator *comparator)
 {
    // The case !mustExist is not handled by bsearch(3), so here is a
    // new implementation.
-   if (numElements == 0)
+   if (start >= end)
       return mustExist ? -1 : 0;
    
-   int high = numElements - 1, low = 0;
+   int low = start, high = end;
 
    while (true) {
       int index = (low + high) / 2;
-      int c = ((Comparable*) key)->compareTo ((Comparable*)array[index]);
+      int c = comparator->compare (key, array[index]);
       if (c == 0)
          return index;
       else {
@@ -233,6 +235,7 @@ int Vector::bsearch(Object *key, bool mustExist)
    
 
    /*
+   Comparator::compareFunComparator = comparator;
    void *result = ::bsearch (&key, array, numElements, sizeof (Object*),
                              Comparable::compareFun);
    if (result)

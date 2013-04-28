@@ -17,8 +17,6 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-
-
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -49,6 +47,8 @@ void StyleAttrs::initValues ()
    valign = VALIGN_BASELINE;
    backgroundColor = NULL;
    width = height = lineHeight = LENGTH_AUTO;
+   vloat = FLOAT_NONE;
+   clear = CLEAR_NONE;
    textIndent = 0;
    margin.setVal (0);
    borderWidth.setVal (0);
@@ -75,6 +75,8 @@ void StyleAttrs::resetValues ()
 
    valign = VALIGN_BASELINE;
    textAlignChar = '.';
+   vloat = FLOAT_NONE; /** \todo Correct? Check specification. */
+   clear = CLEAR_NONE; /** \todo Correct? Check specification. */
    backgroundColor = NULL;
    width = LENGTH_AUTO;
    height = LENGTH_AUTO;
@@ -120,6 +122,8 @@ bool StyleAttrs::equals (object::Object *other) {
        valign == otherAttrs->valign &&
        textAlignChar == otherAttrs->textAlignChar &&
        textTransform == otherAttrs->textTransform &&
+       vloat == otherAttrs->vloat &&
+       clear == otherAttrs->clear &&
        hBorderSpacing == otherAttrs->hBorderSpacing &&
        vBorderSpacing == otherAttrs->vBorderSpacing &&
        wordSpacing == otherAttrs->wordSpacing &&
@@ -160,6 +164,8 @@ int StyleAttrs::hashValue () {
       valign +
       textAlignChar +
       textTransform +
+      vloat +
+      clear +
       hBorderSpacing +
       vBorderSpacing +
       wordSpacing +
@@ -252,6 +258,8 @@ void Style::copyAttrs (StyleAttrs *attrs)
    valign = attrs->valign;
    textAlignChar = attrs->textAlignChar;
    textTransform = attrs->textTransform;
+   vloat = attrs->vloat;
+   clear = attrs->clear;
    hBorderSpacing = attrs->hBorderSpacing;
    vBorderSpacing = attrs->vBorderSpacing;
    wordSpacing = attrs->wordSpacing;
