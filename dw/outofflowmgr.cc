@@ -621,7 +621,8 @@ void OutOfFlowMgr::drawAbsolutelyPositioned (View *view, Rectangle *area)
 bool OutOfFlowMgr::isWidgetOutOfFlow (core::Widget *widget)
 {
    // May be extended for fixed (and relative?) positions.
-   return isWidgetFloat (widget) || isWidgetAbsolutelyPositioned (widget);
+   return isWidgetFloat (widget);
+   // TODO temporary disabled: || isWidgetAbsolutelyPositioned (widget);
 }
 
 void OutOfFlowMgr::addWidgetInFlow (Textblock *textblock,
@@ -782,7 +783,8 @@ void OutOfFlowMgr::markSizeChange (int ref)
    } else if (isRefAbsolutelyPositioned (ref)) {
       int i = getAbsolutelyPositionedIndexFromRef (ref);
       absolutelyPositioned->get(i)->dirty = true;
-   }
+   } else
+      assertNotReached();
 }
 
 
