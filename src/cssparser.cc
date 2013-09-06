@@ -64,6 +64,10 @@ static const char *const Css_border_width_enum_vals[] = {
    "thin", "medium", "thick", NULL
 };
 
+static const char *const Css_clear_enum_vals[] = {
+   "left", "right", "both", "none", NULL
+};
+
 static const char *const Css_cursor_enum_vals[] = {
    "crosshair", "default", "pointer", "move", "e-resize", "ne-resize",
    "nw-resize", "n-resize", "se-resize", "sw-resize", "s-resize",
@@ -74,6 +78,10 @@ static const char *const Css_display_enum_vals[] = {
    "block", "inline", "inline-block", "list-item", "none", "table",
    "table-row-group", "table-header-group", "table-footer-group", "table-row",
    "table-cell", NULL
+};
+
+static const char *const Css_float_enum_vals[] = {
+   "none", "left", "right", NULL
 };
 
 static const char *const Css_font_size_enum_vals[] = {
@@ -111,6 +119,10 @@ static const char *const Css_list_style_type_enum_vals[] = {
    "lower-latin", "upper-alpha", "upper-latin", "hebrew", "armenian",
    "georgian", "cjk-ideographic", "hiragana", "katakana", "hiragana-iroha",
    "katakana-iroha", "none", NULL
+};
+
+static const char *const Css_position_enum_vals[] = {
+   "static", "relative", "absolute", "fixed", NULL
 };
 
 static const char *const Css_text_align_enum_vals[] = {
@@ -171,9 +183,9 @@ const CssPropertyInfo Css_property_info[CSS_PROPERTY_LAST] = {
     Css_border_style_enum_vals},
    {"border-top-width", {CSS_TYPE_ENUM, CSS_TYPE_LENGTH, CSS_TYPE_UNUSED},
     Css_border_width_enum_vals},
-   {"bottom", {CSS_TYPE_UNUSED}, NULL},
+   {"bottom", {CSS_TYPE_LENGTH_PERCENTAGE, CSS_TYPE_UNUSED}, NULL},
    {"caption-side", {CSS_TYPE_UNUSED}, NULL},
-   {"clear", {CSS_TYPE_UNUSED}, NULL},
+   {"clear", {CSS_TYPE_ENUM, CSS_TYPE_UNUSED}, Css_clear_enum_vals},
    {"clip", {CSS_TYPE_UNUSED}, NULL},
    {"color", {CSS_TYPE_COLOR, CSS_TYPE_UNUSED}, NULL},
    {"content", {CSS_TYPE_STRING, CSS_TYPE_UNUSED}, NULL},
@@ -183,7 +195,7 @@ const CssPropertyInfo Css_property_info[CSS_PROPERTY_LAST] = {
    {"direction", {CSS_TYPE_UNUSED}, NULL},
    {"display", {CSS_TYPE_ENUM, CSS_TYPE_UNUSED}, Css_display_enum_vals},
    {"empty-cells", {CSS_TYPE_UNUSED}, NULL},
-   {"float", {CSS_TYPE_UNUSED}, NULL},
+   {"float", {CSS_TYPE_ENUM, CSS_TYPE_UNUSED}, Css_float_enum_vals},
    {"font-family", {CSS_TYPE_SYMBOL, CSS_TYPE_UNUSED}, NULL},
    {"font-size", {CSS_TYPE_ENUM, CSS_TYPE_LENGTH_PERCENTAGE, CSS_TYPE_UNUSED},
     Css_font_size_enum_vals},
@@ -195,7 +207,7 @@ const CssPropertyInfo Css_property_info[CSS_PROPERTY_LAST] = {
    {"font-weight", {CSS_TYPE_ENUM, CSS_TYPE_FONT_WEIGHT, CSS_TYPE_UNUSED},
     Css_font_weight_enum_vals},
    {"height", {CSS_TYPE_LENGTH_PERCENTAGE, CSS_TYPE_UNUSED}, NULL},
-   {"left", {CSS_TYPE_UNUSED}, NULL},
+   {"left", {CSS_TYPE_LENGTH_PERCENTAGE, CSS_TYPE_UNUSED}, NULL},
    {"letter-spacing", {CSS_TYPE_ENUM, CSS_TYPE_SIGNED_LENGTH, CSS_TYPE_UNUSED},
     Css_letter_spacing_enum_vals},
    {"line-height",
@@ -224,9 +236,9 @@ const CssPropertyInfo Css_property_info[CSS_PROPERTY_LAST] = {
    {"padding-left", {CSS_TYPE_LENGTH, CSS_TYPE_UNUSED}, NULL},
    {"padding-right", {CSS_TYPE_LENGTH, CSS_TYPE_UNUSED}, NULL},
    {"padding-top", {CSS_TYPE_LENGTH, CSS_TYPE_UNUSED}, NULL},
-   {"position", {CSS_TYPE_UNUSED}, NULL},
+   {"position", {CSS_TYPE_ENUM, CSS_TYPE_UNUSED}, Css_position_enum_vals},
    {"quotes", {CSS_TYPE_UNUSED}, NULL},
-   {"right", {CSS_TYPE_UNUSED}, NULL},
+   {"right", {CSS_TYPE_LENGTH_PERCENTAGE, CSS_TYPE_UNUSED}, NULL},
    {"text-align", {CSS_TYPE_ENUM, CSS_TYPE_UNUSED}, Css_text_align_enum_vals},
    {"text-decoration", {CSS_TYPE_MULTI_ENUM, CSS_TYPE_UNUSED},
     Css_text_decoration_enum_vals},
@@ -234,7 +246,7 @@ const CssPropertyInfo Css_property_info[CSS_PROPERTY_LAST] = {
    {"text-shadow", {CSS_TYPE_UNUSED}, NULL},
    {"text-transform", {CSS_TYPE_ENUM, CSS_TYPE_UNUSED},
     Css_text_transform_enum_vals},
-   {"top", {CSS_TYPE_UNUSED}, NULL},
+   {"top", {CSS_TYPE_LENGTH_PERCENTAGE, CSS_TYPE_UNUSED}, NULL},
    {"unicode-bidi", {CSS_TYPE_UNUSED}, NULL},
    {"vertical-align",{CSS_TYPE_ENUM, CSS_TYPE_UNUSED},Css_vertical_align_vals},
    {"visibility", {CSS_TYPE_UNUSED}, NULL},
