@@ -1,0 +1,58 @@
+#ifndef __DW_IMGRENDERER_HH__
+#define __DW_IMGRENDERER_HH__
+
+#ifndef __INCLUDED_FROM_DW_CORE_HH__
+#   error Do not include this file directly, use "core.hh" instead.
+#endif
+
+namespace dw {
+namespace core {
+
+/**
+ * \brief ...
+ *
+ * \sa \ref dw-images-and-backgrounds
+ */
+class ImgRenderer
+{
+public:
+   virtual ~ImgRenderer () { }
+
+   virtual void setBuffer (core::Imgbuf *buffer, bool resize = false) = 0;
+   virtual void drawRow (int row) = 0;
+};
+
+/**
+ * \brief Implementation of ImgRenderer, which distributes all calls
+ * to a set of other implementations of ImgRenderer.
+ *
+ * The order of the call children is not defined, especially not
+ * identical to the order in which they have been added.
+ */
+class ImgRendererDist: public ImgRenderer
+{
+   lout::container::typed::HashSet <lout::object::TypedPointer <ImgRenderer> >
+      *children;
+
+public:
+   inline ImgRendererDist ()
+   { children = new lout::container::typed::HashSet
+         <lout::object::TypedPointer <ImgRenderer> > (true); }
+   ~ImgRendererDist () { delete children; }
+
+   void setBuffer (core::Imgbuf *buffer, bool resize);
+   void drawRow (int row);
+
+   void put (ImgRenderer *child)
+   { children->put (new lout::object::TypedPointer <ImgRenderer> (child)); }
+   void remove (ImgRenderer *child)
+   { lout::object::TypedPointer <ImgRenderer> tp (child);
+     children->remove (&tp); }
+};
+
+} // namespace core
+} // namespace dw
+
+#endif // __DW_IMGRENDERER_HH__
+
+
