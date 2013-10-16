@@ -4,12 +4,15 @@
 #include <limits.h>
 
 #include "core.hh"
+#include "outofflowmgr.hh"
 #include "../lout/misc.hh"
 
 // These were used when improved line breaking and hyphenation were
 // implemented. Should be cleaned up; perhaps reactivate RTFL again.
 #define PRINTF(fmt, ...)
 #define PUTCHAR(ch)
+
+//#define DEBUG
 
 namespace dw {
 
@@ -18,10 +21,11 @@ namespace dw {
  *    of paragraphs.
  *
  * <div style="border: 2px solid #ffff00; margin-top: 0.5em;
- * margin-bottom: 0.5em; padding: 0.5em 1em;
- * background-color: #ffffe0"><b>Info:</b> The recent changes (line
- * breaking and hyphenation) have not yet been incorporated into this
- * documentation. See \ref dw-line-breaking.</div>
+ * margin-bottom: 0.5em; padding: 0.5em 1em; background-color:
+ * #ffffe0"><b>Info:</b> The recent changes (line breaking and
+ * hyphenation on one hand, floats on the other hand) have not yet
+ * been incorporated into this documentation. See \ref
+ * dw-line-breaking and \ref dw-out-of-flow.</div>
  *
  * <h3>Signals</h3>
  *
@@ -236,6 +240,9 @@ private:
 
    static const char *hyphenDrawChar;
 
+   Textblock *containingBlock;
+   OutOfFlowMgr *outOfFlowMgr;
+
 protected:
    struct Paragraph
    {
@@ -270,10 +277,21 @@ protected:
       int firstWord;    /* first word's index in word vector */
       int lastWord;     /* last word's index in word vector */
 
-      /* "top" is always relative to the top of the first line, i.e.
-       * page->lines[0].top is always 0. */
-      int top, boxAscent, boxDescent, contentAscent, contentDescent,
-          breakSpace, leftOffset;
+
+      int top;                  /* "top" is always relative to the top
+                                   of the first line, i.e.
+                                   page->lines[0].top is always 0. */
+      int boxAscent;            /* Maximum of all ascents of the words
+                                   in this line. This is the actual
+                                   ascent of the line.  */
+      int boxDescent;           /* Maximum of all decents of the words
+                                   in this line. This is the actual
+                                   descent of the line. */
+      int contentAscent;        /* ??? */
+      int contentDescent;       /* ??? */
+      int breakSpace;           /* Space between this line and the next one. */
+      int leftOffset;           /* ??? */
+      int offsetCompleteWidget; /* ??? */
 
       /* This is similar to descent, but includes the bottom margins of the
        * widgets within this line. */
@@ -285,6 +303,11 @@ protected:
        * changed line breaking), the values were accumulated up to the
        * last line, not this line.*/
       int maxLineWidth;
+
+      /* Set to false at the beginning of addLine(), and to true at
+       * the end. Should be checked by some methods which are called
+       * by addLine(). */
+      bool finished;
    };
 
    struct Word
@@ -366,13 +389,14 @@ protected:
    class TextblockIterator: public core::Iterator
    {
    private:
+      bool oofm;
       int index;
 
    public:
       TextblockIterator (Textblock *textblock, core::Content::Type mask,
                          bool atEnd);
       TextblockIterator (Textblock *textblock, core::Content::Type mask,
-                         int index);
+                         bool oofm, int index);
 
       lout::object::Object *clone();
       int compareTo(lout::object::Comparable *other);
@@ -382,6 +406,7 @@ protected:
       void highlight (int start, int end, core::HighlightLayer layer);
       void unhighlight (int direction, core::HighlightLayer layer);
       void getAllocation (int start, int end, core::Allocation *allocation);
+      void print ();
    };
 
    friend class TextblockIterator;
@@ -436,7 +461,31 @@ protected:
    /* These values are set by set_... */
    int availWidth, availAscent, availDescent;
 
-   int wrapRefLines, wrapRefParagraphs;  /* [0 based] */
+   // Additional vertical offset, used for the "clear" attribute.
+   int verticalOffset;
+
+   int wrapRefLines, wrapRefParagraphs;  /* 0-based. Important: Both
+                                            are the line numbers, not
+                                            the value stored in
+                                            parentRef. */
+
+   // These four values are calculated by containingBlock->outOfFlowMgr
+   // (when defined; otherwise, they are  false, or 0, respectively), for
+   // the newly constructed line, only when needed: when a new line is
+   // added, or if something in the line currently constucted has
+   // changed, e. g. a float has been added.
+
+   bool newLineHasFloatLeft, newLineHasFloatRight;
+   int newLineLeftBorder, newLineRightBorder; /* As returned by
+                                                 outOfFlowMgr->get...Border,
+                                                 or 0, if outOfFlowMgr
+                                                 is NULL */
+
+   // Ascent and descent of the newly constructed line, i. e. maximum
+   // of all words ascent/descent since the end of the last line. Not
+   // neccessary the ascent and descent of the newly added line, since
+   // not all words are added to it.
+   int newLineAscent, newLineDescent;
 
    lout::misc::SimpleVector <Line> *lines;
    lout::misc::SimpleVector <Paragraph> *paragraphs;
@@ -457,6 +506,7 @@ protected:
    void calcWidgetSize (core::Widget *widget, core::Requisition *size);
    void rewrap ();
    void fillParagraphs ();
+   void initNewLine ();
    void showMissingLines ();
    void removeTemporaryLines ();
 
@@ -477,6 +527,9 @@ protected:
                    int xWidget, int yWidgetBase);
    void drawLine (Line *line, core::View *view, core::Rectangle *area);
    int findLineIndex (int y);
+   int findLineIndexWhenNotAllocated (int y);
+   int findLineIndexWhenAllocated (int y);
+   int findLineIndex (int y, int ascent);
    int findLineOfWord (int wordIndex);
    int findParagraphOfWord (int wordIndex);
    Word *findWord (int x, int y, bool *inSpace);
@@ -495,25 +548,17 @@ protected:
                       core::Requisition *size, bool isStart, bool isEnd);
 
    /**
-    * \brief Returns the x offset (the indentation plus any offset needed for
-    *    centering or right justification) for the line.
-    *
-    * The offset returned is relative to the page *content* (i.e. without
-    * border etc.).
+    * Of nested text blocks, only the most inner one must regard the
+    * borders of floats.
     */
-   inline int lineXOffsetContents (Line *line)
+   inline bool mustBorderBeRegarded (Line *line)
    {
-      return innerPadding + line->leftOffset +
-         (line == lines->getFirstRef() ? line1OffsetEff : 0);
+      return getTextblockForLine (line) == NULL;
    }
 
-   /**
-    * \brief Like lineXOffset, but relative to the allocation (i.e.
-    *    including border etc.).
-    */
-   inline int lineXOffsetWidget (Line *line)
+   inline bool mustBorderBeRegarded (int lineNo)
    {
-      return lineXOffsetContents (line) + getStyle()->boxOffsetX ();
+      return getTextblockForLine (lineNo) == NULL;
    }
 
    inline int lineYOffsetWidgetAllocation (Line *line,
@@ -533,7 +578,7 @@ protected:
    inline int lineYOffsetCanvasAllocation (Line *line,
                                            core::Allocation *allocation)
    {
-      return allocation->y + lineYOffsetWidgetAllocation(line, allocation);
+      return allocation->y + lineYOffsetWidgetAllocation (line, allocation);
    }
 
    /**
@@ -547,6 +592,13 @@ protected:
    inline int lineYOffsetWidgetI (int lineIndex)
    {
       return lineYOffsetWidget (lines->getRef (lineIndex));
+   }
+
+   inline int lineYOffsetWidgetIAllocation (int lineIndex,
+                                            core::Allocation *allocation)
+   {
+      return lineYOffsetWidgetAllocation (lines->getRef (lineIndex),
+                                          allocation);
    }
 
    inline int lineYOffsetCanvasI (int lineIndex)
@@ -564,6 +616,14 @@ protected:
              (Word::DIV_CHAR_AT_EOL | Word::PERM_DIV_CHAR)) ? 1 : 0;
    }
 
+   Textblock *getTextblockForLine (Line *line);
+   Textblock *getTextblockForLine (int lineNo);
+   Textblock *getTextblockForLine (int firstWord, int lastWord);
+   void printBorderChangedErrorAndAbort (int y, Widget *vloat,
+                                         int wrapLineIndex);
+   int yOffsetOfPossiblyMissingLine (int lineNo);
+   int heightOfPossiblyMissingLine (int lineNo);
+
    bool sendSelectionEvent (core::SelectionState::EventType eventType,
                             core::MousePositionEvent *event);
 
@@ -571,11 +631,15 @@ protected:
                                 int *maxOfMinWidth, int *sumOfMaxWidth);
    void processWord (int wordIndex);
    virtual bool wordWrap (int wordIndex, bool wrapAll);
+   bool wrapWordInFlow (int wordIndex, bool wrapAll);
+   void checkPossibleLineHeightChange (int wordIndex);
+   bool wrapWordOofRef (int wordIndex, bool wrapAll);
+   void updateBorders (int wordIndex, bool left, bool right);
    int searchMinBap (int firstWord, int lastWordm, int penaltyIndex,
                      bool correctAtEnd);
    int considerHyphenation (int firstIndex, int breakPos);
    bool isHyphenationCandidate (Word *word);
-
+   
    void handleWordExtremes (int wordIndex);
    void correctLastWordExtremes ();
 
@@ -597,6 +661,8 @@ protected:
 
    void markSizeChange (int ref);
    void markExtremesChange (int ref);
+   void notifySetAsTopLevel();
+   void notifySetParent();
    void setWidth (int width);
    void setAscent (int ascent);
    void setDescent (int descent);
@@ -616,6 +682,7 @@ protected:
                        core::style::Style *style,
                        int numBreaks, int *breakPos,
                        core::Requisition *wordSize);
+   static bool isContainingBlock (Widget *widget);
 
 public:
    static int CLASS_ID;
@@ -651,6 +718,11 @@ public:
    void changeLinkColor (int link, int newColor);
    void changeWordStyle (int from, int to, core::style::Style *style,
                          bool includeFirstSpace, bool includeLastSpace);
+
+   void borderChanged (int y, core::Widget *vloat);
+   inline int getAvailWidth () { return availWidth; }
+   inline int getAvailAscent () { return availAscent; }
+   inline int getAvailDescent () { return availDescent; }
 };
 
 } // namespace dw
