@@ -132,6 +132,7 @@ private:
    Platform *platform;
    View *view;
    Widget *topLevel, *widgetAtPoint;
+   lout::container::typed::Vector<Widget> *queueResizeList;
 
    /* The state, which must be projected into the view. */
    style::Color *bgColor;
@@ -209,6 +210,16 @@ private:
       int ex, int ey, int ewidth, int eheight);
    void queueResize ();
    void removeWidget ();
+
+   /* For tests regarding the respective Layout and (mostly) Widget
+      methods. Accessed by respective methods (enter..., leave...,
+      ...Entered) defined here and in Widget. */
+
+   int resizeIdleCounter, queueResizeCounter, sizeAllocateCounter,
+      sizeRequestCounter, getExtremesCounter;
+
+   void enterQueueResize () { resizeIdleCounter++; }
+   void leaveQueueResize () { resizeIdleCounter--; }
 
 public:
    Layout (Platform *platform);
