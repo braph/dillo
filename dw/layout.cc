@@ -186,6 +186,8 @@ Layout::Layout (Platform *platform)
    topLevel = NULL;
    widgetAtPoint = NULL;
 
+   queueResizeList = new typed::Vector<Widget> (4, false);
+
    DBG_OBJ_CREATE (this, "DwRenderLayout");
 
    bgColor = NULL;
@@ -216,6 +218,9 @@ Layout::Layout (Platform *platform)
    platform->setLayout (this);
 
    selectionState.setLayout(this);
+
+   queueResizeCounter = sizeAllocateCounter = sizeRequestCounter =
+      getExtremesCounter = 0;
 }
 
 Layout::~Layout ()
@@ -233,6 +238,7 @@ Layout::~Layout ()
       topLevel = NULL;
       delete w;
    }
+   delete queueResizeList;
    delete platform;
    delete view;
    delete anchorsTable;
@@ -248,12 +254,18 @@ void Layout::addWidget (Widget *widget)
 
    topLevel = widget;
    widget->layout = this;
+   queueResizeList->clear ();
+   widget->notifySetAsTopLevel();
 
    findtextState.setWidget (widget);
 
    canvasHeightGreater = false;
    setSizeHints ();
-   queueResize ();
+
+   // Do not directly call Layout::queueResize(), but
+   // Widget::queueResize(), so that all flags are set properly,
+   // queueResizeList is filled, etc.
+   topLevel->queueResize (-1, false);
 }
 
 void Layout::removeWidget ()
@@ -262,6 +274,7 @@ void Layout::removeWidget ()
     * \bug Some more attributes must be reset here.
     */
    topLevel = NULL;
+   queueResizeList->clear ();
    widgetAtPoint = NULL;
    canvasWidth = canvasAscent = canvasDescent = 0;
    scrollX = scrollY = 0;
@@ -652,10 +665,37 @@ void Layout::setBgColor (style::Color *color)
 
 void Layout::resizeIdle ()
 {
+   enterQueueResize ();
+
    //static int calls = 0;
-   //MSG(" Layout::resizeIdle calls = %d\n", ++calls);
+   //printf ("Layout::resizeIdle calls = %d\n", ++calls);
 
    assert (resizeIdleId != -1);
+
+   for (typed::Iterator <Widget> it = queueResizeList->iterator();
+        it.hasNext (); ) {
+      Widget *widget = it.getNext ();
+
+      //printf ("   the %stop-level %s %p was queued (extremes changed: %s)\n",
+      //        widget->parent ? "non-" : "", widget->getClassName(), widget,
+      //        widget->extremesQueued () ? "yes" : "no");
+
+      if (widget->resizeQueued ()) {
+         widget->setFlags (Widget::NEEDS_RESIZE);
+         widget->unsetFlags (Widget::RESIZE_QUEUED);
+      }
+
+      if (widget->allocateQueued ()) {
+         widget->setFlags (Widget::NEEDS_ALLOCATE);
+         widget->unsetFlags (Widget::ALLOCATE_QUEUED);
+      }
+
+      if (widget->extremesQueued ()) {
+         widget->setFlags (Widget::EXTREMES_CHANGED);
+         widget->unsetFlags (Widget::EXTREMES_QUEUED);
+      }
+   }
+   queueResizeList->clear ();
 
    // Reset already here, since in this function, queueResize() may be
    // called again.
@@ -664,8 +704,14 @@ void Layout::resizeIdle ()
    if (topLevel) {
       Requisition requisition;
       Allocation allocation;
-      
+
       topLevel->sizeRequest (&requisition);
+
+      // This method is triggered by Widget::queueResize, which will,
+      // in any case, set NEEDS_ALLOCATE (indirectly, as
+      // ALLOCATE_QUEUED). This assertion helps to find
+      // inconsistences.
+      assert (topLevel->needsAllocate ());
       
       allocation.x = allocation.y = 0;
       allocation.width = requisition.width;
@@ -705,6 +751,10 @@ void Layout::resizeIdle ()
    }
 
    updateAnchor ();
+
+   //printf ("Layout::resizeIdle end\n");
+
+   leaveQueueResize ();
 }
 
 void Layout::setSizeHints ()
@@ -1040,8 +1090,13 @@ void Layout::viewportSizeChanged (View *view, int width, int height)
 
    /* if size changes, redraw this view.
     * TODO: this is a resize call (redraw/resize code needs a review). */
-   if (viewportWidth != width || viewportHeight != height)
-      queueResize();
+   if (viewportWidth != width || viewportHeight != height) {
+      if (topLevel)
+         // similar to addWidget()
+         topLevel->queueResize (-1, false);
+      else
+         queueResize ();
+   }
 
    viewportWidth = width;
    viewportHeight = height;
