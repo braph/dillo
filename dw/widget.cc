@@ -70,7 +70,7 @@ Widget::Widget ()
    registerName ("dw::core::Widget", &CLASS_ID);
 
    flags = (Flags)(NEEDS_RESIZE | EXTREMES_CHANGED | HAS_CONTENTS);
-   parent = NULL;
+   parent = generator = NULL;
    layout = NULL;
 
    allocation.x = -1;
@@ -106,7 +106,7 @@ Widget::~Widget ()
 
    if (parent)
       parent->removeChild (this);
-   else
+   else if (layout)
       layout->removeWidget ();
 
    DBG_OBJ_DELETE ();
@@ -150,15 +150,17 @@ void Widget::setParent (Widget *parent)
       buttonSensitive = parent->buttonSensitive;
 
    DBG_OBJ_ASSOC_PARENT (parent);
-
    //printf ("The %s %p becomes a child of the %s %p\n",
    //        getClassName(), this, parent->getClassName(), parent);
+
+   notifySetParent();
 }
 
 void Widget::queueDrawArea (int x, int y, int width, int height)
 {
    /** \todo Maybe only the intersection? */
-   layout->queueDraw (x + allocation.x, y + allocation.y, width, height);
+   if (layout)
+      layout->queueDraw (x + allocation.x, y + allocation.y, width, height);
    _MSG("Widget::queueDrawArea x=%d y=%d w=%d h=%d\n", x, y, width, height);
 }
 
@@ -167,40 +169,98 @@ void Widget::queueDrawArea (int x, int y, int width, int height)
  */
 void Widget::queueResize (int ref, bool extremesChanged)
 {
-   Widget *widget2, *child;
+   DBG_OBJ_MSGF ("resize", 0, "<b>queueResize</b> (%d, %s)",
+                 ref, extremesChanged ? "true" : "false");
+   DBG_OBJ_MSG_START ();
 
-   //printf("The %stop-level %s %p with parentRef = %d has changed its size.\n",
-   //       parent ? "non-" : "", getClassName(), this, parentRef);
+   // queueResize() can be called recursively; calls are queued, so
+   // that actualQueueResize() is clean.
 
-   setFlags (NEEDS_RESIZE);
-   setFlags (NEEDS_ALLOCATE);
-   markSizeChange (ref);
-
-   if (extremesChanged) {
-      setFlags (EXTREMES_CHANGED);
-      markExtremesChange (ref);
+   if (queueResizeEntered ()) {
+      DBG_OBJ_MSG ("resize", 1, "put into queue");
+      layout->queueQueueResizeList->put (new Layout::QueueResizeItem
+                                         (this, ref, extremesChanged));
+   } else {
+      actualQueueResize (ref, extremesChanged);
+      
+      while (layout != NULL && layout->queueQueueResizeList->size () > 0) {
+         Layout::QueueResizeItem *item = layout->queueQueueResizeList->get (0);
+         DBG_OBJ_MSGF ("resize", 1, "taken out of queue queue (size = %d)",
+                      layout->queueQueueResizeList->size ());
+         item->widget->actualQueueResize (item->ref, item->extremesChanged);
+         layout->queueQueueResizeList->remove (0); // hopefully not too large
+      }
    }
 
-   for (widget2 = parent, child = this;
-        widget2;
-        child = widget2, widget2 = widget2->parent) {
-      widget2->setFlags (NEEDS_RESIZE);
-      widget2->markSizeChange (child->parentRef);
-      widget2->setFlags (NEEDS_ALLOCATE);
+   DBG_OBJ_MSG_END ();
+}
 
-      //printf ("   Setting DW_NEEDS_RESIZE and NEEDS_ALLOCATE for the "
+void Widget::actualQueueResize (int ref, bool extremesChanged)
+{
+   assert (!queueResizeEntered ());
+   
+   DBG_OBJ_MSGF ("resize", 0, "<b>actualQueueResize</b> (%d, %s)",
+                 ref, extremesChanged ? "true" : "false");
+   DBG_OBJ_MSG_START ();
+
+   enterQueueResize ();
+
+   Widget *widget2, *child;
+
+   //printf("The %stop-level %s %p with parentRef = %d has changed its size. "
+   //       "Layout = %p.\n",
+   //       parent ? "non-" : "", getClassName(), this, parentRef, layout);
+
+   Flags resizeFlag, extremesFlag;
+
+   if (layout) {
+      // If RESIZE_QUEUED is set, this widget is already in the list.
+      if (!resizeQueued ())
+         layout->queueResizeList->put (this);
+
+      resizeFlag = RESIZE_QUEUED;
+      extremesFlag = EXTREMES_QUEUED;
+   } else {
+      resizeFlag = NEEDS_RESIZE;
+      extremesFlag = EXTREMES_CHANGED;
+   }
+
+   setFlags (resizeFlag);
+   setFlags (ALLOCATE_QUEUED);
+   markSizeChange (ref);
+      
+   if (extremesChanged) {
+      setFlags (extremesFlag);
+      markExtremesChange (ref);
+   }
+      
+   for (widget2 = parent, child = this; widget2;
+        child = widget2, widget2 = widget2->parent) {      
+      //printf ("   Setting %s and ALLOCATE_QUEUED for the "
       //        "%stop-level %s %p with parentRef = %d\n",
+      //        resizeFlag == RESIZE_QUEUED ? "RESIZE_QUEUED" : "NEEDS_RESIZE",
       //        widget2->parent ? "non-" : "", widget2->getClassName(), widget2,
       //        widget2->parentRef);
 
+      if (layout && !widget2->resizeQueued ())
+         layout->queueResizeList->put (widget2);
+
+      widget2->setFlags (resizeFlag);
+      widget2->markSizeChange (child->parentRef);
+      widget2->setFlags (ALLOCATE_QUEUED);
+
       if (extremesChanged) {
-         widget2->setFlags (EXTREMES_CHANGED);
+         widget2->setFlags (extremesFlag);
          widget2->markExtremesChange (child->parentRef);
       }
    }
 
    if (layout)
       layout->queueResize ();
+
+   leaveQueueResize ();
+
+   DBG_OBJ_MSG_END ();
 }
 
 
@@ -210,6 +270,28 @@ void Widget::queueResize (int ref, bool extremesChanged)
  */
 void Widget::sizeRequest (Requisition *requisition)
 {
+   assert (!queueResizeEntered ());
+
+   DBG_OBJ_MSG ("resize", 0, "<b>sizeRequest</b>");
+   DBG_OBJ_MSG_START ();
+
+   enterSizeRequest ();
+
+   //printf ("The %stop-level %s %p with parentRef = %d: needsResize: %s, "
+   //        "resizeQueued = %s\n",
+   //        parent ? "non-" : "", getClassName(), this, parentRef,
+   //        needsResize () ? "true" : "false",
+   //        resizeQueued () ? "true" : "false");
+
+   if (resizeQueued ()) {
+      // This method is called outside of Layout::resizeIdle.
+      setFlags (NEEDS_RESIZE);
+      unsetFlags (RESIZE_QUEUED);
+      // The widget is not taken out of Layout::queueResizeList, since
+      // other *_QUEUED flags may still be set and processed in
+      // Layout::resizeIdle.
+   }
+
    if (needsResize ()) {
       /** \todo Check requisition == &(this->requisition) and do what? */
       sizeRequestImpl (requisition);
@@ -221,6 +303,13 @@ void Widget::sizeRequest (Requisition *requisition)
       DBG_OBJ_SET_NUM ("requisition.descent", requisition->descent);
    } else
       *requisition = this->requisition;
+
+   //printf ("   ==> Result: %d x (%d + %d)\n",
+   //        requisition->width, requisition->ascent, requisition->descent);
+
+   leaveSizeRequest ();
+
+   DBG_OBJ_MSG_END ();
 }
 
 /**
@@ -228,6 +317,22 @@ void Widget::sizeRequest (Requisition *requisition)
  */
 void Widget::getExtremes (Extremes *extremes)
 {
+   assert (!queueResizeEntered ());
+
+   DBG_OBJ_MSG ("resize", 0, "<b>getExtremes</b>");
+   DBG_OBJ_MSG_START ();
+
+   enterGetExtremes ();
+
+   if (extremesQueued ()) {
+      // This method is called outside of Layout::resizeIdle.
+      setFlags (EXTREMES_CHANGED);
+      unsetFlags (EXTREMES_QUEUED);
+      // The widget is not taken out of Layout::queueResizeList, since
+      // other *_QUEUED flags may still be set and processed in
+      // Layout::resizeIdle.
+   }
+
    if (extremesChanged ()) {
       getExtremesImpl (extremes);
       this->extremes = *extremes;
@@ -237,6 +342,10 @@ void Widget::getExtremes (Extremes *extremes)
       DBG_OBJ_SET_NUM ("extremes.maxWidth", extremes->maxWidth);
    } else
       *extremes = this->extremes;
+
+   leaveGetExtremes ();
+
+   DBG_OBJ_MSG_END ();
 }
 
 /**
@@ -245,6 +354,28 @@ void Widget::getExtremes (Extremes *extremes)
  */
 void Widget::sizeAllocate (Allocation *allocation)
 {
+   assert (!queueResizeEntered ());
+   assert (!sizeRequestEntered ());
+   assert (!getExtremesEntered ());
+   assert (resizeIdleEntered ());
+
+   DBG_OBJ_MSGF ("resize", 0, "<b>sizeAllocate</b> (%d, %d; %d * (%d + %d))",
+                 allocation->x, allocation->y, allocation->width,
+                 allocation->ascent, allocation->descent);
+   DBG_OBJ_MSG_START ();
+
+   enterSizeAllocate ();
+
+   /*printf ("The %stop-level %s %p is allocated:\n",
+           parent ? "non-" : "", getClassName(), this);
+   printf ("   old = (%d, %d, %d + (%d + %d))\n",
+           this->allocation.x, this->allocation.y, this->allocation.width,
+           this->allocation.ascent, this->allocation.descent);
+   printf ("   new = (%d, %d, %d + (%d + %d))\n",
+           allocation->x, allocation->y, allocation->width, allocation->ascent,
+           allocation->descent);
+   printf ("   NEEDS_ALLOCATE = %s\n", needsAllocate () ? "true" : "false");*/
+
    if (needsAllocate () ||
        allocation->x != this->allocation.x ||
        allocation->y != this->allocation.y ||
@@ -285,6 +416,10 @@ void Widget::sizeAllocate (Allocation *allocation)
    }
 
    /*unsetFlags (NEEDS_RESIZE);*/
+
+   leaveSizeAllocate ();
+
+   DBG_OBJ_MSG_END ();
 }
 
 bool Widget::buttonPress (EventButton *event)
@@ -507,6 +642,25 @@ int Widget::getLevel ()
 }
 
 /**
+ * \brief Get the level of the widget within the tree, regarting the
+ * generators, not the parents.
+ *
+ * The root widget has the level 0.
+ */
+int Widget::getGeneratorLevel ()
+{
+   Widget *widget = this;
+   int level = 0;
+
+   while (widget->getGenerator ()) {
+      level++;
+      widget = widget->getGenerator ();
+   }
+
+   return level;
+}
+
+/**
  * \brief Get the widget with the highest level, which is a direct ancestor of
  *    widget1 and widget2.
  */
@@ -566,7 +720,9 @@ Widget *Widget::getWidgetAtPoint (int x, int y, int level)
        * is such a child, it is returned. Otherwise, this widget is returned.
        */
       childAtPoint = NULL;
-      it = iterator (Content::WIDGET, false);
+      it = iterator ((Content::Type)
+                     (Content::WIDGET_IN_FLOW | Content::WIDGET_OOF_CONT),
+                     false);
 
       while (childAtPoint == NULL && it->next ())
          childAtPoint = it->getContent()->widget->getWidgetAtPoint (x, y,
@@ -624,6 +780,25 @@ void Widget::markSizeChange (int ref)
 }
 
 void Widget::markExtremesChange (int ref)
+{
+}
+
+/**
+ * \brief This method is called after a widget has been set as the top of a
+ *    widget tree.
+ * 
+ * A widget may override this method when it is necessary to be notified.
+ */
+void Widget::notifySetAsTopLevel()
+{
+}
+
+/**
+ * \brief This method is called after a widget has been added to a parent. 
+ * 
+ * A widget may override this method when it is necessary to be notified.
+ */
+void Widget::notifySetParent()
 {
 }
 

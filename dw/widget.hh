@@ -27,23 +27,46 @@ class Widget: public lout::identity::IdentifiableObject
 protected:
    enum Flags {
       /**
+       * \todo Comment this.
+       */
+      RESIZE_QUEUED    = 1 << 0,
+
+      /**
+       * \todo Comment this.
+       */
+      EXTREMES_QUEUED    = 1 << 1,
+
+      /**
        * \brief Set, when dw::core::Widget::requisition is not up to date
        *    anymore.
+       *
+       * \todo Update, see RESIZE_QUEUED.
        */
-      NEEDS_RESIZE     = 1 << 0,
+      NEEDS_RESIZE     = 1 << 2,
 
       /**
        * \brief Only used internally, set to enforce size allocation.
        *
-       * (I've forgotten the case, for which this is necessary.)
+       * In some cases, the size of a widget remains the same, but the
+       * children are allocated at different positions and in
+       * different sizes, so that a simple comparison of old and new
+       * allocation is insufficient. Therefore, this flag is set
+       * (indirectly, as ALLOCATE_QUEUED) in queueResize.
        */
-      NEEDS_ALLOCATE   = 1 << 1,
+      NEEDS_ALLOCATE   = 1 << 3,
+
+      /**
+       * \todo Comment this.
+       */
+      ALLOCATE_QUEUED  = 1 << 4,
 
       /**
        * \brief Set, when dw::core::Widget::extremes is not up to date
        *    anymore.
+       *
+       * \todo Update, see RESIZE_QUEUED.
        */
-      EXTREMES_CHANGED = 1 << 2,
+      EXTREMES_CHANGED = 1 << 5,
 
       /**
        * \brief Set by the widget itself (in the constructor), when set...
@@ -51,7 +74,7 @@ protected:
        *
        * Will hopefully be removed, after redesigning the size model.
        */
-      USES_HINTS       = 1 << 3,
+      USES_HINTS       = 1 << 6,
 
       /**
        * \brief Set by the widget itself (in the constructor), when it contains
@@ -59,19 +82,19 @@ protected:
        *
        * Will hopefully be removed, after redesigning the size model.
        */
-      HAS_CONTENTS     = 1 << 4,
+      HAS_CONTENTS     = 1 << 7,
 
       /**
        * \brief Set, when a widget was already once allocated,
        *
        * The dw::Image widget uses this flag, see dw::Image::setBuffer.
        */
-      WAS_ALLOCATED    = 1 << 5,
+      WAS_ALLOCATED    = 1 << 8,
 
       /**
        * \brief Set for block-level widgets (as opposed to inline widgets)
        */
-      BLOCK_LEVEL      = 1 << 6,
+      BLOCK_LEVEL      = 1 << 9,
    };
 
    /**
@@ -101,6 +124,14 @@ private:
     * \brief The parent widget, NULL for top-level widgets.
     */
    Widget *parent;
+
+   /**
+    * \brief The generating widget, NULL for top-level widgets, or if
+    * not set; in the latter case, the effective generator (see
+    * getGenerator) is the parent.
+    */
+   Widget *generator;
+
    style::Style *style;
 
    Flags flags;
@@ -132,6 +163,8 @@ private:
     * \brief See dw::core::Widget::setButtonSensitive().
     */
    bool buttonSensitiveSet;
+
+   void actualQueueResize (int ref, bool extremesChanged);
 
 public:
    /**
@@ -200,6 +233,9 @@ protected:
     */
    virtual void markExtremesChange (int ref);
 
+   virtual void notifySetAsTopLevel();
+   virtual void notifySetParent();
+
    virtual bool buttonPressImpl (EventButton *event);
    virtual bool buttonReleaseImpl (EventButton *event);
    virtual bool motionNotifyImpl (EventMotion *event);
@@ -216,7 +252,7 @@ protected:
    { layout->changeAnchor (this, name, y); }
 
    inline void removeAnchor (char* name)
-   { layout->removeAnchor (this, name); }
+   { if (layout) layout->removeAnchor (this, name); }
 
    //inline void updateBgColor () { layout->updateBgColor (); }
 
@@ -249,14 +285,37 @@ public:
    inline void setDeleteCallback(DW_Callback_t func, void *data)
    { deleteCallbackFunc = func; deleteCallbackData = data; }
 
+private:
+   bool resizeIdleEntered () { return layout && layout->resizeIdleCounter; }
+
+   void enterQueueResize () { if (layout) layout->queueResizeCounter++; }
+   void leaveQueueResize () { if (layout) layout->queueResizeCounter--; }
+   bool queueResizeEntered () { return layout && layout->queueResizeCounter; }
+
+   void enterSizeAllocate () { if (layout) layout->sizeAllocateCounter++; }
+   void leaveSizeAllocate () { if (layout) layout->sizeAllocateCounter--; }
+   bool sizeAllocateEntered () { return layout && layout->sizeAllocateCounter; }
+   
+   void enterSizeRequest () { if (layout) layout->sizeRequestCounter++; }
+   void leaveSizeRequest () { if (layout) layout->sizeRequestCounter--; }
+   bool sizeRequestEntered () { return layout && layout->sizeRequestCounter; }
+
+   void enterGetExtremes () { if (layout) layout->getExtremesCounter++; }
+   void leaveGetExtremes () { if (layout) layout->getExtremesCounter--; }
+   bool getExtremesEntered () { return layout && layout->getExtremesCounter; }
+
+
 public:
    static int CLASS_ID;
 
    Widget ();
    ~Widget ();
 
+   inline bool resizeQueued ()    { return flags & RESIZE_QUEUED; }
+   inline bool extremesQueued ()  { return flags & EXTREMES_QUEUED; }
    inline bool needsResize ()     { return flags & NEEDS_RESIZE; }
    inline bool needsAllocate ()   { return flags & NEEDS_ALLOCATE; }
+   inline bool allocateQueued ()  { return flags & ALLOCATE_QUEUED; }
    inline bool extremesChanged () { return flags & EXTREMES_CHANGED; }
    inline bool wasAllocated ()    { return flags & WAS_ALLOCATED; }
    inline bool usesHints ()       { return flags & USES_HINTS; }
@@ -264,6 +323,8 @@ public:
    inline bool blockLevel ()      { return flags & BLOCK_LEVEL; }
 
    void setParent (Widget *parent);
+
+   void setGenerator (Widget *generator) { this->generator = generator; }
 
    inline style::Style *getStyle () { return style; }
    /** \todo I do not like this. */
@@ -302,7 +363,10 @@ public:
    inline Widget *getParent () { return parent; }
    Widget *getTopLevel ();
    int getLevel ();
+   int getGeneratorLevel ();
    Widget *getNearestCommonAncestor (Widget *otherWidget);
+
+   inline Widget *getGenerator () { return generator ? generator : parent; }
 
    inline Layout *getLayout () { return layout; }
 

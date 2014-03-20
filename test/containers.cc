@@ -4,6 +4,16 @@
 using namespace lout::object;
 using namespace lout::container::typed;
 
+class ReverseComparator: public Comparator
+{
+private:
+   Comparator *reversed;
+
+public:
+   ReverseComparator (Comparator *reversed) { this->reversed = reversed; }
+   int compare(Object *o1, Object *o2) { return - reversed->compare (o1, o2); }
+};
+
 void testHashSet ()
 {
    puts ("--- testHashSet ---");
@@ -38,6 +48,8 @@ void testHashTable ()
 
 void testVector1 ()
 {
+   ReverseComparator reverse (&standardComparator);
+
    puts ("--- testVector (1) ---");
 
    Vector<String> v (true, 1);
@@ -45,6 +57,9 @@ void testVector1 ()
    v.put (new String ("one"));
    v.put (new String ("two"));
    v.put (new String ("three"));
+   puts (v.toString());
+
+   v.sort (&reverse);
    puts (v.toString());
 
    v.sort ();
@@ -95,12 +110,31 @@ void testVector2 ()
    }
 }
 
+void testVector3 ()
+{
+   // Regression test: resulted once incorrently (0, 2, 3), should
+   // result in (1, 2, 3).
+
+   puts ("--- testVector (3) ---");
+
+   Vector<String> v (true, 1);
+   String k ("omega");
+
+   v.put (new String ("alpha"));
+   printf ("   -> %d\n", v.bsearch (&k, false));
+   v.put (new String ("beta"));
+   printf ("   -> %d\n", v.bsearch (&k, false));
+   v.put (new String ("gamma"));
+   printf ("   -> %d\n", v.bsearch (&k, false));
+}
+
 int main (int argc, char *argv[])
 {
    testHashSet ();
    testHashTable ();
    testVector1 ();
    testVector2 ();
+   testVector3 ();
 
    return 0;
 }

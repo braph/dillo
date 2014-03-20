@@ -39,6 +39,7 @@ Embed::Embed(Resource *resource)
    registerName ("dw::core::ui::Embed", &CLASS_ID);
    this->resource = resource;
    resource->setEmbed (this);
+   DBG_OBJ_ASSOC_CHILD (resource);
 }
 
 Embed::~Embed()
@@ -89,17 +90,32 @@ bool Embed::buttonPressImpl (core::EventButton *event)
 
 void Embed::setWidth (int width)
 {
+   DBG_OBJ_MSGF ("resize", 0, "<b>setWidth</b> (%d)", width);
+   DBG_OBJ_MSG_START ();
+
    resource->setWidth (width);
+
+   DBG_OBJ_MSG_END ();
 }
 
 void Embed::setAscent (int ascent)
 {
+   DBG_OBJ_MSGF ("resize", 0, "<b>setAscent</b> (%d)", ascent);
+   DBG_OBJ_MSG_START ();
+
    resource->setAscent (ascent);
+
+   DBG_OBJ_MSG_END ();
 }
 
 void Embed::setDescent (int descent)
 {
+   DBG_OBJ_MSGF ("resize", 0, "<b>setDescent</b> (%d)", descent);
+   DBG_OBJ_MSG_START ();
+
    resource->setDescent (descent);
+
+   DBG_OBJ_MSG_END ();
 }
 
 void Embed::setDisplayed (bool displayed)
@@ -180,6 +196,7 @@ void Resource::ActivateEmitter::emitLeave (Resource *resource)
 
 Resource::~Resource ()
 {
+   DBG_OBJ_DELETE ();
 }
 
 void Resource::setEmbed (Embed *embed)
@@ -189,10 +206,17 @@ void Resource::setEmbed (Embed *embed)
 
 void Resource::getExtremes (Extremes *extremes)
 {
+   DBG_OBJ_MSG ("resize", 0, "<b>getExtremes</b>");
+   DBG_OBJ_MSG_START ();
+
    /* Simply return the requisition width */
    Requisition requisition;
    sizeRequest (&requisition);
    extremes->minWidth = extremes->maxWidth = requisition.width;
+
+   DBG_OBJ_MSGF ("resize", 1, "result: %d / %d",
+                 extremes->minWidth, extremes->maxWidth);
+   DBG_OBJ_MSG_END ();
 }
 
 void Resource::sizeAllocate (Allocation *allocation)
@@ -271,11 +295,12 @@ void ComplexButtonResource::LayoutReceiver::canvasSizeChanged (int width,
    /**
     * \todo Verify that this is correct.
     */
-   resource->queueResize (resource->childWidget->extremesChanged ());
+   resource->queueResize (resource->childWidget->extremesQueued ());
 }
 
 ComplexButtonResource::ComplexButtonResource ()
 {
+   DBG_OBJ_CREATE ("dw::core::ui::ComplexButtonResource");
    layout = NULL;
    layoutReceiver.resource = this;
    click_x = click_y = -1;
@@ -287,6 +312,7 @@ void ComplexButtonResource::init (Widget *widget)
 
    layout = new Layout (createPlatform ());
    setLayout (layout);
+   DBG_OBJ_ASSOC_CHILD (layout);
    layout->setWidget (widget);
    layout->connect (&layoutReceiver);
 }
@@ -302,23 +328,38 @@ void ComplexButtonResource::setEmbed (Embed *embed)
 ComplexButtonResource::~ComplexButtonResource ()
 {
    delete layout;
+   DBG_OBJ_DELETE ();
 }
 
 void ComplexButtonResource::sizeRequest (Requisition *requisition)
 {
+   DBG_OBJ_MSG ("resize", 0, "<b>sizeRequest</b>");
+   DBG_OBJ_MSG_START ();
+
    Requisition widgetRequisition;
    childWidget->sizeRequest (&widgetRequisition);
    requisition->width = widgetRequisition.width + 2 * reliefXThickness ();
    requisition->ascent = widgetRequisition.ascent + reliefYThickness ();
    requisition->descent = widgetRequisition.descent + reliefYThickness ();
+
+   DBG_OBJ_MSGF ("resize", 1, "result: %d * (%d + %d)",
+                 requisition->width, requisition->ascent, requisition->descent);
+   DBG_OBJ_MSG_END ();
 }
 
 void ComplexButtonResource::getExtremes (Extremes *extremes)
 {
+   DBG_OBJ_MSG ("resize", 0, "<b>getExtremes</b>");
+   DBG_OBJ_MSG_START ();
+
    Extremes widgetExtremes;
    childWidget->getExtremes (&widgetExtremes);
    extremes->minWidth = widgetExtremes.minWidth + 2 * reliefXThickness ();
    extremes->maxWidth = widgetExtremes.maxWidth + 2 * reliefXThickness ();
+
+   DBG_OBJ_MSGF ("resize", 1, "result: %d / %d",
+                 extremes->minWidth, extremes->maxWidth);
+   DBG_OBJ_MSG_END ();
 }
 
 void ComplexButtonResource::sizeAllocate (Allocation *allocation)
@@ -327,17 +368,32 @@ void ComplexButtonResource::sizeAllocate (Allocation *allocation)
 
 void ComplexButtonResource::setWidth (int width)
 {
+   DBG_OBJ_MSGF ("resize", 0, "<b>setWidth</b> (%d)", width);
+   DBG_OBJ_MSG_START ();
+
    childWidget->setWidth (width - 2 * reliefXThickness ());
+
+   DBG_OBJ_MSG_END ();
 }
 
 void ComplexButtonResource::setAscent (int ascent)
 {
+   DBG_OBJ_MSGF ("resize", 0, "<b>setAscent</b> (%d)", ascent);
+   DBG_OBJ_MSG_START ();
+
    childWidget->setAscent (ascent - reliefYThickness ());
+
+   DBG_OBJ_MSG_END ();
 }
 
 void ComplexButtonResource::setDescent (int descent)
 {
+   DBG_OBJ_MSGF ("resize", 0, "<b>setDescent</b> (%d)", descent);
+   DBG_OBJ_MSG_START ();
+
    childWidget->setDescent (descent - reliefYThickness ());
+
+   DBG_OBJ_MSG_END ();
 }
 
 Iterator *ComplexButtonResource::iterator (Content::Type mask, bool atEnd)

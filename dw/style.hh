@@ -296,7 +296,6 @@ enum ListStylePosition {
    LIST_STYLE_POSITION_INSIDE,
    LIST_STYLE_POSITION_OUTSIDE
 };
-
 enum ListStyleType {
    LIST_STYLE_TYPE_DISC,
    LIST_STYLE_TYPE_CIRCLE,
@@ -332,6 +331,13 @@ enum FontVariant {
    FONT_VARIANT_SMALL_CAPS
 };
 
+enum Position {
+   POSITION_STATIC,
+   POSITION_RELATIVE,
+   POSITION_ABSOLUTE,
+   POSITION_FIXED,
+};
+
 enum TextDecoration {
    TEXT_DECORATION_NONE         = 0,
    TEXT_DECORATION_UNDERLINE    = 1 << 0,
@@ -346,6 +352,19 @@ enum WhiteSpace {
    WHITE_SPACE_NOWRAP,
    WHITE_SPACE_PRE_WRAP,
    WHITE_SPACE_PRE_LINE,
+};
+
+enum FloatType {
+	FLOAT_NONE,
+	FLOAT_LEFT,
+	FLOAT_RIGHT
+};
+
+enum ClearType {
+	CLEAR_LEFT,
+	CLEAR_RIGHT,
+	CLEAR_BOTH,
+	CLEAR_NONE
 };
 
 /**
@@ -503,6 +522,12 @@ public:
    VAlignType valign;
    char textAlignChar; /* In future, strings will be supported. */
    TextTransform textTransform;
+   
+   FloatType vloat; /* "float" is a keyword. */
+   ClearType clear;
+
+   Position position;
+   Length top, bottom, left, right;
 
    int hBorderSpacing, vBorderSpacing, wordSpacing;
    Length width, height, lineHeight, textIndent;
