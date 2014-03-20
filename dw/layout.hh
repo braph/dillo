@@ -150,9 +150,26 @@ private:
       ~Anchor ();
    };
 
+   class QueueResizeItem: public lout::object::Object
+   {
+   public:
+      Widget *widget;
+      int ref;
+      bool extremesChanged;
+      
+      inline QueueResizeItem (Widget *widget, int ref, bool extremesChanged)
+      {
+         this->widget = widget;
+         this->ref = ref;
+         this->extremesChanged = extremesChanged;
+      }
+   };
+
    Platform *platform;
    View *view;
    Widget *topLevel, *widgetAtPoint;
+   lout::container::typed::Vector<QueueResizeItem> *queueQueueResizeList;
+   lout::container::typed::Vector<Widget> *queueResizeList;
 
    /* The state, which must be projected into the view. */
    style::Color *bgColor;
@@ -185,6 +202,8 @@ private:
    FindtextState findtextState;
 
    enum ButtonEventType { BUTTON_PRESS, BUTTON_RELEASE, MOTION_NOTIFY };
+
+   void detachWidget (Widget *widget);
 
    Widget *getWidgetAtPoint (int x, int y);
    void moveToWidget (Widget *newWidgetAtPoint, ButtonState state);
@@ -235,6 +254,16 @@ private:
       int ex, int ey, int ewidth, int eheight);
    void queueResize ();
    void removeWidget ();
+
+   /* For tests regarding the respective Layout and (mostly) Widget
+      methods. Accessed by respective methods (enter..., leave...,
+      ...Entered) defined here and in Widget. */
+
+   int resizeIdleCounter, queueResizeCounter, sizeAllocateCounter,
+      sizeRequestCounter, getExtremesCounter;
+
+   void enterResizeIdle () { resizeIdleCounter++; }
+   void leaveResizeIdle () { resizeIdleCounter--; }
 
 public:
    Layout (Platform *platform);

@@ -1,5 +1,7 @@
 AM_CPPFLAGS = \
-	-I$(top_srcdir)
+	-I$(top_srcdir) \
+	-DCUR_WORKING_DIR='"@BASE_CUR_WORKING_DIR@/test"'
+
 AM_CFLAGS = @LIBFLTK_CFLAGS@
 AM_CXXFLAGS = @LIBFLTK_CXXFLAGS@
 
@@ -7,6 +9,7 @@ noinst_PROGRAMS = \
 	dw-anchors-test \
 	dw-example \
 	dw-find-test \
+	dw-float-test \
 	dw-links \
 	dw-links2 \
 	dw-image-background \
@@ -50,6 +53,14 @@ dw_find_test_LDADD = \
 	$(top_builddir)/dw/libDw-fltk.a \
 	$(top_builddir)/dw/libDw-core.a \
 	$(top_builddir)/lout/liblout.a \
+	@LIBFLTK_LIBS@
+
+dw_float_test_SOURCES = dw_float_test.cc
+dw_float_test_LDADD = \
+	../dw/libDw-widgets.a \
+	../dw/libDw-fltk.a \
+	../dw/libDw-core.a \
+	../lout/liblout.a \
 	@LIBFLTK_LIBS@
 
 dw_links_SOURCES = dw_links.cc

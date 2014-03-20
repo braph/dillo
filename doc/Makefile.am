@@ -11,6 +11,8 @@ EXTRA_DIST = \
 	dw-widget-sizes.doc \
 	dw-changes.doc \
 	dw-images-and-backgrounds.doc \
+	dw-dw-out-of-flow.doc \
+	dw-dw-out-of-flow-2.doc \
 	fltk-problems.doc \
 	rounding-errors.doc \
 	uml-legend.doc \
@@ -27,6 +29,7 @@ EXTRA_DIST = \
 	dw-textblock-collapsing-spaces-1-2.png \
 	dw-textblock-collapsing-spaces-2-1.png \
 	dw-textblock-collapsing-spaces-2-2.png \
+	dw-floats-01.png \
 	not-so-simple-container.png \
 	Cache.txt \
 	Cookies.txt \

@@ -361,7 +361,8 @@ static void Html_add_textblock(DilloHtml *html, int space)
    Textblock *textblock = new Textblock (prefs.limit_text_width);
 
    HT2TB(html)->addParbreak (space, html->wordStyle ());
-   HT2TB(html)->addWidget (textblock, html->style ());
+   HT2TB(html)->addWidget (textblock, html->style ()); /* Works also for floats
+                                                          etc. */
    HT2TB(html)->addParbreak (space, html->wordStyle ());
    S_TOP(html)->textblock = html->dw = textblock;
    S_TOP(html)->hand_over_break = true;

@@ -22,6 +22,7 @@
 
 #include "container.hh"
 #include "misc.hh"
+#include "debug.hh"
 
 namespace lout {
 
@@ -103,6 +104,8 @@ void Collection::intoStringBuffer(misc::StringBuffer *sb)
 
 Vector::Vector(int initSize, bool ownerOfObjects)
 {
+   DBG_OBJ_CREATE ("lout::container::untyped::Vector");
+
    numAlloc = initSize == 0 ? 1 : initSize;
    this->ownerOfObjects = ownerOfObjects;
    numElements = 0;
@@ -113,6 +116,8 @@ Vector::~Vector()
 {
    clear();
    free(array);
+
+   DBG_OBJ_DELETE ();
 }
 
 void Vector::put(Object *newElement, int newPos)
@@ -188,9 +193,10 @@ void Vector::remove(int pos)
 /**
  * Sort the elements in the vector. Assumes that all elements are Comparable's.
  */
-void Vector::sort()
+void Vector::sort(Comparator *comparator)
 {
-   qsort (array, numElements, sizeof(Object*), Comparable::compareFun);
+   Comparator::compareFunComparator = comparator;
+   qsort (array, numElements, sizeof(Object*), Comparator::compareFun);
 }
 
 /**
@@ -202,44 +208,58 @@ void Vector::sort()
  * size of the array. (This is the value which can be used for
  * insertion; see insertSortet()).
  */
-int Vector::bsearch(Object *key, bool mustExist)
+int Vector::bsearch(Object *key, bool mustExist, int start, int end,
+                    Comparator *comparator)
 {
    // The case !mustExist is not handled by bsearch(3), so here is a
    // new implementation.
-   if (numElements == 0)
-      return mustExist ? -1 : 0;
 
-   int high = numElements - 1, low = 0;
+   DBG_OBJ_MSGF ("container", 0,
+                 "<b>bsearch</b> (<i>key</i>, %s, %d, %d, <i>comparator</i>) "
+                 "[size is %d]",
+                 mustExist ? "true" : "false", start, end, size ());
+   DBG_OBJ_MSG_START ();
 
-   while (true) {
-      int index = (low + high) / 2;
-      int c = ((Comparable*) key)->compareTo ((Comparable*)array[index]);
-      if (c == 0)
-         return index;
-      else {
-         if (low >= high) {
-            if (mustExist)
-               return -1;
+   int result = -123; // Compiler happiness: GCC 4.7 does not handle this?
+
+   if (start > end) {
+      DBG_OBJ_MSG ("container", 1, "empty");
+      result = mustExist ? -1 : start;
+   } else {
+      int low = start, high = end;
+      bool found = false;
+
+      while (!found) {       
+         int index = (low + high) / 2;
+         int c = comparator->compare (key, array[index]);
+         DBG_OBJ_MSGF ("container", 1,
+                       "searching within %d and %d; compare key with #%d => %d",
+                       low, high, index, c);
+         if (c == 0) {
+            found = true;
+            result = index;
+         } else {
+            if (low >= high) {
+               if (mustExist) {
+                  found = true;
+                  result = -1;
+               } else {
+                  found = true;
+                  result = c > 0 ? index + 1 : index;
+               }
+            }
+            
+            if (c < 0)
+               high = index - 1;
             else
-               return c > 0 ? index + 1 : index;
+               low = index + 1;
          }
-
-         if (c < 0)
-            high = index - 1;
-         else
-            low = index + 1;
       }
-   }
+   }  
 
-
-   /*
-   void *result = ::bsearch (&key, array, numElements, sizeof (Object*),
-                             Comparable::compareFun);
-   if (result)
-      return (Object**)result - array;
-   else
-      return -1;
-   */
+   DBG_OBJ_MSGF ("container", 1, "result = %d", result);
+   DBG_OBJ_MSG_END ();
+   return result;
 }
 
 Object *Vector::VectorIterator::getNext()
