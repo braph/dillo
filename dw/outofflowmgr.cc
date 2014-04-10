@@ -57,17 +57,6 @@ void OutOfFlowMgr::WidgetInfo::update (bool wasAllocated, int xCB, int yCB,
    DBG_OBJ_SET_NUM_O (widget, "<WidgetInfo>.height", height);
 }
 
-void OutOfFlowMgr::WidgetInfo::updateAllocation ()
-{
-   DBG_OBJ_MSG_O ("resize.oofm", 0, widget, "<b>updateAllocation</b> ()");
-   DBG_OBJ_MSG_START_O (widget);
-
-   update (isNowAllocated (), getNewXCB (), getNewYCB (), getNewWidth (),
-           getNewHeight ());
-
-   DBG_OBJ_MSG_END_O (widget);
-}
-
 // ----------------------------------------------------------------------
 
 OutOfFlowMgr::Float::Float (OutOfFlowMgr *oofm, Widget *widget,
@@ -90,6 +79,17 @@ OutOfFlowMgr::Float::Float (OutOfFlowMgr *oofm, Widget *widget,
       DBG_OBJ_SET_NUM_O (widget, "<Float>.size.ascent", size.ascent);
       DBG_OBJ_SET_NUM_O (widget, "<Float>.size.descent", size.descent);
    }
+}
+
+void OutOfFlowMgr::Float::updateAllocation ()
+{
+   DBG_OBJ_MSG_O ("resize.oofm", 0, getWidget (), "<b>updateAllocation</b> ()");
+   DBG_OBJ_MSG_START_O (getWidget ());
+
+   update (isNowAllocated (), getNewXCB (), getNewYCB (), getNewWidth (),
+           getNewHeight ());
+
+   DBG_OBJ_MSG_END_O (getWidget ());
 }
 
 void OutOfFlowMgr::Float::intoStringBuffer(StringBuffer *sb)
@@ -445,12 +445,26 @@ OutOfFlowMgr::TBInfo::TBInfo (OutOfFlowMgr *oofm, Textblock *textblock,
 
    leftFloatsGB = new SortedFloatsVector (oofm, LEFT, SortedFloatsVector::GB);
    rightFloatsGB = new SortedFloatsVector (oofm, RIGHT, SortedFloatsVector::GB);
+
+   wasAllocated = getWidget()->wasAllocated ();
+   allocation = *(getWidget()->getAllocation ());
 }
 
 OutOfFlowMgr::TBInfo::~TBInfo ()
 {
    delete leftFloatsGB;
    delete rightFloatsGB;
+}
+
+void OutOfFlowMgr::TBInfo::updateAllocation ()
+{
+   DBG_OBJ_MSG_O ("resize.oofm", 0, getWidget (), "<b>updateAllocation</b> ()");
+   DBG_OBJ_MSG_START_O (getWidget ());
+
+   update (isNowAllocated (), getNewXCB (), getNewYCB (), getNewWidth (),
+           getNewHeight ());
+
+   DBG_OBJ_MSG_END_O (getWidget ());
 }
 
 OutOfFlowMgr::AbsolutelyPositioned::AbsolutelyPositioned (OutOfFlowMgr *oofm,
@@ -490,8 +504,7 @@ OutOfFlowMgr::OutOfFlowMgr (Textblock *containingBlock)
    absolutelyPositioned = new Vector<AbsolutelyPositioned> (1, true);
 
    containingBlockWasAllocated = containingBlock->wasAllocated ();
-   if (containingBlockWasAllocated)
-      containingBlockAllocation = *(containingBlock->getAllocation());
+   containingBlockAllocation = *(containingBlock->getAllocation());
 
    addWidgetInFlow (containingBlock, NULL, 0);
 }
@@ -521,72 +534,85 @@ OutOfFlowMgr::~OutOfFlowMgr ()
    DBG_OBJ_DELETE ();
 }
 
-void OutOfFlowMgr::sizeAllocateStart (Allocation *containingBlockAllocation)
+void OutOfFlowMgr::sizeAllocateStart (Textblock *caller, Allocation *allocation)
 {
-   DBG_OBJ_MSG ("resize.oofm", 0, "<b>sizeAllocateStart</b>");
-   this->containingBlockAllocation = *containingBlockAllocation;
-   containingBlockWasAllocated = true;
-}
-
-void OutOfFlowMgr::sizeAllocateEnd ()
-{
-   DBG_OBJ_MSG ("resize.oofm", 0, "<b>sizeAllocateEnd</b>");
+   DBG_OBJ_MSGF ("resize.oofm", 0,
+                 "<b>sizeAllocateStart</b> (%p, (%d, %d, %d * (%d + %d)))",
+                 caller, allocation->x, allocation->y, allocation->width,
+                 allocation->ascent, allocation->descent);
    DBG_OBJ_MSG_START ();
 
-   // Move floats from GB lists to the one CB list.
-   moveFromGBToCB (LEFT);
-   moveFromGBToCB (RIGHT);
+   getTextblock(caller)->allocation = *allocation;
+   getTextblock(caller)->wasAllocated = true;
 
-   // Floats and absolutely positioned blocks have to be allocated
-   sizeAllocateFloats (LEFT);
-   sizeAllocateFloats (RIGHT);
-   sizeAllocateAbsolutelyPositioned ();
-
-   // Textblocks have already been allocated here.
-
-   // Check changes of both textblocks and floats allocation. (All is checked
-   // by hasRelationChanged (...).)
-   for (lout::container::typed::Iterator<TypedPointer <Textblock> > it =
-           tbInfosByTextblock->iterator ();
-        it.hasNext (); ) {
-      TypedPointer <Textblock> *key = it.getNext ();
-      TBInfo *tbInfo = tbInfosByTextblock->get (key);
-      Textblock *tb = key->getTypedValue();
-
-      int minFloatPos;
-      Widget *minFloat;
-      if (hasRelationChanged (tbInfo, &minFloatPos, &minFloat))
-         tb->borderChanged (minFloatPos, minFloat);
-   }
-  
-   // Store some information for later use.
-   for (lout::container::typed::Iterator<TypedPointer <Textblock> > it =
-           tbInfosByTextblock->iterator ();
-        it.hasNext (); ) {
-      TypedPointer <Textblock> *key = it.getNext ();
-      TBInfo *tbInfo = tbInfosByTextblock->get (key);
-      Textblock *tb = key->getTypedValue();
-
-      tbInfo->updateAllocation ();
-      tbInfo->availWidth = tb->getAvailWidth ();
+   if (caller == containingBlock) {
+      containingBlockAllocation = *allocation;
+      containingBlockWasAllocated = true;
    }
 
-   // There are cases where some allocated floats (TODO: later also absolutely
-   // positioned elements?) exceed the CB allocation.
-   bool sizeChanged = doFloatsExceedCB (LEFT) || doFloatsExceedCB (RIGHT);
+   DBG_OBJ_MSG_END ();
+}
 
-   // Similar for extremes. (TODO: here also absolutely positioned elements?)
-   bool extremesChanged =
-      haveExtremesChanged (LEFT) || haveExtremesChanged (RIGHT);
+void OutOfFlowMgr::sizeAllocateEnd (Textblock *caller)
+{
+   DBG_OBJ_MSGF ("resize.oofm", 0, "<b>sizeAllocateEnd</b> (%p)", caller);
+   DBG_OBJ_MSG_START ();
 
-   for (int i = 0; i < leftFloatsCB->size(); i++)
-      leftFloatsCB->get(i)->updateAllocation ();
+   // Floats (and later absolutely positioned blocks) have to be allocated.
+   TBInfo *tbInfo = getTextblock (caller);
+   sizeAllocateFloats (tbInfo, LEFT);
+   sizeAllocateFloats (tbInfo, RIGHT);
 
-   for (int i = 0; i < rightFloatsCB->size(); i++)
-      rightFloatsCB->get(i)->updateAllocation ();
-   
-   if (sizeChanged || extremesChanged)
-      containingBlock->oofSizeChanged (extremesChanged);
+   if (caller == containingBlock) {
+      // Move floats from GB lists to the one CB list.
+      moveFromGBToCB (LEFT);
+      moveFromGBToCB (RIGHT);
+     
+      // Check changes of both textblocks and floats allocation. (All
+      // is checked by hasRelationChanged (...).)
+      for (lout::container::typed::Iterator<TypedPointer <Textblock> > it =
+              tbInfosByTextblock->iterator ();
+           it.hasNext (); ) {
+         TypedPointer <Textblock> *key = it.getNext ();
+         TBInfo *tbInfo = tbInfosByTextblock->get (key);
+         Textblock *tb = key->getTypedValue();
+         
+         int minFloatPos;
+         Widget *minFloat;
+         if (hasRelationChanged (tbInfo, &minFloatPos, &minFloat))
+            tb->borderChanged (minFloatPos, minFloat);
+      }
+      
+      // Store some information for later use.
+      for (lout::container::typed::Iterator<TypedPointer <Textblock> > it =
+              tbInfosByTextblock->iterator ();
+           it.hasNext (); ) {
+         TypedPointer <Textblock> *key = it.getNext ();
+         TBInfo *tbInfo = tbInfosByTextblock->get (key);
+         Textblock *tb = key->getTypedValue();
+         
+         tbInfo->updateAllocation ();
+         tbInfo->availWidth = tb->getAvailWidth ();
+      }
+      
+      // There are cases where some allocated floats (TODO: later also
+      // absolutely positioned elements?) exceed the CB allocation.
+      bool sizeChanged = doFloatsExceedCB (LEFT) || doFloatsExceedCB (RIGHT);
+
+      // Similar for extremes. (TODO: here also absolutely positioned
+      // elements?)
+      bool extremesChanged =
+         haveExtremesChanged (LEFT) || haveExtremesChanged (RIGHT);
+      
+      for (int i = 0; i < leftFloatsCB->size(); i++)
+         leftFloatsCB->get(i)->updateAllocation ();
+      
+      for (int i = 0; i < rightFloatsCB->size(); i++)
+         rightFloatsCB->get(i)->updateAllocation ();
+      
+      if (sizeChanged || extremesChanged)
+         containingBlock->oofSizeChanged (extremesChanged);
+   }
 
    DBG_OBJ_MSG_END ();
 }
@@ -937,42 +963,29 @@ void OutOfFlowMgr::moveFromGBToCB (Side side)
 
    *floatsMark = 0;
 
-   /* Old code: GB lists do not have to be cleared, but their contents
-      are still useful after allocation. Soon to be deleted, not only
-      uncommented.
-      
-   for (lout::container::typed::Iterator<TBInfo> it = tbInfos->iterator ();
-        it.hasNext (); ) {
-      TBInfo *tbInfo = it.getNext ();
-      SortedFloatsVector *src =
-         side == LEFT ? tbInfo->leftFloatsGB : tbInfo->rightFloatsGB;
-      src->clear ();
-   }
-   */
-
    //printf ("[%p] new %s list:\n",
    //        containingBlock, side == LEFT ? "left" : "right");
    //for (int i = 0; i < dest->size(); i++)
    //   printf ("   %d: %s\n", i, dest->get(i)->toString());
 }
 
-void OutOfFlowMgr::sizeAllocateFloats (Side side)
+void OutOfFlowMgr::sizeAllocateFloats (TBInfo *textblock, Side side)
 {
-   SortedFloatsVector *list = side == LEFT ? leftFloatsCB : rightFloatsCB;
+   SortedFloatsVector *list = side == LEFT ?
+      textblock->leftFloatsGB : textblock->rightFloatsGB;
+
+   Allocation *gba = &(textblock->allocation);
+   Allocation *cba = &containingBlockAllocation;
+   int availWidth = textblock->getTextblock()->getAvailWidth();
 
    for (int i = 0; i < list->size(); i++) {
       Float *vloat = list->get(i);
       ensureFloatSize (vloat);
 
-      Allocation *gbAllocation = getAllocation(vloat->generatingBlock);
-      Allocation *cbAllocation = getAllocation(containingBlock);
-
       Allocation childAllocation;
-      childAllocation.x = cbAllocation->x +
-         calcFloatX (vloat, side, gbAllocation->x - cbAllocation->x,
-                     gbAllocation->width,
-                     vloat->generatingBlock->getAvailWidth());
-      childAllocation.y = gbAllocation->y + vloat->yReal;
+      childAllocation.x = cba->x +
+         calcFloatX (vloat, side, gba->x - cba->x, gba->width, availWidth);
+      childAllocation.y = gba->y + vloat->yReal;
       childAllocation.width = vloat->size.width;
       childAllocation.ascent = vloat->size.ascent;
       childAllocation.descent = vloat->size.descent;
