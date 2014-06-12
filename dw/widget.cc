@@ -70,7 +70,9 @@ Widget::Widget ()
    registerName ("dw::core::Widget", &CLASS_ID);
 
    flags = (Flags)(NEEDS_RESIZE | EXTREMES_CHANGED | HAS_CONTENTS);
-   parent = generator = NULL;
+   parent = generator = container = NULL;
+   DBG_OBJ_SET_PTR ("container", container);
+
    layout = NULL;
 
    allocation.x = -1;
@@ -79,6 +81,8 @@ Widget::Widget ()
    allocation.ascent = 1;
    allocation.descent = 0;
 
+   extraSpace.top = extraSpace.right = extraSpace.bottom = extraSpace.left = 0;
+   
    style = NULL;
    bgColor = NULL;
    buttonSensitive = true;
@@ -152,6 +156,20 @@ void Widget::setParent (Widget *parent)
    DBG_OBJ_ASSOC_PARENT (parent);
    //printf ("The %s %p becomes a child of the %s %p\n",
    //        getClassName(), this, parent->getClassName(), parent);
+
+   // Determine the container. Currently rather simple; will become
+   // more complicated when absolute and fixed positions are
+   // supported.
+   container = NULL;
+   for (Widget *widget = getParent (); widget != NULL && container == NULL;
+        widget = widget->getParent())
+      if (widget->isPossibleContainer ())
+         container = widget;
+   // If there is no possible container widget, there is
+   // (surprisingly!) also no container (i. e. the viewport is
+   // used). Does not occur in dillo, where the toplevel widget is a
+   // Textblock.
+   DBG_OBJ_SET_PTR ("container", container);
 
    notifySetParent();
 }
@@ -319,6 +337,152 @@ void Widget::sizeRequest (Requisition *requisition)
 
    leaveSizeRequest ();
 
+   DBG_OBJ_MSG_END ();
+}
+
+/**
+ * Return available width including margin/border/padding
+ * (extraSpace?), not only the content width.
+ */
+int Widget::getAvailWidth ()
+{
+   // TODO Correct by extremes?
+
+   DBG_OBJ_MSG ("resize", 0, "<b>getAvailWidth</b> ()");
+   DBG_OBJ_MSG_START ();
+
+   int width;
+
+   if (container == NULL) {
+      // TODO Consider nested layouts (e. g. <button>).
+      if (style::isAbsLength (getStyle()->width))
+         width = style::absLengthVal (getStyle()->width) + boxDiffWidth ();
+      else {
+         int viewportWidth =
+            layout->viewportWidth - (layout->canvasHeightGreater ?
+                                     layout->vScrollbarThickness : 0);
+         if (style::isPerLength (getStyle()->width)) {
+            width = style::multiplyWithPerLength (viewportWidth,
+                                                  getStyle()->width)
+               + boxDiffWidth ();
+         } else
+            width = viewportWidth;
+      }
+   } else
+      width = container->getAvailWidthOfChild (this);
+
+   DBG_OBJ_MSGF ("resize", 1, "=> %d", width);
+   DBG_OBJ_MSG_END ();
+
+   return width;
+}
+
+/**
+ * Return available height including margin/border/padding
+ * (extraSpace?), not only the content height.
+ */
+int Widget::getAvailHeight ()
+{
+   // TODO Correct by ... not extremes, but ...? (Height extremes?)
+
+   DBG_OBJ_MSG ("resize", 0, "<b>getAvailHeight</b> ()");
+   DBG_OBJ_MSG_START ();
+
+   int height;
+
+   if (container == NULL) {
+      // TODO Consider nested layouts (e. g. <button>).
+      if (style::isAbsLength (getStyle()->height))
+         height = style::absLengthVal (getStyle()->height) + boxDiffHeight ();
+      else if (style::isPerLength (getStyle()->height))
+         // Notice that here -- unlike getAvailWidth() --
+         // layout->hScrollbarThickness is not considered here;
+         // something like canvasWidthGreater (analogue to
+         // canvasHeightGreater) would be complicated and lead to
+         // possibly contradictory self-references.
+         height = style::multiplyWithPerLength (layout->viewportHeight,
+                                          getStyle()->height)
+            + boxDiffHeight ();
+      else
+         height = layout->viewportHeight;
+   } else
+      height = container->getAvailHeightOfChild (this);
+
+   DBG_OBJ_MSGF ("resize", 1, "=> %d", height);
+   DBG_OBJ_MSG_END ();
+
+   return height;
+}
+
+void Widget::correctRequisition (Requisition *requisition,
+                                 void (*splitHeightFun)(int height, int *ascent,
+                                                        int *descent))
+{
+   // TODO Correct by extremes?
+
+   DBG_OBJ_MSGF ("resize", 0, "<b>correctRequisition</b> (%d * (%d + %d), ...)",
+                 requisition->width, requisition->ascent, requisition->descent);
+   DBG_OBJ_MSG_START ();
+
+   if (container == NULL) {
+      if (style::isAbsLength (getStyle()->width))
+         requisition->width =
+            style::absLengthVal (getStyle()->width) + boxDiffWidth ();
+      else if (style::isPerLength (getStyle()->width)) {
+         int viewportWidth =
+            layout->viewportWidth - (layout->canvasHeightGreater ?
+                                     layout->vScrollbarThickness : 0);
+         requisition->width =
+            style::multiplyWithPerLength (viewportWidth, getStyle()->width)
+            + boxDiffWidth ();
+      }
+
+      // TODO Perhaps split first, then add box ascent and descent.
+      if (style::isAbsLength (getStyle()->height))
+         splitHeightFun (style::absLengthVal (getStyle()->height)
+                         + boxDiffHeight (),
+                         &requisition->ascent, &requisition->descent);
+      else if (style::isPerLength (getStyle()->height)) {
+         // For layout->viewportHeight, see comment in getAvailHeight().
+         splitHeightFun (style::multiplyWithPerLength (layout->viewportHeight,
+                                                       getStyle()->height)
+                         + boxDiffHeight (),
+                         &requisition->ascent, &requisition->descent);
+      }
+   } else
+      container->correctRequisitionOfChild (this, requisition, splitHeightFun);
+
+   DBG_OBJ_MSGF ("resize", 1, "=> %d * (%d + %d)",
+                 requisition->width, requisition->ascent,
+                 requisition->descent);
+   DBG_OBJ_MSG_END ();  
+}
+
+void Widget::correctExtremes (Extremes *extremes)
+{
+   // TODO Extremes only corrected?
+
+   DBG_OBJ_MSGF ("resize", 0, "<b>correctExtremes</b> (%d / %d)",
+                 extremes->minWidth, extremes->maxWidth);
+   DBG_OBJ_MSG_START ();
+
+   if (container == NULL) {
+      if (style::isAbsLength (getStyle()->width))
+         extremes->minWidth = extremes->maxWidth =
+            style::absLengthVal (getStyle()->width) + boxDiffWidth ();
+      else if (style::isPerLength (getStyle()->width)) {
+         int viewportWidth =
+            layout->viewportWidth - (layout->canvasHeightGreater ?
+                                     layout->vScrollbarThickness : 0);
+         extremes->minWidth = extremes->maxWidth =
+            style::multiplyWithPerLength (viewportWidth, getStyle()->width)
+            + boxDiffWidth ();
+      }
+   } else
+      container->correctExtremesOfChild (this, extremes);
+
+   DBG_OBJ_MSGF ("resize", 1, "=> %d / %d",
+                 extremes->minWidth, extremes->maxWidth);
    DBG_OBJ_MSG_END ();
 }
 
@@ -787,6 +951,7 @@ void Widget::getExtremesImpl (Extremes *extremes)
    Requisition requisition;
    sizeRequest (&requisition);
    extremes->minWidth = extremes->maxWidth = requisition.width;
+   correctExtremes (extremes);
 }
 
 void Widget::sizeAllocateImpl (Allocation *allocation)
@@ -799,6 +964,144 @@ void Widget::markSizeChange (int ref)
 
 void Widget::markExtremesChange (int ref)
 {
+}
+
+int Widget::getAvailWidthOfChild (Widget *child)
+{
+   // This is a halfway suitable implementation for all
+   // containers. For simplification, this will be used during the
+   // development; then, a differentiation could be possible.
+
+   // TODO Correct by extremes?
+
+   DBG_OBJ_MSGF ("resize", 0, "<b>getAvailWidthOfChild</b> (%p)", child);
+   DBG_OBJ_MSG_START ();
+
+   int width;
+
+   if (style::isAbsLength (child->getStyle()->width))
+      width = style::absLengthVal (child->getStyle()->width)
+         + child->boxDiffWidth ();
+   else {
+      int containerContentWidth = getAvailWidth () - boxDiffWidth ();
+      if (style::isPerLength (child->getStyle()->width))
+         width = style::multiplyWithPerLength (containerContentWidth,
+                                               child->getStyle()->width)
+            + child->boxDiffWidth ();
+      else
+         // Some widgets will use the whole width, so this is a
+         // meaningful value.
+         width = containerContentWidth;
+   }
+
+   DBG_OBJ_MSGF ("resize", 1, "=> %d", width);
+   DBG_OBJ_MSG_END ();
+
+   return width;
+}
+
+int Widget::getAvailHeightOfChild (Widget *child)
+{
+   // Again, a suitable implementation for all widgets (perhaps).
+
+   // TODO Correct by extremes? (Height extemes?)
+
+   DBG_OBJ_MSGF ("resize", 0, "<b>getAvailHeightOfChild</b> (%p)", child);
+   DBG_OBJ_MSG_START ();
+
+   int height;
+
+   if (style::isAbsLength (child->getStyle()->height))
+      height = style::absLengthVal (child->getStyle()->height)
+         + child->boxDiffHeight ();
+   else {
+      int containerContentHeight = getAvailHeight () - boxDiffHeight ();
+      if (style::isPerLength (child->getStyle()->height))
+         height = style::multiplyWithPerLength (containerContentHeight,
+                                                child->getStyle()->height)
+            + child->boxDiffHeight ();
+      else
+         // Although no widget will probably use the whole height, we
+         // have to return some value here.
+         height = containerContentHeight;
+   }
+
+   DBG_OBJ_MSGF ("resize", 1, "=> %d", height);
+   DBG_OBJ_MSG_END ();
+
+   return height;
+}
+
+void Widget::correctRequisitionOfChild (Widget *child, Requisition *requisition,
+                                        void (*splitHeightFun)(int height,
+                                                               int *ascent,
+                                                               int *descent))
+{
+   // Again, a suitable implementation for all widgets (perhaps).
+
+   // TODO Correct by extremes?
+
+   DBG_OBJ_MSGF ("resize", 0,
+                 "<b>correctRequisitionOfChild</b> (%p, %d * (%d + %d), ...)",
+                 child, requisition->width, requisition->ascent,
+                 requisition->descent);
+   DBG_OBJ_MSG_START ();
+
+   if (style::isAbsLength (child->getStyle()->width))
+      requisition->width = style::absLengthVal (child->getStyle()->width)
+         + child->boxDiffWidth ();
+   else if (style::isPerLength (child->getStyle()->width)) {
+      int containerWidth = getAvailWidth () - boxDiffWidth ();
+      requisition->width =
+         style::multiplyWithPerLength (containerWidth,
+                                       child->getStyle()->width)
+         + child->boxDiffWidth ();
+   }
+
+   // TODO Perhaps split first, then add box ascent and descent.
+   if (style::isAbsLength (child->getStyle()->height))
+      splitHeightFun (style::absLengthVal (child->getStyle()->height)
+                      + child->boxDiffHeight (),
+                      &requisition->ascent, &requisition->descent);
+   else if (style::isPerLength (child->getStyle()->height)) {
+      int containerHeight = getAvailHeight () - boxDiffHeight ();
+      splitHeightFun (style::multiplyWithPerLength (containerHeight,
+                                                    child->getStyle()->height)
+                      + child->boxDiffHeight (),
+                      &requisition->ascent, &requisition->descent);
+   }
+
+   DBG_OBJ_MSGF ("resize", 1, "=> %d * (%d + %d)",
+                 requisition->width, requisition->ascent,
+                 requisition->descent);
+   DBG_OBJ_MSG_END ();
+}
+
+void Widget::correctExtremesOfChild (Widget *child, Extremes *extremes)
+{
+   // See comment in correctRequisitionOfChild.
+
+   // TODO Extremes only corrected?
+
+   DBG_OBJ_MSGF ("resize", 0,
+                 "<b>correctExtremedOfChild</b> (%p, %d / %d)",
+                 child, extremes->minWidth, extremes->maxWidth);
+   DBG_OBJ_MSG_START ();
+
+   if (style::isAbsLength (child->getStyle()->width))
+      extremes->minWidth =extremes->maxWidth =
+         style::absLengthVal (child->getStyle()->width)
+         + child->boxDiffWidth ();
+   else if (style::isPerLength (child->getStyle()->width)) {
+      int containerWidth = getAvailWidth () - boxDiffWidth ();
+      extremes->minWidth =extremes->maxWidth =
+         style::multiplyWithPerLength (containerWidth, child->getStyle()->width)
+         + child->boxDiffWidth ();
+   }
+
+   DBG_OBJ_MSGF ("resize", 1, "=> %d / %d",
+                 extremes->minWidth, extremes->maxWidth);
+   DBG_OBJ_MSG_END ();
 }
 
 /**
@@ -820,16 +1123,16 @@ void Widget::notifySetParent()
 {
 }
 
-void Widget::setWidth (int width)
+bool Widget::isBlockLevel ()
 {
+   // Most widgets are not block-level.
+   return false;
 }
 
-void Widget::setAscent (int ascent)
+bool Widget::isPossibleContainer ()
 {
-}
-
-void Widget::setDescent (int descent)
-{
+   // In most (all?) cases identical to:
+   return isBlockLevel ();
 }
 
 bool Widget::buttonPressImpl (EventButton *event)
@@ -849,7 +1152,7 @@ bool Widget::motionNotifyImpl (EventMotion *event)
 
 void Widget::enterNotifyImpl (EventCrossing *)
 {
-   core::style::Tooltip *tooltip = getStyle()->x_tooltip;
+   style::Tooltip *tooltip = getStyle()->x_tooltip;
 
    if (tooltip)
       tooltip->onEnter();
@@ -857,7 +1160,7 @@ void Widget::enterNotifyImpl (EventCrossing *)
 
 void Widget::leaveNotifyImpl (EventCrossing *)
 {
-   core::style::Tooltip *tooltip = getStyle()->x_tooltip;
+   style::Tooltip *tooltip = getStyle()->x_tooltip;
 
    if (tooltip)
       tooltip->onLeave();
@@ -867,6 +1170,24 @@ void Widget::removeChild (Widget *child)
 {
    // Should be implemented.
    misc::assertNotReached ();
+}
+
+void splitHeightPreserveAscent (int height, int *ascent, int *descent)
+{
+   *descent = height - *ascent;
+   if (*descent < 0) {
+      *descent = 0;
+      *ascent = height;
+   }      
+}
+
+void splitHeightPreserveDescent (int height, int *ascent, int *descent)
+{
+   *ascent = height - *descent;
+   if (*ascent < 0) {
+      *ascent = 0;
+      *descent = height;
+   }      
 }
 
 } // namespace core

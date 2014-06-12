@@ -2,13 +2,18 @@
 #define __DW_TABLE_HH__
 
 #include "core.hh"
-#include "tablecell.hh"
+#include "alignedtablecell.hh"
 #include "../lout/misc.hh"
 
 namespace dw {
 
 /**
  * \brief A Widget for rendering tables.
+ *
+ * <div style="border: 2px solid #ff0000; margin-top: 0.5em;
+ * margin-bottom: 0.5em; padding: 0.5em 1em;
+ * background-color: #ffefe0"><b>Warning:</b> Some parts of this
+ * description are outdated since \ref dw-grows.</div>
  *
  * <h3>Introduction</h3>
  *
@@ -191,8 +196,9 @@ namespace dw {
  *
  * <ul>
  * <li> the specified absolute width of the table, when given, or
- * <li> the available width (set by dw::Table::setWidth) times the specified
- *      percentage width of t(at max 100%), if the latter is given, or
+ * <li> the available width (set by dw::Table::setWidth [TODO outdated]) times
+ *      the specified percentage width of t(at max 100%), if the latter is
+ *      given, or
  * <li> otherwise the available width.
  * </ul>
  *
@@ -356,7 +362,6 @@ private:
    friend class TableIterator;
 
    bool limitTextWidth, rowClosed;
-   int availWidth, availAscent, availDescent;  // set by set...
 
    int numRows, numCols, curRow, curCol;
    lout::misc::SimpleVector<Child*> *children;
@@ -383,19 +388,9 @@ private:
     * If a Cell has rowspan > 1, it goes into this array
     */
    lout::misc::SimpleVector<int> *rowSpanCells;
-   /**
-    * If a Cell has colspan > 1, it goes into this array
-    */
-   lout::misc::SimpleVector<int> *colSpanCells;
    lout::misc::SimpleVector<int> *baseline;
 
    lout::misc::SimpleVector<core::style::Style*> *rowStyle;
-
-   /**
-    * hasColPercent becomes true when any cell specifies a percentage width.
-    */
-   int hasColPercent;
-   lout::misc::SimpleVector<core::style::Length> *colPercents;
 
    inline bool childDefined(int n)
    {
@@ -405,15 +400,17 @@ private:
 
    void reallocChildren (int newNumCols, int newNumRows);
 
-   void calcCellSizes ();
-   void forceCalcCellSizes ();
+   void calcCellSizes (bool calcHeights);
+   void forceCalcCellSizes (bool calcHeights);
    void apportionRowSpan ();
 
    void calcColumnExtremes ();
    void forceCalcColumnExtremes ();
 
-   void apportion2 (int totalWidth, int forceTotalWidth);
-   void apportion_percentages2 (int totalWidth, int forceTotalWidth);
+   void apportion2 (int totalWidth, bool forceTotalWidth,
+                    int firstCol, int lastCol,
+                    lout::misc::SimpleVector<int> *dest, int destOffset,
+                    bool setRedrawX);
 
    void setCumHeight (int row, int value)
    {
@@ -423,23 +420,16 @@ private:
       }
    }
 
-   inline void setColWidth (int col, int value)
-   {
-      if (value != colWidths->get (col)) {
-         redrawX = lout::misc::min (redrawX, value);
-         colWidths->set (col, value);
-      }
-   }
-
 protected:
    void sizeRequestImpl (core::Requisition *requisition);
    void getExtremesImpl (core::Extremes *extremes);
    void sizeAllocateImpl (core::Allocation *allocation);
    void resizeDrawImpl ();
 
-   void setWidth (int width);
-   void setAscent (int ascent);
-   void setDescent (int descent);
+   int getAvailWidthOfChild (Widget *child);
+
+   bool isBlockLevel ();
+
    void draw (core::View *view, core::Rectangle *area);
 
    //bool buttonPressImpl (core::EventButton *event);
@@ -458,7 +448,7 @@ public:
 
    void addCell (Widget *widget, int colspan, int rowspan);
    void addRow (core::style::Style *style);
-   TableCell *getCellRef ();
+   AlignedTableCell *getCellRef ();
 };
 
 } // namespace dw

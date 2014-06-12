@@ -277,6 +277,11 @@ Layout::Layout (Platform *platform)
    viewportWidth = viewportHeight = 0;
    hScrollbarThickness = vScrollbarThickness = 0;
 
+   DBG_OBJ_SET_NUM ("viewportWidth", viewportWidth);
+   DBG_OBJ_SET_NUM ("viewportHeight", viewportHeight);
+   DBG_OBJ_SET_NUM ("hScrollbarThickness", hScrollbarThickness);
+   DBG_OBJ_SET_NUM ("vScrollbarThickness", vScrollbarThickness);
+
    requestedAnchor = NULL;
    scrollIdleId = -1;
    scrollIdleNotInterrupted = false;
@@ -371,13 +376,17 @@ void Layout::addWidget (Widget *widget)
 
    topLevel = widget;
    widget->layout = this;
+   widget->container = NULL;
+   DBG_OBJ_SET_PTR_O (widget, "container", widget->container);
+
    queueResizeList->clear ();
-   widget->notifySetAsTopLevel();
+   widget->notifySetAsTopLevel ();
 
    findtextState.setWidget (widget);
 
    canvasHeightGreater = false;
-   setSizeHints ();
+   DBG_OBJ_SET_SYM ("canvasHeightGreater",
+                    canvasHeightGreater ? "true" : "false");
 
    // Do not directly call Layout::queueResize(), but
    // Widget::queueResize(), so that all flags are set properly,
@@ -471,6 +480,11 @@ void Layout::attachView (View *view)
          hScrollbarThickness = view->getHScrollbarThickness ();
          vScrollbarThickness = view->getVScrollbarThickness ();
       }
+
+      DBG_OBJ_SET_NUM ("viewportWidth", viewportWidth);
+      DBG_OBJ_SET_NUM ("viewportHeight", viewportHeight);
+      DBG_OBJ_SET_NUM ("hScrollbarThickness", hScrollbarThickness);
+      DBG_OBJ_SET_NUM ("vScrollbarThickness", vScrollbarThickness);
    }
 
    /*
@@ -908,12 +922,13 @@ void Layout::resizeIdle ()
          int currVThickness = currVScrollbarThickness();
 
          if (!canvasHeightGreater &&
-             canvasAscent + canvasDescent
-             > viewportHeight - currHThickness) {
+             canvasAscent + canvasDescent  > viewportHeight - currHThickness) {
             canvasHeightGreater = true;
-            setSizeHints ();
-            /* May queue a new resize. */
-            }
+            DBG_OBJ_SET_SYM ("canvasHeightGreater",
+                             canvasHeightGreater ? "true" : "false");
+            assert (topLevel); // No toplevel widget would have no size.
+            containerSizeChanged (topLevel);
+         }
 
          // Set viewport sizes.
          view->setViewportSize (viewportWidth, viewportHeight,
@@ -930,16 +945,6 @@ void Layout::resizeIdle ()
    DBG_OBJ_MSG_END ();
 
    leaveResizeIdle ();
-}
-
-void Layout::setSizeHints ()
-{
-   if (topLevel) {
-      topLevel->setWidth (viewportWidth
-                          - (canvasHeightGreater ? vScrollbarThickness : 0));
-      topLevel->setAscent (viewportHeight - hScrollbarThickness);
-      topLevel->setDescent (0);
-   }
 }
 
 void Layout::queueDraw (int x, int y, int width, int height)
@@ -1269,8 +1274,11 @@ void Layout::viewportSizeChanged (View *view, int width, int height)
 
    /* If the width has become higher, we test again, whether the vertical
     * scrollbar (so to speak) can be hidden again. */
-   if (usesViewport && width > viewportWidth)
+   if (usesViewport && width > viewportWidth) {
       canvasHeightGreater = false;
+      DBG_OBJ_SET_SYM ("canvasHeightGreater",
+                       canvasHeightGreater ? "true" : "false");
+   }
 
    /* if size changes, redraw this view.
     * TODO: this is a resize call (redraw/resize code needs a review). */
@@ -1285,7 +1293,35 @@ void Layout::viewportSizeChanged (View *view, int width, int height)
    viewportWidth = width;
    viewportHeight = height;
 
-   setSizeHints ();
+   DBG_OBJ_SET_NUM ("viewportWidth", viewportWidth);
+   DBG_OBJ_SET_NUM ("viewportHeight", viewportHeight);
+
+   if (topLevel)
+      containerSizeChanged (topLevel);
+}
+
+bool Layout::widgetAffectedByContainerSizeChange (Widget *widget)
+{
+   return true; // TODO only absolute dimensions? Depending on widget class?
+}
+
+void Layout::containerSizeChanged (Widget *widget)
+{
+   if (widgetAffectedByContainerSizeChange (widget)) {
+      widget->queueResize (0, false);
+
+      // TODO Wrong! Iteration must stop when the *container* (not the
+      // *parent*!) is unaffected. (Does not matter as long as
+      // widgetAffectedByContainerSizeChange() returns always true.)
+
+      Iterator *it =
+         widget->iterator ((Content::Type)
+                           (Content::WIDGET_IN_FLOW | Content::WIDGET_OOF_CONT),
+                           false);
+      while (it->next ())
+         containerSizeChanged (it->getContent()->widget);
+      it->unref ();
+   }
 }
 
 } // namespace core

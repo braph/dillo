@@ -90,11 +90,6 @@ protected:
        * The dw::Image widget uses this flag, see dw::Image::setBuffer.
        */
       WAS_ALLOCATED    = 1 << 8,
-
-      /**
-       * \brief Set for block-level widgets (as opposed to inline widgets)
-       */
-      BLOCK_LEVEL      = 1 << 9,
    };
 
    /**
@@ -127,10 +122,17 @@ private:
 
    /**
     * \brief The generating widget, NULL for top-level widgets, or if
-    * not set; in the latter case, the effective generator (see
-    * getGenerator) is the parent.
+    *    not set; in the latter case, the effective generator (see
+    *    getGenerator) is the parent.
     */
    Widget *generator;
+
+   /**
+    * \brief The containing widget, equivalent to the "containing
+    *    block" defined by CSS. May be NULL, in this case the viewport
+    *    is used.
+    */
+   Widget *container;
 
    style::Style *style;
 
@@ -190,6 +192,12 @@ protected:
                                       - style->boxDiffHeight (); }
 
    Layout *layout;
+
+   /**
+    * \brief Space around the margin box. Allocation is extraSpace +
+    *    margin + border + padding + contents;
+    */
+   style::Box extraSpace;
 
    /*inline void printFlags () {
       DBG_IF_RTFL {
@@ -255,12 +263,7 @@ protected:
          case WAS_ALLOCATED:
             DBG_OBJ_SET_SYM ("flags.WAS_ALLOCATED",
                              (flags & WAS_ALLOCATED) ? "true" : "false");
-            break;
-            
-         case BLOCK_LEVEL:
-            DBG_OBJ_SET_SYM ("flags.BLOCK_LEVEL",
-                             (flags & BLOCK_LEVEL) ? "true" : "false");
-            break;
+            break;           
          }
       }
    }
@@ -308,6 +311,17 @@ protected:
     * \brief See \ref dw-widget-sizes.
     */
    virtual void markExtremesChange (int ref);
+
+   virtual int getAvailWidthOfChild (Widget *child);
+   virtual int getAvailHeightOfChild (Widget *child);
+   virtual void correctRequisitionOfChild (Widget *child,
+                                           Requisition *requisition,
+                                           void (*splitHeightFun)(int height,
+                                                                  int *ascent,
+                                                                  int
+                                                                  *descent));
+   virtual void correctExtremesOfChild (Widget *child, Extremes *extremes);
+
 
    virtual void notifySetAsTopLevel();
    virtual void notifySetParent();
@@ -396,7 +410,6 @@ public:
    inline bool wasAllocated ()    { return flags & WAS_ALLOCATED; }
    inline bool usesHints ()       { return flags & USES_HINTS; }
    inline bool hasContents ()     { return flags & HAS_CONTENTS; }
-   inline bool blockLevel ()      { return flags & BLOCK_LEVEL; }
 
    void setParent (Widget *parent);
 
@@ -406,12 +419,30 @@ public:
    /** \todo I do not like this. */
    inline Allocation *getAllocation () { return &allocation; }
 
+   inline int boxOffsetX ()
+   { return extraSpace.left + getStyle()->boxOffsetX (); }
+   inline int boxRestWidth ()
+   { return extraSpace.right + getStyle()->boxRestWidth (); }
+   inline int boxDiffWidth () { return boxOffsetX () + boxRestWidth (); }
+   inline int boxOffsetY ()
+   { return extraSpace.top + getStyle()->boxOffsetY (); }
+   inline int boxRestHeight ()
+   { return extraSpace.bottom + getStyle()->boxRestHeight (); }
+   inline int boxDiffHeight () { return boxOffsetY () + boxRestHeight (); }
+
    void sizeRequest (Requisition *requisition);
    void getExtremes (Extremes *extremes);
    void sizeAllocate (Allocation *allocation);
-   virtual void setWidth (int width);
-   virtual void setAscent (int ascent);
-   virtual void setDescent (int descent);
+
+   int getAvailWidth ();
+   int getAvailHeight ();
+   void correctRequisition (Requisition *requisition,
+                            void (*splitHeightFun)(int height, int *ascent,
+                                                   int *descent));
+   void correctExtremes (Extremes *extremes);
+   
+   virtual bool isBlockLevel ();
+   virtual bool isPossibleContainer ();
 
    bool intersects (Rectangle *area, Rectangle *intersection);
 
@@ -469,6 +500,10 @@ public:
    virtual Iterator *iterator (Content::Type mask, bool atEnd) = 0;
    virtual void removeChild (Widget *child);
 };
+
+void splitHeightPreserveAscent (int height, int *ascent, int *descent);
+void splitHeightPreserveDescent (int height, int *ascent, int *descent);
+
 
 } // namespace core
 } // namespace dw

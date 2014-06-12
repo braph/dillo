@@ -225,7 +225,6 @@ Textblock::Textblock (bool limitTextWidth)
 {
    DBG_OBJ_CREATE ("dw::Textblock");
    registerName ("dw::Textblock", &CLASS_ID);
-   setFlags (BLOCK_LEVEL);
    setFlags (USES_HINTS);
    setButtonSensitive(true);
 
@@ -265,14 +264,10 @@ Textblock::Textblock (bool limitTextWidth)
 
    hoverLink = -1;
 
-   // random values
-   availWidth = 100;
-   availAscent = 100;
-   availDescent = 0;
+   // random value
+   lineBreakWidth = 100;
 
-   DBG_OBJ_SET_NUM ("availWidth", availWidth);
-   DBG_OBJ_SET_NUM ("availAscent", availAscent);
-   DBG_OBJ_SET_NUM ("availDescent", availDescent);
+   DBG_OBJ_SET_NUM ("lineBreakWidth", lineBreakWidth);
 
    verticalOffset = 0;
    DBG_OBJ_SET_NUM ("verticalOffset", verticalOffset);
@@ -338,6 +333,8 @@ void Textblock::sizeRequestImpl (core::Requisition *requisition)
    DBG_OBJ_MSG ("resize", 0, "<b>sizeRequestImpl</b> ()");
    DBG_OBJ_MSG_START ();
 
+   lineBreakWidth = getAvailWidth ();
+
    rewrap ();
    showMissingLines ();
 
@@ -393,19 +390,21 @@ void Textblock::sizeRequestImpl (core::Requisition *requisition)
    }   
 
    DBG_OBJ_MSGF ("resize", 1,
-                 "before considering availWidth (= %d): %d * (%d + %d)",
-                 availWidth, requisition->width, requisition->ascent,
+                 "before considering lineBreakWidth (= %d): %d * (%d + %d)",
+                 lineBreakWidth, requisition->width, requisition->ascent,
                  requisition->descent);
 
-   if (requisition->width < availWidth) {
-      requisition->width = availWidth;
-      DBG_OBJ_MSGF ("resize", 1, "adjusting to availWidth => %d",
+   // TODO The following will not be necessary anymore:
+   if (requisition->width < lineBreakWidth) {
+      requisition->width = lineBreakWidth;
+      DBG_OBJ_MSGF ("resize", 1, "adjusting to lineBreakWidth => %d",
                     requisition->width);
    }
 
+   correctRequisition (requisition, core::splitHeightPreserveAscent);
+
    DBG_OBJ_MSGF ("resize", 1, "=> %d * (%d + %d)",
                  requisition->width, requisition->ascent, requisition->descent);
-
    DBG_OBJ_MSG_END ();
 }
 
@@ -414,44 +413,10 @@ void Textblock::sizeRequestImpl (core::Requisition *requisition)
  */
 void Textblock::getWordExtremes (Word *word, core::Extremes *extremes)
 {
-   if (word->content.type == core::Content::WIDGET_IN_FLOW) {
-      if (word->content.widget->usesHints ()) {
-         word->content.widget->getExtremes (extremes);
-
-         if (core::style::isAbsLength (word->content.widget
-                                       ->getStyle()->width)) {
-            int width =
-               core::style::absLengthVal (word->content.widget
-                                          ->getStyle()->width);
-            if (extremes->minWidth < width)
-               extremes->minWidth = width;
-            if (extremes->maxWidth > width)
-               // maxWidth not smaller than minWidth
-               extremes->maxWidth = misc::max (width, extremes->minWidth);
-         }
-      } else {
-         if (core::style::isPerLength
-             (word->content.widget->getStyle()->width)) {
-            extremes->minWidth = 0;
-            if (word->content.widget->hasContents ())
-               extremes->maxWidth = 1000000;
-            else
-               extremes->maxWidth = 0;
-         } else if (core::style::isAbsLength
-                    (word->content.widget->getStyle()->width)) {
-            /* Fixed lengths are only applied to the content, so we have to
-             * add padding, border and margin. */
-            extremes->minWidth = extremes->maxWidth =
-               core::style::absLengthVal (word->content.widget->getStyle()
-                                          ->width)
-               + word->style->boxDiffWidth ();
-         } else
-            word->content.widget->getExtremes (extremes);
-      }
-   } else {
-      extremes->minWidth = word->size.width;
-      extremes->maxWidth = word->size.width;
-   }
+   if (word->content.type == core::Content::WIDGET_IN_FLOW)
+      word->content.widget->getExtremes (extremes);
+   else
+      extremes->minWidth = extremes->maxWidth = word->size.width;
 }
 
 void Textblock::getExtremesImpl (core::Extremes *extremes)
@@ -491,6 +456,8 @@ void Textblock::getExtremesImpl (core::Extremes *extremes)
       extremes->minWidth = misc::max (extremes->minWidth, oofMinWidth);
       extremes->maxWidth = misc::max (extremes->maxWidth, oofMaxWidth);     
    }   
+
+   correctExtremes (extremes);
 
    DBG_OBJ_MSGF ("resize", 1, "=> %d / %d",
                  extremes->minWidth, extremes->maxWidth);
@@ -773,53 +740,9 @@ void Textblock::notifySetParent ()
    assert (containingBlock != NULL);
 }
 
-void Textblock::setWidth (int width)
+bool Textblock::isBlockLevel ()
 {
-   /* If limitTextWidth is set to YES, a queueResize() may also be
-    * necessary. */
-   if (availWidth != width || limitTextWidth) {
-      DBG_OBJ_MSGF ("resize", 0, "<b>setWidth</b> (%d)", width);
-      DBG_OBJ_MSG_START ();
-
-      availWidth = width;
-      DBG_OBJ_SET_NUM ("availWidth", availWidth);
-      queueResize (OutOfFlowMgr::createRefNormalFlow (0), false);
-      mustQueueResize = false;
-      redrawY = 0;
-      DBG_OBJ_SET_NUM ("redrawY", redrawY);
-
-      DBG_OBJ_MSG_END ();
-   }
-}
-
-void Textblock::setAscent (int ascent)
-{
-   if (availAscent != ascent) {
-      DBG_OBJ_MSGF ("resize", 0, "<b>setAscent</b> (%d)", ascent);
-      DBG_OBJ_MSG_START ();
-
-      availAscent = ascent;
-      DBG_OBJ_SET_NUM ("availAscent", availAscent);
-      queueResize (OutOfFlowMgr::createRefNormalFlow (0), false);
-      mustQueueResize = false;
-
-      DBG_OBJ_MSG_END ();
-   }
-}
-
-void Textblock::setDescent (int descent)
-{
-   if (availDescent != descent) {
-      DBG_OBJ_MSGF ("resize", 0, "<b>setDescent</b> (%d)", descent);
-      DBG_OBJ_MSG_START ();
-
-      availDescent = descent;
-      DBG_OBJ_SET_NUM ("availDescent", availDescent);
-      queueResize (OutOfFlowMgr::createRefNormalFlow (0), false);
-      mustQueueResize = false;
-
-      DBG_OBJ_MSG_END ();
-   }
+   return true;
 }
 
 bool Textblock::buttonPressImpl (core::EventButton *event)
@@ -1061,78 +984,11 @@ void Textblock::calcWidgetSize (core::Widget *widget, core::Requisition *size)
 {
    DBG_OBJ_MSGF ("resize", 0, "<b>calcWidgetSize</b> (%p, ...)", widget);
 
-   core::Requisition requisition;
-   int availWidth, availAscent, availDescent;
+   widget->sizeRequest (size);
+
+   // Ascent and descent in words do not contain margins.
+   // TODO: Re-evaluate (GROWS)!
    core::style::Style *wstyle = widget->getStyle();
-
-   /* We ignore line1_offset[_eff]. */
-   availWidth = this->availWidth - getStyle()->boxDiffWidth () - innerPadding;
-   availAscent = this->availAscent - getStyle()->boxDiffHeight ();
-   availDescent = this->availDescent;
-
-   if (widget->usesHints ()) {
-      // This is a simplified version of calcAvailWidth (see there for
-      // more details). Until recently, the *attribute* availWidth was
-      // used, widthout any corrections. To limit the damage, only
-      // includde left and right border (by floats), until the Great
-      // Redesign Of Widget Sizes (GROWS).
-      int corrAvailWidth;
-      // Textblocks keep track of borders themselves, so they get the
-      // total available width. (Should once replaced by something
-      // like OOFAware.)
-      if (widget->instanceOf (Textblock::CLASS_ID))
-         corrAvailWidth = availWidth;
-      else
-         corrAvailWidth =
-            misc::max (availWidth - (newLineLeftBorder + newLineRightBorder),
-                       0);
-
-      DBG_OBJ_MSGF ("resize", 1, "setting hints: %d, %d, %d",
-                    corrAvailWidth, availAscent, availDescent);
-      widget->setWidth (corrAvailWidth);
-      widget->setAscent (availAscent);
-      widget->setDescent (availDescent);
-      widget->sizeRequest (size);
-      DBG_OBJ_MSGF ("resize", 1, "sizeRequest => %d * (%d + %d)",
-                    size->width, size->ascent, size->descent);
-   } else {
-      if (wstyle->width == core::style::LENGTH_AUTO ||
-          wstyle->height == core::style::LENGTH_AUTO) {
-         widget->sizeRequest (&requisition);
-         DBG_OBJ_MSGF ("resize", 1, "AUTO; sizeRequest => %d * (%d + %d)",
-                       requisition.width, requisition.ascent,
-                       requisition.descent);
-      }
-
-      if (wstyle->width == core::style::LENGTH_AUTO)
-         size->width = requisition.width;
-      else if (core::style::isAbsLength (wstyle->width))
-         /* Fixed lengths are only applied to the content, so we have to
-          * add padding, border and margin. */
-         size->width = core::style::absLengthVal (wstyle->width)
-            + wstyle->boxDiffWidth ();
-      else
-         size->width =
-            core::style::multiplyWithPerLength (availWidth, wstyle->width);
-
-      if (wstyle->height == core::style::LENGTH_AUTO) {
-         size->ascent = requisition.ascent;
-         size->descent = requisition.descent;
-      } else if (core::style::isAbsLength (wstyle->height)) {
-         /* Fixed lengths are only applied to the content, so we have to
-          * add padding, border and margin. */
-         size->ascent = core::style::absLengthVal (wstyle->height)
-                        + wstyle->boxDiffHeight ();
-         size->descent = 0;
-      } else {
-         size->ascent =
-            core::style::multiplyWithPerLength (wstyle->height, availAscent);
-         size->descent =
-            core::style::multiplyWithPerLength (wstyle->height, availDescent);
-      }
-   }
-
-   /* ascent and descent in words do not contain margins. */
    size->ascent -= wstyle->margin.top;
    size->descent -= wstyle->margin.bottom;
 
