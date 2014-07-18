@@ -92,7 +92,7 @@ void Textblock::BadnessAndPenalty::calcBadness (int totalWidth, int idealWidth,
             badness = ratio * ratio * ratio;
          }
       }
-   } else { // if (totalWidth > availWidth)
+   } else { // if (totalWidth > idealWidth)
       if (totalShrinkability == 0)
          badnessState = TOO_TIGHT;
       else {
@@ -290,8 +290,7 @@ void Textblock::printWord (Word *word)
  */
 void Textblock::justifyLine (Line *line, int diff)
 {
-   DBG_OBJ_MSGF ("construct.line", 0, "<b>justifyLine</b> (..., %d)", diff);
-   DBG_OBJ_MSG_START ();
+   DBG_OBJ_ENTER ("construct.line", 0, "justifyLine", "..., %d", diff);
 
    // To avoid rounding errors, the calculation is based on accumulated
    // values. See doc/rounding-errors.doc.
@@ -342,16 +341,16 @@ void Textblock::justifyLine (Line *line, int diff)
       }
    }
 
-   DBG_OBJ_MSG_END ();
+   DBG_OBJ_LEAVE ();
 }
 
 
 Textblock::Line *Textblock::addLine (int firstWord, int lastWord,
                                      int newLastOofPos, bool temporary)
 {
-   DBG_OBJ_MSGF ("construct.line", 0, "<b>addLine</b> (%d, %d) => %d",
-                 firstWord, lastWord, lines->size ());
-   DBG_OBJ_MSG_START ();
+   DBG_OBJ_ENTER ("construct.line", 0, "addLine", "%d, %d",
+                  firstWord, lastWord);
+   DBG_OBJ_MSGF ("construct.line", 0, "=> %d", lines->size ());
   
    int lineWidth;
    if (lastWord >= firstWord) {
@@ -378,10 +377,6 @@ Textblock::Line *Textblock::addLine (int firstWord, int lastWord,
                     lineWidth);
    }
 
-   int maxOfMinWidth, sumOfMaxWidth;
-   accumulateWordExtremes (firstWord, lastWord, &maxOfMinWidth,
-                           &sumOfMaxWidth);
-
    lines->increase ();
    DBG_OBJ_SET_NUM ("lines.size", lines->size ());
 
@@ -403,10 +398,17 @@ Textblock::Line *Textblock::addLine (int firstWord, int lastWord,
    line->boxDescent = line->contentDescent = 0;
    line->marginDescent = 0;
    line->breakSpace = 0;
-   line->leftOffset = 0;
    line->finished = false;
+   
+   bool regardBorder = mustBorderBeRegarded (line);
+   line->leftOffset = misc::max (regardBorder ? newLineLeftBorder : 0,
+                                 boxOffsetX () + leftInnerPadding
+                                 + (lineIndex == 0 ? line1OffsetEff : 0));
+   line->rightOffset = misc::max (regardBorder ? newLineRightBorder : 0,
+                                  boxRestWidth ());
 
    alignLine (lineIndex);
+   calcTextOffset (lineIndex, lineBreakWidth);
 
    for (int i = line->firstWord; i < line->lastWord; i++) {
       Word *word = words->getRef (i);
@@ -438,14 +440,6 @@ Textblock::Line *Textblock::addLine (int firstWord, int lastWord,
    // the height should be positive.
    line->boxAscent = misc::max (line->boxAscent, 1);
 
-   // Calculate offsetCompleteWidget, which includes also floats.
-   int leftBorder = mustBorderBeRegarded (line) ? newLineLeftBorder : 0;
-   line->offsetCompleteWidget =
-      misc::max (leftBorder,
-                 getStyle()->boxOffsetX() + innerPadding
-                 + (lineIndex == 0 ? line1OffsetEff : 0))
-      + line->leftOffset;
-
    DBG_OBJ_MSGF ("construct.line", 1, "top = %d\n", line->top);
    DBG_OBJ_MSGF ("construct.line", 1, "boxAscent = %d\n", line->boxAscent);
    DBG_OBJ_MSGF ("construct.line", 1, "boxDescent = %d\n", line->boxDescent);
@@ -455,8 +449,7 @@ Textblock::Line *Textblock::addLine (int firstWord, int lastWord,
                  line->contentDescent);
    DBG_OBJ_MSGF ("construct.line", 1, "maxLineWidth = %d (lineWidth = %d)\n",
                  line->maxLineWidth, lineWidth);
-   DBG_OBJ_MSGF ("construct.line", 1, "offsetCompleteWidget = %d\n",
-                 line->offsetCompleteWidget);
+   DBG_OBJ_MSGF ("construct.line", 1, "textOffset = %d\n", line->textOffset);
 
    mustQueueResize = true;
 
@@ -467,7 +460,7 @@ Textblock::Line *Textblock::addLine (int firstWord, int lastWord,
    //words->getRef(line->lastWord)->badnessAndPenalty.print ();
    //printf ("\n");
 
-   int xWidget = line->offsetCompleteWidget;
+   int xWidget = line->textOffset;
    for (int i = firstWord; i <= lastWord; i++) {
       Word *word = words->getRef (i);
       if (word->wordImgRenderer)
@@ -485,52 +478,13 @@ Textblock::Line *Textblock::addLine (int firstWord, int lastWord,
 
    initNewLine ();
 
-   DBG_OBJ_MSG_END ();
+   DBG_OBJ_LEAVE ();
    return line;
-}
-
-void Textblock::accumulateWordExtremes (int firstWord, int lastWord,
-                                        int *maxOfMinWidth, int *sumOfMaxWidth)
-{
-   int parMin = 0;
-   *maxOfMinWidth = *sumOfMaxWidth = 0;
-
-   for (int i = firstWord; i <= lastWord; i++) {
-      Word *word = words->getRef (i);
-      bool atLastWord = i == lastWord;
-
-      core::Extremes extremes;
-      getWordExtremes (word, &extremes);
-
-      // Minimum: between two *possible* breaks (or at the end).
-      // TODO This is redundant to getExtremesImpl().
-      // TODO: Again, index 1 is used for lineCanBeBroken(). See getExtremes().
-      if (word->badnessAndPenalty.lineCanBeBroken (1) || atLastWord) {
-         parMin += extremes.minWidth + word->hyphenWidth;
-         *maxOfMinWidth = misc::max (*maxOfMinWidth, parMin);
-         parMin = 0;
-      } else
-         // Shrinkability could be considered, but really does not play a
-         // role.
-         parMin += extremes.minWidth + word->origSpace;
-
-      //printf ("[%p] after word: ", this);
-      //printWord (word);
-      //printf ("\n");
-
-      //printf ("[%p] (%d / %d) => parMin = %d, maxOfMinWidth = %d\n",
-      //        this, extremes.minWidth, extremes.maxWidth, parMin,
-      //        *maxOfMinWidth);
-
-      *sumOfMaxWidth += (extremes.maxWidth + word->origSpace);
-      // Notice that the last space is added. See also: Line::parMax.
-   }
 }
 
 void Textblock::processWord (int wordIndex)
 {
-   DBG_OBJ_MSGF ("construct.all", 0, "<b>processWord</b> (%d)", wordIndex);
-   DBG_OBJ_MSG_START ();
+   DBG_OBJ_ENTER ("construct.all", 0, "processWord", "%d", wordIndex);
    DBG_MSG_WORD ("construct.all", 1, "<i>processed word:</i>", wordIndex, "");
 
    int diffWords = wordWrap (wordIndex, false);
@@ -576,7 +530,7 @@ void Textblock::processWord (int wordIndex)
       DBG_OBJ_MSG_END ();
    }
 
-   DBG_OBJ_MSG_END ();
+   DBG_OBJ_LEAVE ();
 }
 
 /*
@@ -589,10 +543,8 @@ void Textblock::processWord (int wordIndex)
  */
 int Textblock::wordWrap (int wordIndex, bool wrapAll)
 {
-   DBG_OBJ_MSGF ("construct.word", 0, "<b>wordWrap</b> (%d, %s)",
+   DBG_OBJ_ENTER ("construct.word", 0, "wordWrap", "%d, %s",
                  wordIndex, wrapAll ? "true" : "false");
-   DBG_OBJ_MSG_START ();
-
    DBG_MSG_WORD ("construct.word", 1, "<i>wrapped word:</i> ", wordIndex, "");
 
    if (!wrapAll)
@@ -612,16 +564,15 @@ int Textblock::wordWrap (int wordIndex, bool wrapAll)
       n = wrapWordInFlow (wordIndex, wrapAll);
 
    DBG_OBJ_MSGF ("construct.word", 1, "=> %d", n);
-   DBG_OBJ_MSG_END ();
+   DBG_OBJ_LEAVE ();
 
    return n;
 }
 
 int Textblock::wrapWordInFlow (int wordIndex, bool wrapAll)
 {
-   DBG_OBJ_MSGF ("construct.word", 0, "<b>wrapWordInFlow</b> (%d, %s)",
+   DBG_OBJ_ENTER ("construct.word", 0, "wrapWordInFlow", "%d, %s",
                  wordIndex, wrapAll ? "true" : "false");
-   DBG_OBJ_MSG_START ();
 
    Word *word = words->getRef (wordIndex);
    int diffWords = 0;
@@ -637,7 +588,7 @@ int Textblock::wrapWordInFlow (int wordIndex, bool wrapAll)
       // be left empty.
 
       // (In other cases, lines are never left empty, even if this means
-      // that the contents is wider than the available witdh. Leaving
+      // that the contents is wider than the line break width. Leaving
       // lines empty does not make sense without floats, since there will
       // be no possibility with more space anymore.)
 
@@ -846,7 +797,7 @@ int Textblock::wrapWordInFlow (int wordIndex, bool wrapAll)
       }
    }
 
-   DBG_OBJ_MSG_END ();
+   DBG_OBJ_LEAVE ();
 
    return diffWords;
 }
@@ -863,15 +814,13 @@ void Textblock::balanceBreakPosAndHeight (int wordIndex, int firstIndex,
                                           bool regardBorder, int *height,
                                           int *breakPos)
 {
-   DBG_OBJ_MSGF ("construct.word", 0,
-                 "<b>balanceBreakPosAndHeight</b> (%d, %d. %d, %s, %d, %s, "
-                 "..., %s, ..., %d, %s, %d, ...)",
-                 wordIndex, firstIndex, *searchUntil,
-                 tempNewLine ? "true" : "false", penaltyIndex,
-                 borderIsCalculated ? "true" : "false",
-                 wrapAll ? "true" : "false", *lastFloatPos,
-                 regardBorder ? "true" : "false", *height);
-   DBG_OBJ_MSG_START ();
+   DBG_OBJ_ENTER ("construct.word", 0, "balanceBreakPosAndHeight",
+                  "%d, %d. %d, %s, %d, %s, ..., %s, ..., %d, %s, %d, ...",
+                  wordIndex, firstIndex, *searchUntil,
+                  tempNewLine ? "true" : "false", penaltyIndex,
+                  borderIsCalculated ? "true" : "false",
+                  wrapAll ? "true" : "false", *lastFloatPos,
+                  regardBorder ? "true" : "false", *height);
 
    // The height of this part of the line (until the new break
    // position) may change with the break position, but the break
@@ -947,7 +896,7 @@ void Textblock::balanceBreakPosAndHeight (int wordIndex, int firstIndex,
       runNo++;
    }
 
-   DBG_OBJ_MSG_END ();
+   DBG_OBJ_LEAVE ();
 }
 
 // *wordIndexEnd must be initialized (initially to wordIndex)
@@ -957,13 +906,12 @@ int Textblock::searchBreakPos (int wordIndex, int firstIndex, int *searchUntil,
                                int *diffWords, int *wordIndexEnd,
                                int *addIndex1)
 {
-   DBG_OBJ_MSGF ("construct.word", 0,
-                 "<b>searchBreakPos</b> (%d, %d. %d, %s, %d, %s, %s, ...)",
-                 wordIndex, firstIndex, *searchUntil,
-                 tempNewLine ? "true" : "false", penaltyIndex,
-                 thereWillBeMoreSpace ? "true" : "false",
-                 wrapAll ? "true" : "false");
-   DBG_OBJ_MSG_START ();
+   DBG_OBJ_ENTER ("construct.word", 0, "searchBreakPos",
+                  "%d, %d. %d, %s, %d, %s, %s, ...",
+                  wordIndex, firstIndex, *searchUntil,
+                  tempNewLine ? "true" : "false", penaltyIndex,
+                  thereWillBeMoreSpace ? "true" : "false",
+                  wrapAll ? "true" : "false");
    DBG_MSG_WORD ("construct.word", 0, "<i>first word:</i> ", firstIndex, "");
 
    int result;
@@ -1053,7 +1001,7 @@ int Textblock::searchBreakPos (int wordIndex, int firstIndex, int *searchUntil,
    } while(!lineAdded);
 
    DBG_OBJ_MSGF ("construct.word", 1, "=> %d", result);
-   DBG_OBJ_MSG_END ();
+   DBG_OBJ_LEAVE ();
    
    return result;
 }
@@ -1061,12 +1009,10 @@ int Textblock::searchBreakPos (int wordIndex, int firstIndex, int *searchUntil,
 int Textblock::searchMinBap (int firstWord, int lastWord, int penaltyIndex,
                              bool thereWillBeMoreSpace, bool correctAtEnd)
 {
-   DBG_OBJ_MSGF ("construct.word", 0,
-                 "<b>searchMinBap</b> (%d, %d, %d, %s, %s)",
-                 firstWord, lastWord, penaltyIndex,
-                 thereWillBeMoreSpace ? "true" : "false",
-                 correctAtEnd ? "true" : "false");
-   DBG_OBJ_MSG_START ();
+   DBG_OBJ_ENTER ("construct.word", 0, "searchMinBap", "%d, %d, %d, %s, %s",
+                  firstWord, lastWord, penaltyIndex,
+                  thereWillBeMoreSpace ? "true" : "false",
+                  correctAtEnd ? "true" : "false");
 
    int pos = -1;
 
@@ -1123,7 +1069,7 @@ int Textblock::searchMinBap (int firstWord, int lastWord, int penaltyIndex,
       }
    }
            
-   DBG_OBJ_MSG_END ();
+   DBG_OBJ_LEAVE ();
    return pos;
 }
 
@@ -1197,9 +1143,8 @@ void Textblock::handleWordExtremes (int wordIndex)
 {
    // TODO Overall, clarify penalty index.
 
-   DBG_OBJ_MSGF ("construct.paragraph", 0,
-                 "<b>handleWordExtremes</b> (%d)", wordIndex);
-   DBG_OBJ_MSG_START ();
+   DBG_OBJ_ENTER ("construct.paragraph", 0, "handleWordExtremes", "%d",
+                  wordIndex);
 
    initLine1Offset (wordIndex);
 
@@ -1209,12 +1154,15 @@ void Textblock::handleWordExtremes (int wordIndex)
 
    core::Extremes wordExtremes;
    getWordExtremes (word, &wordExtremes);
-   DBG_OBJ_MSGF ("construct.paragraph", 1, "extremes: %d / %d",
-                 wordExtremes.minWidth, wordExtremes.maxWidth);
+   DBG_OBJ_MSGF ("construct.paragraph", 1, "extremes: %d (%d) / %d (%d",
+                 wordExtremes.minWidth, wordExtremes.minWidthIntrinsic,
+                 wordExtremes.maxWidth, wordExtremes.maxWidthIntrinsic);
 
    if (wordIndex == 0) {
       wordExtremes.minWidth += line1OffsetEff;
+      wordExtremes.minWidthIntrinsic += line1OffsetEff;
       wordExtremes.maxWidth += line1OffsetEff;
+      wordExtremes.maxWidthIntrinsic += line1OffsetEff;
    }
 
    if (paragraphs->size() == 0 ||
@@ -1227,13 +1175,17 @@ void Textblock::handleWordExtremes (int wordIndex)
       Paragraph *par = paragraphs->getLastRef();
 
       par->firstWord = par->lastWord = wordIndex;
-      par->parMin = par->parMax = 0;
+      par->parMin = par->parMinIntrinsic = par->parMax = par->parMaxIntrinsic
+         = 0;
 
       if (prevPar) {
          par->maxParMin = prevPar->maxParMin;
+         par->maxParMinIntrinsic = prevPar->maxParMinIntrinsic;
          par->maxParMax = prevPar->maxParMax;
+         par->maxParMaxIntrinsic = prevPar->maxParMaxIntrinsic;
       } else
-         par->maxParMin = par->maxParMax = 0;
+         par->maxParMin = par->maxParMinIntrinsic = par->maxParMax =
+            par->maxParMaxIntrinsic = 0;
 
       DBG_OBJ_MSGF ("construct.paragraph", 1, "new par: %d",
                     paragraphs->size() - 1);
@@ -1261,25 +1213,44 @@ void Textblock::handleWordExtremes (int wordIndex)
                  lastPar->firstWord, lastPar->lastWord, corrDiffMin,
                  corrDiffMax);
 
+   DBG_OBJ_MSGF ("construct.paragraph", 1,
+                 "before: parMin = %d (%d) (max = %d (%d)), "
+                 "parMax = %d (%d) (max = %d (%d))",
+                 lastPar->parMin, lastPar->parMinIntrinsic,
+                 lastPar->maxParMin, lastPar->maxParMinIntrinsic,
+                 lastPar->parMax, lastPar->parMaxIntrinsic,
+                 lastPar->maxParMax, lastPar->maxParMaxIntrinsic);
+
    // Minimum: between two *possible* breaks.
    // Shrinkability could be considered, but really does not play a role.
    lastPar->parMin += wordExtremes.minWidth + word->hyphenWidth + corrDiffMin;
+   lastPar->parMinIntrinsic +=
+      wordExtremes.minWidthIntrinsic + word->hyphenWidth + corrDiffMin;
    lastPar->maxParMin = misc::max (lastPar->maxParMin, lastPar->parMin);
+   lastPar->maxParMinIntrinsic =
+      misc::max (lastPar->maxParMinIntrinsic, lastPar->parMinIntrinsic);
    if (word->badnessAndPenalty.lineCanBeBroken (1) &&
        (word->flags & Word::UNBREAKABLE_FOR_MIN_WIDTH) == 0)
-      lastPar->parMin = 0;
+      lastPar->parMin = lastPar->parMinIntrinsic = 0;
 
    // Maximum: between two *necessary* breaks.
    lastPar->parMax += wordExtremes.maxWidth + word->hyphenWidth + corrDiffMax;
+   lastPar->parMaxIntrinsic +=
+      wordExtremes.maxWidthIntrinsic + word->hyphenWidth + corrDiffMax;
    lastPar->maxParMax = misc::max (lastPar->maxParMax, lastPar->parMax);
+   lastPar->maxParMaxIntrinsic =
+      misc::max (lastPar->maxParMaxIntrinsic, lastPar->parMaxIntrinsic);
 
    DBG_OBJ_MSGF ("construct.paragraph", 1,
-                 "=> parMin = %d (max = %d), parMax = %d (max = %d)",
-                 lastPar->parMin, lastPar->maxParMin, lastPar->parMax,
-                 lastPar->maxParMax);
+                 "after: parMin = %d (%d) (max = %d (%d)), "
+                 "parMax = %d (%d) (max = %d (%d))",
+                 lastPar->parMin, lastPar->parMinIntrinsic,
+                 lastPar->maxParMin, lastPar->maxParMinIntrinsic,
+                 lastPar->parMax, lastPar->parMaxIntrinsic,
+                 lastPar->maxParMax, lastPar->maxParMaxIntrinsic);
 
    lastPar->lastWord = wordIndex;
-   DBG_OBJ_MSG_END ();
+   DBG_OBJ_LEAVE ();
 }
 
 /**
@@ -1408,9 +1379,8 @@ int Textblock::hyphenateWord (int wordIndex, int *addIndex1)
 
 void Textblock::moveWordIndices (int wordIndex, int num, int *addIndex1)
 {
-   DBG_OBJ_MSGF ("construct.word", 0, "<b>moveWordIndices</b> (%d, %d)",
+   DBG_OBJ_ENTER ("construct.word", 0, "moveWordIndices", "%d, %d",
                  wordIndex, num);
-   DBG_OBJ_MSG_START ();
 
    if (containingBlock->outOfFlowMgr)
       containingBlock->outOfFlowMgr->moveExternalIndices (this, wordIndex, num);
@@ -1437,7 +1407,7 @@ void Textblock::moveWordIndices (int wordIndex, int num, int *addIndex1)
    if (addIndex1 && *addIndex1 >= wordIndex)
       *addIndex1 += num;
 
-   DBG_OBJ_MSG_END ();
+   DBG_OBJ_LEAVE ();
 }
 
 void Textblock::accumulateWordForLine (int lineIndex, int wordIndex)
@@ -1474,7 +1444,7 @@ void Textblock::accumulateWordForLine (int lineIndex, int wordIndex)
                     word->content.widget->getStyle()->margin.bottom);
 
       if (lines->size () == 1 &&
-          word->content.widget->blockLevel () &&
+          word->content.widget->isBlockLevel () &&
           getStyle ()->borderWidth.top == 0 &&
           getStyle ()->padding.top == 0) {
          // collapse top margins of parent element and its first child
@@ -1505,9 +1475,8 @@ void Textblock::accumulateWordForLine (int lineIndex, int wordIndex)
 
 void Textblock::accumulateWordData (int wordIndex)
 {
-   DBG_OBJ_MSGF ("construct.word.accum", 1, "<b>accumulateWordData</b> (%d)",
+   DBG_OBJ_ENTER ("construct.word.accum", 1, "accumulateWordData", "%d",
                  wordIndex);
-   DBG_OBJ_MSG_START ();
    DBG_MSG_WORD ("construct.word.accum", 1, "<i>word:</i> ", wordIndex, "");
 
    // Typically, the word in question is in the last line; in any case
@@ -1526,12 +1495,13 @@ void Textblock::accumulateWordData (int wordIndex)
    Word *word = words->getRef (wordIndex);
    DBG_OBJ_MSGF ("construct.word.accum", 2, "lineIndex = %d", lineIndex);
 
-   int availWidth = calcAvailWidth (lineIndex);
+   int lineBreakWidth = calcLineBreakWidth (lineIndex);
 
    DBG_OBJ_MSGF ("construct.word.accum", 2,
-                 "(%s existing line %d starts with word %d; availWidth = %d)",
+                 "(%s existing line %d starts with word %d; "
+                 "lineBreakWidth = %d)",
                  lineIndex < lines->size () ? "already" : "not yet",
-                 lineIndex, firstWordOfLine, availWidth);
+                 lineIndex, firstWordOfLine, lineBreakWidth);
 
    if (wordIndex == firstWordOfLine) {
       // first word of the (not neccessarily yet existing) line
@@ -1582,7 +1552,7 @@ void Textblock::accumulateWordData (int wordIndex)
                  "totalShrinkability = %d + ... = %d",
                  word->totalSpaceShrinkability, totalShrinkability);
 
-   word->badnessAndPenalty.calcBadness (word->totalWidth, availWidth,
+   word->badnessAndPenalty.calcBadness (word->totalWidth, lineBreakWidth,
                                         totalStretchability,
                                         totalShrinkability);
 
@@ -1592,25 +1562,23 @@ void Textblock::accumulateWordData (int wordIndex)
       DBG_OBJ_MSGF ("construct.word.accum", 1, "b+p: %s", sb.getChars ());
    }
 
-   DBG_OBJ_MSG_END ();
+   DBG_OBJ_LEAVE ();
 }
 
-int Textblock::calcAvailWidth (int lineIndex)
+int Textblock::calcLineBreakWidth (int lineIndex)
 {
-   DBG_OBJ_MSGF ("construct.word.width", 1,
-                 "<b>calcAvailWidth</b> (%d <i>of %d</i>)",
-                 lineIndex, lines->size());
-   DBG_OBJ_MSG_START ();
+   DBG_OBJ_ENTER ("construct.word.width", 1, "calcLineBreakWidth",
+                  "%d <i>of %d</i>", lineIndex, lines->size());
 
-   int availWidth = this->availWidth - innerPadding;
+   int lineBreakWidth = this->lineBreakWidth - leftInnerPadding;
    if (limitTextWidth &&
        layout->getUsesViewport () &&
        // margin/border/padding will be subtracted later,  via OOFM.
-       availWidth - getStyle()->boxDiffWidth()
+       lineBreakWidth - getStyle()->boxDiffWidth()
        > layout->getWidthViewport () - 10)
-      availWidth = layout->getWidthViewport () - 10;
+      lineBreakWidth = layout->getWidthViewport () - 10;
    if (lineIndex == 0)
-      availWidth -= line1OffsetEff;
+      lineBreakWidth -= line1OffsetEff;
 
    int leftBorder, rightBorder;
    if (mustBorderBeRegarded (lineIndex)) {
@@ -1622,14 +1590,14 @@ int Textblock::calcAvailWidth (int lineIndex)
    leftBorder = misc::max (leftBorder, getStyle()->boxOffsetX());
    rightBorder = misc::max (rightBorder, getStyle()->boxRestWidth());
 
-   availWidth -= (leftBorder + rightBorder);
+   lineBreakWidth -= (leftBorder + rightBorder);
 
    DBG_OBJ_MSGF ("construct.word.width", 2, "=> %d - %d - (%d + %d) = %d\n",
-                 this->availWidth, innerPadding, leftBorder, rightBorder,
-                 availWidth);
+                 this->lineBreakWidth, leftInnerPadding, leftBorder,
+                 rightBorder, lineBreakWidth);
 
-   DBG_OBJ_MSG_END ();
-   return availWidth;
+   DBG_OBJ_LEAVE ();
+   return lineBreakWidth;
 }
 
 void Textblock::initLine1Offset (int wordIndex)
@@ -1639,18 +1607,18 @@ void Textblock::initLine1Offset (int wordIndex)
    /* Test whether line1Offset can be used. */
    if (wordIndex == 0) {
       if (ignoreLine1OffsetSometimes &&
-          line1Offset + word->size.width > availWidth) {
+          line1Offset + word->size.width > lineBreakWidth) {
          line1OffsetEff = 0;
       } else {
          int indent = 0;
 
          if (word->content.type == core::Content::WIDGET_IN_FLOW &&
-             word->content.widget->blockLevel() == true) {
+             word->content.widget->isBlockLevel()) {
             /* don't use text-indent when nesting blocks */
          } else {
             if (core::style::isPerLength(getStyle()->textIndent)) {
                indent = core::style::multiplyWithPerLengthRounded
-                           (this->availWidth, getStyle()->textIndent);
+                           (lineBreakWidth, getStyle()->textIndent);
             } else {
                indent = core::style::absLengthVal (getStyle()->textIndent);
             }
@@ -1667,14 +1635,15 @@ void Textblock::initLine1Offset (int wordIndex)
  */
 void Textblock::alignLine (int lineIndex)
 {
-   DBG_OBJ_MSGF ("construct.line", 0, "<b>alignLine</b> (%d)", lineIndex);
-   DBG_OBJ_MSG_START ();
+   DBG_OBJ_ENTER ("construct.line", 0, "alignLine", "%d", lineIndex);
 
    Line *line = lines->getRef (lineIndex);
-   int availWidth = calcAvailWidth (lineIndex);
+
    if (line->firstWord <= line->lastWord) {
       Word *firstWord = words->getRef (line->firstWord);
       Word *lastWord = words->getRef (line->lastWord);
+      int lineBreakWidth =
+         this->lineBreakWidth - (line->leftOffset + line->rightOffset);
       
       for (int i = line->firstWord; i < line->lastWord; i++)
          words->getRef(i)->origSpace = words->getRef(i)->effSpace;
@@ -1684,18 +1653,18 @@ void Textblock::alignLine (int lineIndex)
          case core::style::TEXT_ALIGN_LEFT:
             DBG_OBJ_MSG ("construct.line", 1,
                          "first word has 'text-align: left'");
-            line->leftOffset = 0;
+            line->alignment = Line::LEFT;
             break;
          case core::style::TEXT_ALIGN_STRING:   /* handled elsewhere (in the
                                                  * future)? */
             DBG_OBJ_MSG ("construct.line", 1,
                          "first word has 'text-align: string'");
-            line->leftOffset = 0;
+            line->alignment = Line::LEFT;
             break;
          case core::style::TEXT_ALIGN_JUSTIFY:  /* see some lines above */
-            line->leftOffset = 0;
             DBG_OBJ_MSG ("construct.line", 1,
                          "first word has 'text-align: justify'");
+            line->alignment = Line::LEFT;
             // Do not justify the last line of a paragraph (which ends on a
             // BREAK or with the last word of the page).
             if(!(lastWord->content.type == core::Content::BREAK ||
@@ -1704,33 +1673,62 @@ void Textblock::alignLine (int lineIndex)
                // when the line would be shrunken otherwise. (This solution is
                // far from perfect, but a better solution would make changes in
                // the line breaking algorithm necessary.)
-               availWidth < lastWord->totalWidth)
-               justifyLine (line, availWidth - lastWord->totalWidth);
+               lineBreakWidth < lastWord->totalWidth)
+               justifyLine (line, lineBreakWidth - lastWord->totalWidth);
             break;
          case core::style::TEXT_ALIGN_RIGHT:
             DBG_OBJ_MSG ("construct.line", 1,
                          "first word has 'text-align: right'");
-            line->leftOffset = availWidth - lastWord->totalWidth;
+            line->alignment = Line::RIGHT;
             break;
          case core::style::TEXT_ALIGN_CENTER:
             DBG_OBJ_MSG ("construct.line", 1,
                          "first word has 'text-align: center'");
-            line->leftOffset = (availWidth - lastWord->totalWidth) / 2;
+            line->alignment = Line::CENTER;
             break;
          default:
-            /* compiler happiness */
-            line->leftOffset = 0;
+            // compiler happiness
+            line->alignment = Line::LEFT;
          }
 
-         /* For large lines (images etc), which do not fit into the viewport: */
-         if (line->leftOffset < 0)
-            line->leftOffset = 0;
-      }
+      } else
+         // empty line (only line break);
+         line->alignment = Line::LEFT;
    } else
       // empty line
-      line->leftOffset = 0;
+      line->alignment = Line::LEFT;
 
-   DBG_OBJ_MSG_END ();
+   DBG_OBJ_LEAVE ();
+}
+
+void Textblock::calcTextOffset (int lineIndex, int totalWidth)
+{
+   Line *line = lines->getRef (lineIndex);
+   int lineWidth = line->firstWord <= line->lastWord ?
+      words->getRef(line->lastWord)->totalWidth : 0;
+   
+   switch (line->alignment) {
+   case Line::LEFT:
+      line->textOffset = line->leftOffset;
+      break;
+
+   case Line::RIGHT:
+      line->textOffset = totalWidth - line->rightOffset - lineWidth;
+      break;
+
+   case Line::CENTER:
+      line->textOffset =
+         (line->leftOffset + totalWidth - line->rightOffset - lineWidth) / 2;
+      break;
+
+   default:
+      misc::assertNotReached ();
+      break;
+   }
+
+   // For large lines (images etc), which do not fit into the viewport:
+   if (line->textOffset < line->leftOffset)
+      line->textOffset = line->leftOffset;
 }
 
 /**
@@ -1741,8 +1739,7 @@ void Textblock::alignLine (int lineIndex)
  */
 void Textblock::rewrap ()
 {
-   DBG_OBJ_MSG ("construct.line", 0, "<b>rewrap</b> ()");
-   DBG_OBJ_MSG_START ();
+   DBG_OBJ_ENTER0 ("construct.line", 0, "rewrap");
 
    if (wrapRefLines == -1)
       DBG_OBJ_MSG ("construct.line", 0, "does not have to be rewrapped");
@@ -1790,7 +1787,7 @@ void Textblock::rewrap ()
       DBG_OBJ_SET_NUM ("wrapRefLines", wrapRefLines);
    }
       
-   DBG_OBJ_MSG_END ();
+   DBG_OBJ_LEAVE ();
 }
 
 /**
@@ -1798,8 +1795,7 @@ void Textblock::rewrap ()
  */
 void Textblock::fillParagraphs ()
 {
-   DBG_OBJ_MSG ("resize", 0, "<b>fillParagraphs</b>");
-   DBG_OBJ_MSG_START ();
+   DBG_OBJ_ENTER0 ("resize", 0, "fillParagraphs");
 
    DBG_OBJ_MSGF ("resize", 1, "wrapRefParagraphs = %d", wrapRefParagraphs);
    
@@ -1850,13 +1846,12 @@ void Textblock::fillParagraphs ()
       DBG_OBJ_SET_NUM ("wrapRefParagraphs", wrapRefParagraphs);     
    }
 
-   DBG_OBJ_MSG_END ();
+   DBG_OBJ_LEAVE ();
 }
 
 void Textblock::initNewLine ()
 {
-   DBG_OBJ_MSG ("construct.line", 0, "<b>initNewLine</b> ()");
-   DBG_OBJ_MSG_START ();
+   DBG_OBJ_ENTER0 ("construct.line", 0, "initNewLine");
 
    // At the very beginning, in Textblock::Textblock, where this
    // method is called, containingBlock is not yet defined.
@@ -1878,14 +1873,13 @@ void Textblock::initNewLine ()
    DBG_OBJ_SET_NUM ("newLineAscent", newLineAscent);
    DBG_OBJ_SET_NUM ("newLineDescent", newLineDescent);
 
-   DBG_OBJ_MSG_END ();
+   DBG_OBJ_LEAVE ();
 }
 
 void Textblock::calcBorders (int lastOofRef, int height)
 {
-   DBG_OBJ_MSGF ("construct.line", 0, "<b>calcBorders</b> (%d, %d)",
+   DBG_OBJ_ENTER ("construct.line", 0, "calcBorders", "%d, %d",
                  lastOofRef, height);
-   DBG_OBJ_MSG_START ();
 
    if (containingBlock && containingBlock->outOfFlowMgr) {
       // Consider the example:
@@ -1953,13 +1947,12 @@ void Textblock::calcBorders (int lastOofRef, int height)
       DBG_OBJ_MSG ("construct.line", 0, "<i>no CB of OOFM</i>");
    }
 
-   DBG_OBJ_MSG_END ();
+   DBG_OBJ_LEAVE ();
 }
 
 void Textblock::showMissingLines ()
 {
-   DBG_OBJ_MSG ("construct.line", 0, "<b>showMissingLines</b> ()");
-   DBG_OBJ_MSG_START ();
+   DBG_OBJ_ENTER0 ("construct.line", 0, "showMissingLines");
 
    // "Temporary word": when the last word is an OOF reference, it is
    // not processed, and not part of any line. For this reason, we
@@ -2010,7 +2003,7 @@ void Textblock::showMissingLines ()
       addLine (firstWordNotInLine, words->size () - 1, -1, true);
    */
 
-   DBG_OBJ_MSG_END ();
+   DBG_OBJ_LEAVE ();
 }
 
 
@@ -2045,9 +2038,8 @@ int Textblock::getLineShrinkability(int lastWordIndex)
 
 int Textblock::getLineStretchability(int lastWordIndex)
 {
-   DBG_OBJ_MSGF ("construct.word.accum", 0,
-                 "<b>getLineStretchability</b> (%d)", lastWordIndex);
-   DBG_OBJ_MSG_START ();
+   DBG_OBJ_ENTER ("construct.word.accum", 0, "getLineStretchability", "%d",
+                  lastWordIndex);
    DBG_MSG_WORD ("construct.word.accum", 1, "<i>last word:</i> ",
                  lastWordIndex, "");
 
@@ -2066,7 +2058,7 @@ int Textblock::getLineStretchability(int lastWordIndex)
                     lastWord->maxDescent, str);
    }
 
-   DBG_OBJ_MSG_END ();
+   DBG_OBJ_LEAVE ();
    return str;
 
    // Alternative: return 0;

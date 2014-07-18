@@ -225,13 +225,11 @@ Textblock::Textblock (bool limitTextWidth)
 {
    DBG_OBJ_CREATE ("dw::Textblock");
    registerName ("dw::Textblock", &CLASS_ID);
-   setFlags (BLOCK_LEVEL);
-   setFlags (USES_HINTS);
    setButtonSensitive(true);
 
    containingBlock = NULL;
    hasListitemValue = false;
-   innerPadding = 0;
+   leftInnerPadding = 0;
    line1Offset = 0;
    ignoreLine1OffsetSometimes = false;
    mustQueueResize = false;
@@ -265,14 +263,9 @@ Textblock::Textblock (bool limitTextWidth)
 
    hoverLink = -1;
 
-   // random values
-   availWidth = 100;
-   availAscent = 100;
-   availDescent = 0;
-
-   DBG_OBJ_SET_NUM ("availWidth", availWidth);
-   DBG_OBJ_SET_NUM ("availAscent", availAscent);
-   DBG_OBJ_SET_NUM ("availDescent", availDescent);
+   // -1 means undefined.
+   lineBreakWidth = -1;
+   DBG_OBJ_SET_NUM ("lineBreakWidth", lineBreakWidth);
 
    verticalOffset = 0;
    DBG_OBJ_SET_NUM ("verticalOffset", verticalOffset);
@@ -335,9 +328,16 @@ Textblock::~Textblock ()
  */
 void Textblock::sizeRequestImpl (core::Requisition *requisition)
 {
-   DBG_OBJ_MSG ("resize", 0, "<b>sizeRequestImpl</b> ()");
-   DBG_OBJ_MSG_START ();
+   DBG_OBJ_ENTER0 ("resize", 0, "sizeRequestImpl");
 
+   int newLineBreakWidth = getAvailWidth (true);
+   if (newLineBreakWidth != lineBreakWidth) {
+      lineBreakWidth = newLineBreakWidth;
+      wrapRefLines = 0;
+      DBG_OBJ_SET_NUM ("lineBreakWidth", lineBreakWidth);
+      DBG_OBJ_SET_NUM ("wrapRefLines", wrapRefLines);
+   }
+   
    rewrap ();
    showMissingLines ();
 
@@ -369,17 +369,32 @@ void Textblock::sizeRequestImpl (core::Requisition *requisition)
       requisition->descent = 0;
    }
 
-   DBG_OBJ_MSGF ("resize", 1, "inner padding = %d, boxDiffWidth = %d",
-                 innerPadding, getStyle()->boxDiffWidth ());
+   DBG_OBJ_MSGF ("resize", 1, "left inner padding = %d, boxDiffWidth = %d",
+                 leftInnerPadding, getStyle()->boxDiffWidth ());
 
-   requisition->width += innerPadding + getStyle()->boxDiffWidth ();
+   requisition->width += leftInnerPadding + getStyle()->boxDiffWidth ();
    requisition->ascent += verticalOffset + getStyle()->boxOffsetY ();
    requisition->descent += getStyle()->boxRestHeight ();
+
+   DBG_OBJ_MSGF ("resize", 1, "before correction: %d * (%d + %d)",
+                 requisition->width, requisition->ascent, requisition->descent);
+
+   correctRequisition (requisition, core::splitHeightPreserveAscent);
 
    // Dealing with parts out of flow, which may overlap the borders of
    // the text block. Base lines are ignored here: they do not play a
    // role (currently) and caring about them (for the future) would
    // cause too much problems.
+
+   // Notice that the order is not typical: correctRequisition should
+   // be the last call. However, calling correctRequisition after
+   // outOfFlowMgr->getSize may result again in a size which is too
+   // small for floats, so triggering again (and again) the resize
+   // idle function resulting in CPU hogging. See also
+   // getExtremesImpl.
+   //
+   // Is this really what we want? An alternative could be that
+   // OutOfFlowMgr::getSize honours CSS attributes an corrected sizes.
 
    DBG_OBJ_MSGF ("resize", 1, "before considering OOF widgets: %d * (%d + %d)",
                  requisition->width, requisition->ascent, requisition->descent);
@@ -392,21 +407,9 @@ void Textblock::sizeRequestImpl (core::Requisition *requisition)
          requisition->descent = oofHeight - requisition->ascent;
    }   
 
-   DBG_OBJ_MSGF ("resize", 1,
-                 "before considering availWidth (= %d): %d * (%d + %d)",
-                 availWidth, requisition->width, requisition->ascent,
-                 requisition->descent);
-
-   if (requisition->width < availWidth) {
-      requisition->width = availWidth;
-      DBG_OBJ_MSGF ("resize", 1, "adjusting to availWidth => %d",
-                    requisition->width);
-   }
-
-   DBG_OBJ_MSGF ("resize", 1, "=> %d * (%d + %d)",
+   DBG_OBJ_MSGF ("resize", 1, "final: %d * (%d + %d)",
                  requisition->width, requisition->ascent, requisition->descent);
-
-   DBG_OBJ_MSG_END ();
+   DBG_OBJ_LEAVE ();
 }
 
 /**
@@ -414,88 +417,95 @@ void Textblock::sizeRequestImpl (core::Requisition *requisition)
  */
 void Textblock::getWordExtremes (Word *word, core::Extremes *extremes)
 {
-   if (word->content.type == core::Content::WIDGET_IN_FLOW) {
-      if (word->content.widget->usesHints ()) {
-         word->content.widget->getExtremes (extremes);
-
-         if (core::style::isAbsLength (word->content.widget
-                                       ->getStyle()->width)) {
-            int width =
-               core::style::absLengthVal (word->content.widget
-                                          ->getStyle()->width);
-            if (extremes->minWidth < width)
-               extremes->minWidth = width;
-            if (extremes->maxWidth > width)
-               // maxWidth not smaller than minWidth
-               extremes->maxWidth = misc::max (width, extremes->minWidth);
-         }
-      } else {
-         if (core::style::isPerLength
-             (word->content.widget->getStyle()->width)) {
-            extremes->minWidth = 0;
-            if (word->content.widget->hasContents ())
-               extremes->maxWidth = 1000000;
-            else
-               extremes->maxWidth = 0;
-         } else if (core::style::isAbsLength
-                    (word->content.widget->getStyle()->width)) {
-            /* Fixed lengths are only applied to the content, so we have to
-             * add padding, border and margin. */
-            extremes->minWidth = extremes->maxWidth =
-               core::style::absLengthVal (word->content.widget->getStyle()
-                                          ->width)
-               + word->style->boxDiffWidth ();
-         } else
-            word->content.widget->getExtremes (extremes);
-      }
-   } else {
-      extremes->minWidth = word->size.width;
-      extremes->maxWidth = word->size.width;
-   }
+   if (word->content.type == core::Content::WIDGET_IN_FLOW)
+      word->content.widget->getExtremes (extremes);
+   else
+      extremes->minWidth = extremes->minWidthIntrinsic = extremes->maxWidth =
+         extremes->maxWidthIntrinsic = word->size.width;
 }
 
 void Textblock::getExtremesImpl (core::Extremes *extremes)
 {
-   DBG_OBJ_MSG ("resize", 0, "<b>getExtremesImpl</b>");
-   DBG_OBJ_MSG_START ();
+   DBG_OBJ_ENTER0 ("resize", 0, "getExtremesImpl");
+
+   // TODO Can extremes depend on the available width? Should not; if
+   // they do, the following code must be reactivated, but it causes
+   // an endless recursion.
+#if 0
+   int newLineBreakWidth = getAvailWidth (true);
+   if (newLineBreakWidth != lineBreakWidth) {
+      lineBreakWidth = newLineBreakWidth;
+      wrapRefParagraphs = 0;
+      DBG_OBJ_SET_NUM ("lineBreakWidth", lineBreakWidth);
+      DBG_OBJ_SET_NUM ("wrapRefParagraphs", wrapRefLines);
+   }
+#endif
 
    fillParagraphs ();
 
    if (paragraphs->size () == 0) {
       /* empty page */
       extremes->minWidth = 0;
+      extremes->minWidthIntrinsic = 0;
       extremes->maxWidth = 0;
+      extremes->maxWidthIntrinsic = 0;
    } else  {
       Paragraph *lastPar = paragraphs->getLastRef ();
       extremes->minWidth = lastPar->maxParMin;
+      extremes->minWidthIntrinsic = lastPar->maxParMinIntrinsic;
       extremes->maxWidth = lastPar->maxParMax;
+      extremes->maxWidthIntrinsic = lastPar->maxParMaxIntrinsic;
 
-      DBG_OBJ_MSGF ("resize", 1, "paragraphs[%d]->maxParMin = %d",
-                    paragraphs->size () - 1, lastPar->maxParMin);
-      DBG_OBJ_MSGF ("resize", 1, "paragraphs[%d]->maxParMax = %d",
-                    paragraphs->size () - 1, lastPar->maxParMax);
+      DBG_OBJ_MSGF ("resize", 1, "paragraphs[%d]->maxParMin = %d (%d)",
+                    paragraphs->size () - 1, lastPar->maxParMin,
+                    lastPar->maxParMinIntrinsic);
+      DBG_OBJ_MSGF ("resize", 1, "paragraphs[%d]->maxParMax = %d (%d)",
+                    paragraphs->size () - 1, lastPar->maxParMax,
+                    lastPar->maxParMaxIntrinsic);
    }
 
-   int diff = innerPadding + getStyle()->boxDiffWidth ();
+   DBG_OBJ_MSGF ("resize", 0, "after considering paragraphs: %d (%d) / %d (%d)",
+                 extremes->minWidth, extremes->minWidthIntrinsic,
+                 extremes->maxWidth, extremes->maxWidthIntrinsic);
+
+   int diff = leftInnerPadding + getStyle()->boxDiffWidth ();
    extremes->minWidth += diff;
+   extremes->minWidthIntrinsic += diff;
    extremes->maxWidth += diff;
+   extremes->maxWidthIntrinsic += diff;
+
+   DBG_OBJ_MSGF ("resize", 0, "after adding diff: %d (%d) / %d (%d)",
+                 extremes->minWidth, extremes->minWidthIntrinsic,
+                 extremes->maxWidth, extremes->maxWidthIntrinsic);
+
+   // For the order, see similar reasoning in sizeRequestImpl.
+
+   correctExtremes (extremes);
+
+   DBG_OBJ_MSGF ("resize", 0, "after correction: %d (%d) / %d (%d)",
+                 extremes->minWidth, extremes->minWidthIntrinsic,
+                 extremes->maxWidth, extremes->maxWidthIntrinsic);
 
    if (outOfFlowMgr) {
       int oofMinWidth, oofMaxWidth;
       outOfFlowMgr->getExtremes (extremes, &oofMinWidth, &oofMaxWidth);
       
-      DBG_OBJ_MSGF ("resize", 1, "extremes: %d / %d, corrected: %d / %d",
-                    extremes->minWidth, extremes->maxWidth,
+      DBG_OBJ_MSGF ("resize", 1, "OOFM correction: %d / %d",
                     oofMinWidth, oofMaxWidth);
 
       extremes->minWidth = misc::max (extremes->minWidth, oofMinWidth);
+      extremes->minWidthIntrinsic =
+         misc::max (extremes->minWidthIntrinsic, oofMinWidth);
       extremes->maxWidth = misc::max (extremes->maxWidth, oofMaxWidth);     
+      extremes->maxWidthIntrinsic =
+         misc::max (extremes->maxWidthIntrinsic, oofMinWidth);
    }   
 
-   DBG_OBJ_MSGF ("resize", 1, "=> %d / %d",
-                 extremes->minWidth, extremes->maxWidth);
-
-   DBG_OBJ_MSG_END ();
+   DBG_OBJ_MSGF ("resize", 0,
+                 "finally, after considering OOFM: %d (%d) / %d (%d)",
+                 extremes->minWidth, extremes->minWidthIntrinsic,
+                 extremes->maxWidth, extremes->maxWidthIntrinsic);
+   DBG_OBJ_LEAVE ();
 }
 
 
@@ -523,8 +533,13 @@ void Textblock::sizeAllocateImpl (core::Allocation *allocation)
    }
 
    for (lineIndex = 0; lineIndex < lines->size (); lineIndex++) {
+      // Especially for floats, allocation->width may be different
+      // from the line break width, so that for centered and right
+      // text, the offsets have to be recalculated again.
+      calcTextOffset (lineIndex, allocation->width);
+
       line = lines->getRef (lineIndex);
-      xCursor = line->offsetCompleteWidget;
+      xCursor = line->textOffset;
 
       for (wordIndex = line->firstWord; wordIndex <= line->lastWord;
            wordIndex++) {
@@ -632,10 +647,30 @@ void Textblock::sizeAllocateImpl (core::Allocation *allocation)
    }
 }
 
+void Textblock::containerSizeChangedForChildren ()
+{
+   DBG_OBJ_ENTER0 ("resize", 0, "containerSizeChangedForChildren");
+
+   for (int i = 0; i < words->size (); i++) {
+      Word *word = words->getRef (i);
+      if (word->content.type == core::Content::WIDGET_IN_FLOW)
+         word->content.widget->containerSizeChanged ();
+   }
+
+   if (outOfFlowMgr)
+      outOfFlowMgr->containerSizeChangedForChildren ();
+
+   DBG_OBJ_LEAVE ();
+}
+
+bool Textblock::usesAvailWidth ()
+{
+   return true;
+}
+
 void Textblock::resizeDrawImpl ()
 {
-   DBG_OBJ_MSG ("draw", 0, "<b>resizeDrawImpl</b> ()");
-   DBG_OBJ_MSG_START ();
+   DBG_OBJ_ENTER0 ("draw", 0, "resizeDrawImpl");
 
    queueDrawArea (0, redrawY, allocation.width, getHeight () - redrawY);
    if (lines->size () > 0) {
@@ -650,13 +685,12 @@ void Textblock::resizeDrawImpl ()
    redrawY = getHeight ();
    DBG_OBJ_SET_NUM ("redrawY", redrawY);
 
-   DBG_OBJ_MSG_END ();
+   DBG_OBJ_LEAVE ();
 }
 
 void Textblock::markSizeChange (int ref)
 {
-   DBG_OBJ_MSGF ("resize", 0, "<b>markSizeChange</b> (%d)", ref);
-   DBG_OBJ_MSG_START ();
+   DBG_OBJ_ENTER ("resize", 0, "markSizeChange", "%d", ref);
 
    if (OutOfFlowMgr::isRefOutOfFlow (ref)) {
       assert (outOfFlowMgr != NULL);
@@ -688,13 +722,12 @@ void Textblock::markSizeChange (int ref)
       markExtremesChange (ref);
    }
 
-   DBG_OBJ_MSG_END ();
+   DBG_OBJ_LEAVE ();
 }
 
 void Textblock::markExtremesChange (int ref)
 {
-   DBG_OBJ_MSGF ("resize", 1, "<b>markExtremesChange</b> (%d)", ref);
-   DBG_OBJ_MSG_START ();
+   DBG_OBJ_ENTER ("resize", 1, "markExtremesChange", "%d", ref);
 
    if (OutOfFlowMgr::isRefOutOfFlow (ref)) {
       assert (outOfFlowMgr != NULL);
@@ -720,7 +753,7 @@ void Textblock::markExtremesChange (int ref)
       DBG_OBJ_SET_NUM ("wrapRefParagraphs", wrapRefParagraphs);
    }
 
-   DBG_OBJ_MSG_END ();
+   DBG_OBJ_LEAVE ();
 }
 
 void Textblock::notifySetAsTopLevel()
@@ -773,53 +806,9 @@ void Textblock::notifySetParent ()
    assert (containingBlock != NULL);
 }
 
-void Textblock::setWidth (int width)
+bool Textblock::isBlockLevel ()
 {
-   /* If limitTextWidth is set to YES, a queueResize() may also be
-    * necessary. */
-   if (availWidth != width || limitTextWidth) {
-      DBG_OBJ_MSGF ("resize", 0, "<b>setWidth</b> (%d)", width);
-      DBG_OBJ_MSG_START ();
-
-      availWidth = width;
-      DBG_OBJ_SET_NUM ("availWidth", availWidth);
-      queueResize (OutOfFlowMgr::createRefNormalFlow (0), false);
-      mustQueueResize = false;
-      redrawY = 0;
-      DBG_OBJ_SET_NUM ("redrawY", redrawY);
-
-      DBG_OBJ_MSG_END ();
-   }
-}
-
-void Textblock::setAscent (int ascent)
-{
-   if (availAscent != ascent) {
-      DBG_OBJ_MSGF ("resize", 0, "<b>setAscent</b> (%d)", ascent);
-      DBG_OBJ_MSG_START ();
-
-      availAscent = ascent;
-      DBG_OBJ_SET_NUM ("availAscent", availAscent);
-      queueResize (OutOfFlowMgr::createRefNormalFlow (0), false);
-      mustQueueResize = false;
-
-      DBG_OBJ_MSG_END ();
-   }
-}
-
-void Textblock::setDescent (int descent)
-{
-   if (availDescent != descent) {
-      DBG_OBJ_MSGF ("resize", 0, "<b>setDescent</b> (%d)", descent);
-      DBG_OBJ_MSG_START ();
-
-      availDescent = descent;
-      DBG_OBJ_SET_NUM ("availDescent", availDescent);
-      queueResize (OutOfFlowMgr::createRefNormalFlow (0), false);
-      mustQueueResize = false;
-
-      DBG_OBJ_MSG_END ();
-   }
+   return true;
 }
 
 bool Textblock::buttonPressImpl (core::EventButton *event)
@@ -935,11 +924,11 @@ bool Textblock::sendSelectionEvent (core::SelectionState::EventType eventType,
             // Choose this break.
             wordIndex = line->lastWord;
             charPos = core::SelectionState::END_OF_WORD;
-         } else if (event->xWidget < line->offsetCompleteWidget) {
+         } else if (event->xWidget < line->textOffset) {
             // Left of the first word in the line.
             wordIndex = line->firstWord;
          } else {
-            int nextWordStartX = line->offsetCompleteWidget;
+            int nextWordStartX = line->textOffset;
 
             for (wordIndex = line->firstWord;
                  wordIndex <= line->lastWord;
@@ -1052,93 +1041,24 @@ core::Iterator *Textblock::iterator (core::Content::Type mask, bool atEnd)
    return new TextblockIterator (this, mask, atEnd);
 }
 
-
 /**
  * Calculate the size of a widget within the page.
- * (Subject of change in the near future!)
  */
 void Textblock::calcWidgetSize (core::Widget *widget, core::Requisition *size)
 {
-   DBG_OBJ_MSGF ("resize", 0, "<b>calcWidgetSize</b> (%p, ...)", widget);
+   DBG_OBJ_ENTER ("resize", 0, "calcWidgetSize", "%p, ...", widget);
 
-   core::Requisition requisition;
-   int availWidth, availAscent, availDescent;
+   widget->sizeRequest (size);
+
+   // Ascent and descent in words do not contain margins.
+   // TODO: Re-evaluate (GROWS)!
    core::style::Style *wstyle = widget->getStyle();
-
-   /* We ignore line1_offset[_eff]. */
-   availWidth = this->availWidth - getStyle()->boxDiffWidth () - innerPadding;
-   availAscent = this->availAscent - getStyle()->boxDiffHeight ();
-   availDescent = this->availDescent;
-
-   if (widget->usesHints ()) {
-      // This is a simplified version of calcAvailWidth (see there for
-      // more details). Until recently, the *attribute* availWidth was
-      // used, widthout any corrections. To limit the damage, only
-      // includde left and right border (by floats), until the Great
-      // Redesign Of Widget Sizes (GROWS).
-      int corrAvailWidth;
-      // Textblocks keep track of borders themselves, so they get the
-      // total available width. (Should once replaced by something
-      // like OOFAware.)
-      if (widget->instanceOf (Textblock::CLASS_ID))
-         corrAvailWidth = availWidth;
-      else
-         corrAvailWidth =
-            misc::max (availWidth - (newLineLeftBorder + newLineRightBorder),
-                       0);
-
-      DBG_OBJ_MSGF ("resize", 1, "setting hints: %d, %d, %d",
-                    corrAvailWidth, availAscent, availDescent);
-      widget->setWidth (corrAvailWidth);
-      widget->setAscent (availAscent);
-      widget->setDescent (availDescent);
-      widget->sizeRequest (size);
-      DBG_OBJ_MSGF ("resize", 1, "sizeRequest => %d * (%d + %d)",
-                    size->width, size->ascent, size->descent);
-   } else {
-      if (wstyle->width == core::style::LENGTH_AUTO ||
-          wstyle->height == core::style::LENGTH_AUTO) {
-         widget->sizeRequest (&requisition);
-         DBG_OBJ_MSGF ("resize", 1, "AUTO; sizeRequest => %d * (%d + %d)",
-                       requisition.width, requisition.ascent,
-                       requisition.descent);
-      }
-
-      if (wstyle->width == core::style::LENGTH_AUTO)
-         size->width = requisition.width;
-      else if (core::style::isAbsLength (wstyle->width))
-         /* Fixed lengths are only applied to the content, so we have to
-          * add padding, border and margin. */
-         size->width = core::style::absLengthVal (wstyle->width)
-            + wstyle->boxDiffWidth ();
-      else
-         size->width =
-            core::style::multiplyWithPerLength (availWidth, wstyle->width);
-
-      if (wstyle->height == core::style::LENGTH_AUTO) {
-         size->ascent = requisition.ascent;
-         size->descent = requisition.descent;
-      } else if (core::style::isAbsLength (wstyle->height)) {
-         /* Fixed lengths are only applied to the content, so we have to
-          * add padding, border and margin. */
-         size->ascent = core::style::absLengthVal (wstyle->height)
-                        + wstyle->boxDiffHeight ();
-         size->descent = 0;
-      } else {
-         size->ascent =
-            core::style::multiplyWithPerLength (wstyle->height, availAscent);
-         size->descent =
-            core::style::multiplyWithPerLength (wstyle->height, availDescent);
-      }
-   }
-
-   /* ascent and descent in words do not contain margins. */
    size->ascent -= wstyle->margin.top;
    size->descent -= wstyle->margin.bottom;
 
    DBG_OBJ_MSGF ("resize", 1, "result: %d * (%d + %d)",
                  size->width, size->ascent, size->descent);
-   DBG_OBJ_MSG_END ();
+   DBG_OBJ_LEAVE ();
 }
 
 /*
@@ -1450,11 +1370,10 @@ void Textblock::drawSpace(int wordIndex, core::View *view,
  */
 void Textblock::drawLine (Line *line, core::View *view, core::Rectangle *area)
 {
-   DBG_OBJ_MSGF ("draw", 0, "<b>drawLine</b> (..., %d, %d, %d * %d)",
-                 area->x, area->y, area->width, area->height);
-   DBG_OBJ_MSG_START ();
+   DBG_OBJ_ENTER ("draw", 0, "drawLine", "..., %d, %d, %d * %d",
+                  area->x, area->y, area->width, area->height);
    
-   int xWidget = line->offsetCompleteWidget;
+   int xWidget = line->textOffset;
    int yWidgetBase = lineYOffsetWidget (line) + line->boxAscent;
 
    DBG_OBJ_MSGF ("draw", 1, "line from %d to %d (%d words), at (%d, %d)",
@@ -1516,7 +1435,7 @@ void Textblock::drawLine (Line *line, core::View *view, core::Rectangle *area)
       xWidget += wordSize + word->effSpace;
    }
 
-   DBG_OBJ_MSG_END ();
+   DBG_OBJ_LEAVE ();
 }
 
 /**
@@ -1647,7 +1566,7 @@ Textblock::Word *Textblock::findWord (int x, int y, bool *inSpace)
    if (yWidgetBase + line->boxDescent <= y)
       return NULL;
 
-   xCursor = line->offsetCompleteWidget;
+   xCursor = line->textOffset;
    for (wordIndex = line->firstWord; wordIndex <= line->lastWord;wordIndex++) {
       word = words->getRef (wordIndex);
       lastXCursor = xCursor;
@@ -1676,9 +1595,8 @@ Textblock::Word *Textblock::findWord (int x, int y, bool *inSpace)
 
 void Textblock::draw (core::View *view, core::Rectangle *area)
 {
-   DBG_OBJ_MSGF ("draw", 0, "<b>draw</b> (%d, %d, %d * %d)",
-                 area->x, area->y, area->width, area->height);
-   DBG_OBJ_MSG_START ();
+   DBG_OBJ_ENTER ("draw", 0, "draw", "%d, %d, %d * %d",
+                  area->x, area->y, area->width, area->height);
 
    int lineIndex;
    Line *line;
@@ -1707,7 +1625,7 @@ void Textblock::draw (core::View *view, core::Rectangle *area)
    if(outOfFlowMgr)
       outOfFlowMgr->draw(view, area);
 
-   DBG_OBJ_MSG_END ();
+   DBG_OBJ_LEAVE ();
 }
 
 /**
@@ -1716,9 +1634,13 @@ void Textblock::draw (core::View *view, core::Rectangle *area)
 Textblock::Word *Textblock::addWord (int width, int ascent, int descent,
                                      short flags, core::style::Style *style)
 {
-   DBG_OBJ_MSGF ("construct.word", 0, "<b>addWord</b> (%d * (%d + %d), %d, %p)",
-                 width, ascent, descent, flags, style);
-   DBG_OBJ_MSG_START ();
+   DBG_OBJ_ENTER ("construct.word", 0, "addWord", "%d * (%d + %d), %d, %p",
+                  width, ascent, descent, flags, style);
+
+   if (lineBreakWidth == -1) {
+      lineBreakWidth = getAvailWidth (true);
+      DBG_OBJ_SET_NUM ("lineBreakWidth", lineBreakWidth);
+   }
 
    words->increase ();
    DBG_OBJ_SET_NUM ("words.size", words->size ());
@@ -1726,7 +1648,7 @@ Textblock::Word *Textblock::addWord (int width, int ascent, int descent,
    initWord (wordNo);
    fillWord (wordNo, width, ascent, descent, flags, style);
 
-   DBG_OBJ_MSG_END ();
+   DBG_OBJ_LEAVE ();
    return words->getRef (wordNo);
 }
 
@@ -1957,9 +1879,8 @@ void Textblock::calcTextSize (const char *text, size_t len,
 void Textblock::addText (const char *text, size_t len,
                          core::style::Style *style)
 {
-   DBG_OBJ_MSGF ("construct.word", 0, "<b>addText</b> (..., %d, %p)",
-                 (int)len, style);
-   DBG_OBJ_MSG_START ();
+   DBG_OBJ_ENTER ("construct.word", 0, "addText", "..., %d, %p",
+                  (int)len, style);
 
    // Count dividing characters.
    int numParts = 1;
@@ -2166,7 +2087,7 @@ void Textblock::addText (const char *text, size_t len,
       }
    }
 
-   DBG_OBJ_MSG_END ();
+   DBG_OBJ_LEAVE ();
 }
 
 void Textblock::calcTextSizes (const char *text, size_t textLen,
@@ -2209,20 +2130,18 @@ void Textblock::calcTextSizes (const char *text, size_t textLen,
 void Textblock::addText0 (const char *text, size_t len, short flags,
                           core::style::Style *style, core::Requisition *size)
 {
-   DBG_OBJ_MSGF ("construct.word", 0,
-                 "<b>addText0</b> (..., %d, %s:%s:%s:%s:%s:%s:%s, %p, "
-                 "%d * (%d + %d)",
-                 (int)len,
-                 // Ugly copy&paste from printWordFlags:
-                 (flags & Word::CAN_BE_HYPHENATED) ? "h?" : "--",
-                 (flags & Word::DIV_CHAR_AT_EOL) ? "de" : "--",
-                 (flags & Word::PERM_DIV_CHAR) ? "dp" : "--",
-                 (flags & Word::DRAW_AS_ONE_TEXT) ? "t1" : "--",
-                 (flags & Word::UNBREAKABLE_FOR_MIN_WIDTH) ? "um" : "--",
-                 (flags & Word::WORD_START) ? "st" : "--",
-                 (flags & Word::WORD_END) ? "en" : "--",
-                 style, size->width, size->ascent, size->descent);
-   DBG_OBJ_MSG_START ();
+   DBG_OBJ_ENTER ("construct.word", 0, "addText0",
+                  "..., %d, %s:%s:%s:%s:%s:%s:%s, %p, %d * (%d + %d)",
+                  (int)len,
+                  // Ugly copy&paste from printWordFlags:
+                  (flags & Word::CAN_BE_HYPHENATED) ? "h?" : "--",
+                  (flags & Word::DIV_CHAR_AT_EOL) ? "de" : "--",
+                  (flags & Word::PERM_DIV_CHAR) ? "dp" : "--",
+                  (flags & Word::DRAW_AS_ONE_TEXT) ? "t1" : "--",
+                  (flags & Word::UNBREAKABLE_FOR_MIN_WIDTH) ? "um" : "--",
+                  (flags & Word::WORD_START) ? "st" : "--",
+                  (flags & Word::WORD_END) ? "en" : "--",
+                  style, size->width, size->ascent, size->descent);
 
    //printf("[%p] addText0 ('", this);
    //for (size_t i = 0; i < len; i++)
@@ -2247,7 +2166,7 @@ void Textblock::addText0 (const char *text, size_t len, short flags,
 
    processWord (words->size () - 1);
 
-   DBG_OBJ_MSG_END ();
+   DBG_OBJ_LEAVE ();
 }
 
 /**
@@ -2255,9 +2174,7 @@ void Textblock::addText0 (const char *text, size_t len, short flags,
  */
 void Textblock::addWidget (core::Widget *widget, core::style::Style *style)
 {
-   DBG_OBJ_MSGF ("construct.word", 0, "<b>addWidget</b> (%p, %p)",
-                 widget, style);
-   DBG_OBJ_MSG_START ();
+   DBG_OBJ_ENTER ("construct.word", 0, "addWidget", "%p, %p", widget, style);
 
    /* We first assign -1 as parent_ref, since the call of widget->size_request
     * will otherwise let this Textblock be rewrapped from the beginning.
@@ -2317,7 +2234,7 @@ void Textblock::addWidget (core::Widget *widget, core::style::Style *style)
    //          "in page with %d word(s)\n",
    //          lines->size () - 1, words->size() - 1, words->size());
 
-   DBG_OBJ_MSG_END ();
+   DBG_OBJ_LEAVE ();
 }
 
 /**
@@ -2329,9 +2246,7 @@ void Textblock::addWidget (core::Widget *widget, core::style::Style *style)
  */
 bool Textblock::addAnchor (const char *name, core::style::Style *style)
 {
-   DBG_OBJ_MSGF ("construct.word", 0, "<b>addAnchor</b> (\"%s\", %p)",
-                 name, style);
-   DBG_OBJ_MSG_START ();
+   DBG_OBJ_ENTER ("construct.word", 0, "addAnchor", "\"%s\", %p", name, style);
 
    char *copy;
    int y;
@@ -2365,7 +2280,7 @@ bool Textblock::addAnchor (const char *name, core::style::Style *style)
    }
 
    DBG_OBJ_MSGF ("construct.word", 0, "=> %s", result ? "true" : "false");
-   DBG_OBJ_MSG_END ();
+   DBG_OBJ_LEAVE ();
    return result;
 }
 
@@ -2375,8 +2290,7 @@ bool Textblock::addAnchor (const char *name, core::style::Style *style)
  */
 void Textblock::addSpace (core::style::Style *style)
 {
-   DBG_OBJ_MSGF ("construct.word", 0, "<b>addSpace</b> (%p)", style);
-   DBG_OBJ_MSG_START ();
+   DBG_OBJ_ENTER ("construct.word", 0, "addSpace", "%p", style);
 
    int wordIndex = words->size () - 1;
    if (wordIndex >= 0) {
@@ -2386,7 +2300,7 @@ void Textblock::addSpace (core::style::Style *style)
       correctLastWordExtremes ();
    }
 
-   DBG_OBJ_MSG_END ();
+   DBG_OBJ_LEAVE ();
 }
 
 /**
@@ -2397,9 +2311,8 @@ void Textblock::addSpace (core::style::Style *style)
  */
 void Textblock::addBreakOption (core::style::Style *style, bool forceBreak)
 {
-   DBG_OBJ_MSGF ("construct.word", 0, "<b>addBreakOption</b> (%p, %s)",
-                 style, forceBreak ? "true" : "false");
-   DBG_OBJ_MSG_START ();
+   DBG_OBJ_ENTER ("construct.word", 0, "addBreakOption", "%p, %s",
+                  style, forceBreak ? "true" : "false");
 
    int wordIndex = words->size () - 1;
    if (wordIndex >= 0) {
@@ -2409,13 +2322,12 @@ void Textblock::addBreakOption (core::style::Style *style, bool forceBreak)
       correctLastWordExtremes ();
    }
 
-   DBG_OBJ_MSG_END ();
+   DBG_OBJ_LEAVE ();
 }
 
 void Textblock::fillSpace (int wordNo, core::style::Style *style)
 {
-   DBG_OBJ_MSGF ("construct.word", 0, "<b>fillSpace</b> (%d, ...)", wordNo);
-   DBG_OBJ_MSG_START ();
+   DBG_OBJ_ENTER ("construct.word", 0, "fillSpace", "%d, ...", wordNo);
 
    DBG_OBJ_MSGF ("construct.word", 1, "style.white-space = %s",
                  style->whiteSpace == core::style::WHITE_SPACE_NORMAL ? "normal"
@@ -2464,7 +2376,7 @@ void Textblock::fillSpace (int wordNo, core::style::Style *style)
       setSpaceImgRenderer (wordNo);
    }
 
-   DBG_OBJ_MSG_END ();
+   DBG_OBJ_LEAVE ();
 }
 
 /**
@@ -2476,9 +2388,8 @@ void Textblock::setBreakOption (Word *word, core::style::Style *style,
                                 int breakPenalty1, int breakPenalty2,
                                 bool forceBreak)
 {
-   DBG_OBJ_MSGF ("construct.word", 0, "<b>setBreakOption</b> (..., %d, %d, %s)",
-                 breakPenalty1, breakPenalty2, forceBreak ? "true" : "false");
-   DBG_OBJ_MSG_START ();
+   DBG_OBJ_ENTER ("construct.word", 0, "setBreakOption", "..., %d, %d, %s",
+                  breakPenalty1, breakPenalty2, forceBreak ? "true" : "false");
 
    // TODO: lineMustBeBroken should be independent of the penalty
    // index? Otherwise, examine the last line.
@@ -2489,7 +2400,7 @@ void Textblock::setBreakOption (Word *word, core::style::Style *style,
          word->badnessAndPenalty.setPenalty (PENALTY_PROHIBIT_BREAK);
    }
 
-   DBG_OBJ_MSG_END ();
+   DBG_OBJ_LEAVE ();
 }
 
 bool Textblock::isBreakAllowed (core::style::Style *style)
@@ -2517,9 +2428,11 @@ bool Textblock::isBreakAllowed (core::style::Style *style)
  */
 void Textblock::addParbreak (int space, core::style::Style *style)
 {
-   DBG_OBJ_MSGF ("construct.word", 0, "<b>addParbreak</b> (%d, %p)",
-                 space, style);
-   DBG_OBJ_MSG ("construct.word", 0, "<i>no nesting!</i>");
+   DBG_OBJ_ENTER ("construct.word", 0, "addParbreak", "%d, %p",
+                  space, style);
+   DBG_OBJ_MSG ("construct.word", 0,
+                "<i>No nesting! Strack trace may be incomplete.</i>");
+   DBG_OBJ_LEAVE ();
 
    Word *word;
 
@@ -2604,8 +2517,7 @@ void Textblock::addParbreak (int space, core::style::Style *style)
  */
 void Textblock::addLinebreak (core::style::Style *style)
 {
-   DBG_OBJ_MSGF ("construct.word", 0, "<b>addLinebreak</b> (%p)", style);
-   DBG_OBJ_MSG_START ();
+   DBG_OBJ_ENTER ("construct.word", 0, "addLinebreak", "%p", style);
 
    Word *word;
 
@@ -2630,7 +2542,7 @@ void Textblock::addLinebreak (core::style::Style *style)
    breakAdded ();
    processWord (words->size () - 1);
 
-   DBG_OBJ_MSG_END ();
+   DBG_OBJ_LEAVE ();
 }
 
 /**
@@ -2753,15 +2665,16 @@ void Textblock::handOverBreak (core::style::Style *style)
  */
 void Textblock::flush ()
 {
+   DBG_OBJ_ENTER0 ("resize", 0, "flush");
+      
    if (mustQueueResize) {
-      DBG_OBJ_MSG ("resize", 0, "<b>flush</b> (mustQueueResize set)");
-      DBG_OBJ_MSG_START ();
+      DBG_OBJ_MSG ("resize", 0, "mustQueueResize set");
 
       queueResize (-1, true);
       mustQueueResize = false;
-
-      DBG_OBJ_MSG_END ();
    }
+   
+   DBG_OBJ_LEAVE ();
 }
 
 
@@ -2850,8 +2763,7 @@ void Textblock::queueDrawRange (int index1, int index2)
 
 void Textblock::setVerticalOffset (int verticalOffset)
 {
-   DBG_OBJ_MSGF ("resize", 0, "<b>setVerticalOffset</b> (%d)", verticalOffset);
-   DBG_OBJ_MSG_START ();
+   DBG_OBJ_ENTER ("resize", 0, "setVerticalOffset", "%d", verticalOffset);
 
    if (this->verticalOffset != verticalOffset) {
       this->verticalOffset = verticalOffset;
@@ -2860,7 +2772,7 @@ void Textblock::setVerticalOffset (int verticalOffset)
       queueDraw (); // Could perhaps be optimized.
    }
 
-   DBG_OBJ_MSG_END ();
+   DBG_OBJ_LEAVE ();
 }
 
 /**
@@ -2873,8 +2785,7 @@ void Textblock::setVerticalOffset (int verticalOffset)
  */
 void Textblock::borderChanged (int y, Widget *vloat)
 {
-   DBG_OBJ_MSGF ("resize", 0, "<b>borderChanged</b> (%d, %p)", y, vloat);
-   DBG_OBJ_MSG_START ();
+   DBG_OBJ_ENTER ("resize", 0, "borderChanged", "%d, %p", y, vloat);
 
    int lineIndex = findLineIndex (y);
    DBG_OBJ_MSGF ("resize", 1, "Line index: %d (of %d).",
@@ -2893,7 +2804,7 @@ void Textblock::borderChanged (int y, Widget *vloat)
       DBG_OBJ_MSGF ("resize", 1, "Rewrapping from line %d (of %d).",
                     wrapLineIndex, lines->size ());
 
-      if (vloat->getGenerator() == this) {
+      if (vloat->getGenerator() == this && lines->size () > 0) {
          bool found = false;
          // Sometimes, the respective word is not yet part of a
          // line. Nothing to do, but because of the assertion below
@@ -2953,6 +2864,14 @@ void Textblock::borderChanged (int y, Widget *vloat)
                exceeds = exceedsBeginning = lineIndex2 < 0;
             }
 
+            DBG_OBJ_MSGF ("resize", 2,
+                          "lineIndex2 = %d (of %d), exceeds = %s, "
+                          "exceedsBeginning = %s, exceedsEnd = %s",
+                          lineIndex2, lines->size (),
+                          exceeds ? "true" : "false",
+                          exceedsBeginning ? "true" : "false",
+                          exceedsEnd ? "true" : "false");
+
             if (exceedsBeginning && exceedsEnd)
                break;
 
@@ -2993,7 +2912,7 @@ void Textblock::borderChanged (int y, Widget *vloat)
       //DBG_OBJ_SET_NUM ("redrawY", redrawY);
    }
 
-   DBG_OBJ_MSG_END ();
+   DBG_OBJ_LEAVE ();
 }
 
 void Textblock::printBorderChangedErrorAndAbort (int y, Widget *vloat,
@@ -3096,10 +3015,8 @@ Textblock *Textblock::getTextblockForLine (int firstWord, int lastWord)
  */
 int Textblock::yOffsetOfPossiblyMissingLine (int lineNo)
 {
-   DBG_OBJ_MSGF ("line.yoffset", 0,
-                 "<b>yOffsetOfPossiblyMissingLine</b> (%d <i>of %d</i>)",
-                 lineNo, lines->size());
-   DBG_OBJ_MSG_START ();
+   DBG_OBJ_ENTER ("line.yoffset", 0, "yOffsetOfPossiblyMissingLine",
+                  "%d <i>of %d</i>", lineNo, lines->size());
 
    int result;
 
@@ -3119,17 +3036,15 @@ int Textblock::yOffsetOfPossiblyMissingLine (int lineNo)
                     prevLine->breakSpace, result);
    }
 
-   DBG_OBJ_MSG_END ();
+   DBG_OBJ_LEAVE ();
 
    return result;
 }
 
 int Textblock::heightOfPossiblyMissingLine (int lineNo)
 {
-   DBG_OBJ_MSGF ("line.height", 0,
-                 "<b>heightOfPossiblyMissingLine</b> (%d <i>of %d</i>)",
-                 lineNo, lines->size());
-   DBG_OBJ_MSG_START ();
+   DBG_OBJ_ENTER ("line.height", 0, "heightOfPossiblyMissingLine",
+                  "%d <i>of %d</i>", lineNo, lines->size());
 
    int result;
    
@@ -3166,7 +3081,7 @@ int Textblock::heightOfPossiblyMissingLine (int lineNo)
       result = 1;
 
    DBG_OBJ_MSGF ("line.height", 0, "result = %d", result);
-   DBG_OBJ_MSG_END ();
+   DBG_OBJ_LEAVE ();
 
    return result;
 }

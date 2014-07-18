@@ -1,7 +1,7 @@
 /*
  * Dillo Widget
  *
- * Copyright 2005-2007 Sebastian Geerken <sgeerken@dillo.org>
+ * Copyright 2014 Sebastian Geerken <sgeerken@dillo.org>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -19,13 +19,14 @@
 
 
 
-#include <FL/Fl.H>
 #include <FL/Fl_Window.H>
+#include <FL/Fl.H>
 
 #include "../dw/core.hh"
 #include "../dw/fltkcore.hh"
 #include "../dw/fltkviewport.hh"
-#include "../dw/table.hh"
+#include "dw_simple_container.hh"
+#include "../dw/textblock.hh"
 
 using namespace dw;
 using namespace dw::core;
@@ -37,24 +38,16 @@ int main(int argc, char **argv)
    FltkPlatform *platform = new FltkPlatform ();
    Layout *layout = new Layout (platform);
 
-   Fl_Window *window = new Fl_Window(300, 300, "Dw Table");
+   Fl_Window *window = new Fl_Window(200, 300, "Dw Example");
    window->box(FL_NO_BOX);
    window->begin();
 
-   FltkViewport *viewport = new FltkViewport (0, 0, 300, 300);
+   FltkViewport *viewport = new FltkViewport (0, 0, 200, 300);
    layout->attachView (viewport);
 
    StyleAttrs styleAttrs;
    styleAttrs.initValues ();
    styleAttrs.margin.setVal (5);
-   styleAttrs.padding.setVal (0);
-   styleAttrs.borderWidth.setVal (1);
-   styleAttrs.setBorderStyle (BORDER_OUTSET);
-   styleAttrs.setBorderColor (Color::create (layout, 0xffffff));
-   styleAttrs.color = Color::create (layout, 0x000000);
-   styleAttrs.backgroundColor = Color::create (layout, 0xffffff);
-   styleAttrs.hBorderSpacing = 5;
-   styleAttrs.vBorderSpacing = 5;
 
    FontAttrs fontAttrs;
    fontAttrs.name = "Bitstream Charter";
@@ -63,48 +56,53 @@ int main(int argc, char **argv)
    fontAttrs.style = FONT_STYLE_NORMAL;
    fontAttrs.letterSpacing = 0;
    fontAttrs.fontVariant = FONT_VARIANT_NORMAL;
-   styleAttrs.font = dw::core::style::Font::create (layout, &fontAttrs);
+   styleAttrs.font = style::Font::create (layout, &fontAttrs);
 
-   Style *tableStyle = Style::create (&styleAttrs);
+   styleAttrs.color = Color::create (layout, 0x000000);
+   styleAttrs.backgroundColor = Color::create (layout, 0xffffff);
 
-   Table *table = new Table (false);
-   table->setStyle (tableStyle);
-   layout->setWidget (table);
+   Style *textblockStyle1 = Style::create (&styleAttrs);
 
-   tableStyle->unref();
-
-   styleAttrs.setBorderStyle (BORDER_INSET);
    styleAttrs.backgroundColor = NULL;
    styleAttrs.margin.setVal (0);
-   styleAttrs.padding.setVal (5);
 
-   Style *cellStyle = Style::create (&styleAttrs);
-
-   styleAttrs.borderWidth.setVal (0);
-   styleAttrs.margin.setVal (0);
-   styleAttrs.cursor = CURSOR_TEXT;
-   styleAttrs.textAlignChar = '.';
-
+   Style *textblockStyle2 = Style::create (&styleAttrs);
    Style *wordStyle = Style::create (&styleAttrs);
 
-   for (int i = 0; i < 4; i++) {
-      table->addRow (wordStyle);
+   styleAttrs.borderWidth.setVal (5);
+   styleAttrs.setBorderColor (Color::create (layout, 0x800080));
+   styleAttrs.setBorderStyle (BORDER_DASHED);
+   styleAttrs.padding.setVal (5);
 
-      for (int j = 0; j < 4; j++) {
-         Textblock *cell = new Textblock (false);
-         cell->setStyle (cellStyle);
-         table->addCell (cell, 1, 1);
+   Style *containerStyle = Style::create (&styleAttrs);
 
-         char buf[10];
-         sprintf (buf, "cell %c", 'A' + 4 * i + j);
+   Textblock *textblock1 = new Textblock (false);
+   textblock1->setStyle (textblockStyle1);
+   layout->setWidget (textblock1);
 
-         cell->addText (buf, wordStyle);
-         cell->flush ();
-      }
+   SimpleContainer *simpleContainer = new SimpleContainer ();
+   simpleContainer->setStyle (containerStyle);
+   textblock1->addWidget (simpleContainer, containerStyle);
+
+   Textblock *textblock2 = new Textblock (false);
+   textblock2->setStyle (textblockStyle2);
+   simpleContainer->setChild (textblock2);
+
+   const char *words[] = { "This", "is", "only", "a", "short", "paragraph.",
+                           NULL };
+   
+   for(int j = 0; words[j]; j++) {
+      textblock2->addText(words[j], wordStyle);
+      textblock2->addSpace(wordStyle);
    }
 
-   wordStyle->unref();
-   cellStyle->unref();
+   textblockStyle1->unref();
+   textblockStyle2->unref();
+   containerStyle->unref();
+   wordStyle->unref();   
+
+   textblock1->flush ();
+   textblock2->flush ();
 
    window->resizable(viewport);
    window->show();

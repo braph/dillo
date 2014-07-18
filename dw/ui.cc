@@ -56,11 +56,41 @@ void Embed::sizeRequestImpl (Requisition *requisition)
 void Embed::getExtremesImpl (Extremes *extremes)
 {
    resource->getExtremes (extremes);
+   correctExtremes (extremes);
 }
 
 void Embed::sizeAllocateImpl (Allocation *allocation)
 {
    resource->sizeAllocate (allocation);
+}
+
+int Embed::getAvailWidthOfChild (Widget *child, bool forceValue)
+{
+   return resource->getAvailWidthOfChild (child, forceValue);
+}
+
+int Embed::getAvailHeightOfChild (Widget *child, bool forceValue)
+{
+   return resource->getAvailHeightOfChild (child, forceValue);
+}
+
+void Embed::correctRequisitionOfChild (Widget *child,
+                                       Requisition *requisition,
+                                       void (*splitHeightFun) (int, int*, int*))
+{
+   resource->correctRequisitionOfChild (child, requisition, splitHeightFun);
+}
+
+void Embed::correctExtremesOfChild (Widget *child, Extremes *extremes)
+{
+   resource->correctExtremesOfChild (child, extremes);
+}
+
+void Embed::containerSizeChangedForChildren ()
+{
+   DBG_OBJ_ENTER0 ("resize", 0, "containerSizeChangedForChildren");
+   resource->containerSizeChangedForChildren ();
+   DBG_OBJ_LEAVE ();
 }
 
 void Embed::enterNotifyImpl (core::EventCrossing *event)
@@ -86,36 +116,6 @@ bool Embed::buttonPressImpl (core::EventButton *event)
       handled = false;
    }
    return handled;
-}
-
-void Embed::setWidth (int width)
-{
-   DBG_OBJ_MSGF ("resize", 0, "<b>setWidth</b> (%d)", width);
-   DBG_OBJ_MSG_START ();
-
-   resource->setWidth (width);
-
-   DBG_OBJ_MSG_END ();
-}
-
-void Embed::setAscent (int ascent)
-{
-   DBG_OBJ_MSGF ("resize", 0, "<b>setAscent</b> (%d)", ascent);
-   DBG_OBJ_MSG_START ();
-
-   resource->setAscent (ascent);
-
-   DBG_OBJ_MSG_END ();
-}
-
-void Embed::setDescent (int descent)
-{
-   DBG_OBJ_MSGF ("resize", 0, "<b>setDescent</b> (%d)", descent);
-   DBG_OBJ_MSG_START ();
-
-   resource->setDescent (descent);
-
-   DBG_OBJ_MSG_END ();
 }
 
 void Embed::setDisplayed (bool displayed)
@@ -206,8 +206,7 @@ void Resource::setEmbed (Embed *embed)
 
 void Resource::getExtremes (Extremes *extremes)
 {
-   DBG_OBJ_MSG ("resize", 0, "<b>getExtremes</b>");
-   DBG_OBJ_MSG_START ();
+   DBG_OBJ_ENTER0 ("resize", 0, "getExtremes");
 
    /* Simply return the requisition width */
    Requisition requisition;
@@ -216,23 +215,45 @@ void Resource::getExtremes (Extremes *extremes)
 
    DBG_OBJ_MSGF ("resize", 1, "result: %d / %d",
                  extremes->minWidth, extremes->maxWidth);
-   DBG_OBJ_MSG_END ();
+   DBG_OBJ_LEAVE ();
 }
 
 void Resource::sizeAllocate (Allocation *allocation)
 {
 }
 
-void Resource::setWidth (int width)
+int Resource::getAvailWidthOfChild (Widget *child, bool forceValue)
 {
+   // Only used when the resource contains other dillo widgets.
+   misc::assertNotReached ();
+   return 0;
 }
 
-void Resource::setAscent (int ascent)
+int Resource::getAvailHeightOfChild (Widget *child, bool forceValue)
 {
+   // Only used when the resource contains other dillo widgets.
+   misc::assertNotReached ();
+   return 0;
 }
 
-void Resource::setDescent (int descent)
+void Resource::correctRequisitionOfChild (Widget *child,
+                                          Requisition *requisition,
+                                          void (*splitHeightFun) (int, int*,
+                                                                  int*))
 {
+   // Only used when the resource contains other dillo widgets.
+   misc::assertNotReached ();
+}
+
+void Resource::correctExtremesOfChild (Widget *child, Extremes *extremes)
+{
+   // Only used when the resource contains other dillo widgets.
+   misc::assertNotReached ();
+}
+
+void Resource::containerSizeChangedForChildren ()
+{
+   // No children by default.
 }
 
 void Resource::setDisplayed (bool displayed)
@@ -290,14 +311,10 @@ Iterator *LabelButtonResource::iterator (Content::Type mask, bool atEnd)
 
 void ComplexButtonResource::LayoutReceiver::resizeQueued (bool extremesChanged)
 {
-  DBG_OBJ_MSGF_O ("resize", 0, resource,
-                   "LayoutReceiver::<b>resizeQueued</b> (%s)",
+   DBG_OBJ_ENTER ("resize", 0, "LayoutReceiver/resizeQueued", "%s",
                   extremesChanged ? "true" : "false");
-   DBG_OBJ_MSG_START_O (resource);
-
    resource->queueResize (extremesChanged);
-
-   DBG_OBJ_MSG_END_O (resource);
+   DBG_OBJ_LEAVE ();
 }
 
 ComplexButtonResource::ComplexButtonResource ()
@@ -310,21 +327,24 @@ ComplexButtonResource::ComplexButtonResource ()
 
 void ComplexButtonResource::init (Widget *widget)
 {
-   this->childWidget = widget;
+   childWidget = widget;
 
    layout = new Layout (createPlatform ());
    setLayout (layout);
    DBG_OBJ_ASSOC_CHILD (layout);
    layout->setWidget (widget);
    layout->connect (&layoutReceiver);
+
+   if (getEmbed ())
+      childWidget->setQuasiParent (getEmbed ());
 }
 
 void ComplexButtonResource::setEmbed (Embed *embed)
 {
    ButtonResource::setEmbed (embed);
 
-   if (childWidget->usesHints ())
-      embed->setUsesHints ();
+   if (childWidget)
+      childWidget->setQuasiParent (getEmbed ());
 }
 
 ComplexButtonResource::~ComplexButtonResource ()
@@ -335,8 +355,7 @@ ComplexButtonResource::~ComplexButtonResource ()
 
 void ComplexButtonResource::sizeRequest (Requisition *requisition)
 {
-   DBG_OBJ_MSG ("resize", 0, "<b>sizeRequest</b>");
-   DBG_OBJ_MSG_START ();
+   DBG_OBJ_ENTER0 ("resize", 0, "sizeRequest");
 
    Requisition widgetRequisition;
    childWidget->sizeRequest (&widgetRequisition);
@@ -346,13 +365,12 @@ void ComplexButtonResource::sizeRequest (Requisition *requisition)
 
    DBG_OBJ_MSGF ("resize", 1, "result: %d * (%d + %d)",
                  requisition->width, requisition->ascent, requisition->descent);
-   DBG_OBJ_MSG_END ();
+   DBG_OBJ_LEAVE ();
 }
 
 void ComplexButtonResource::getExtremes (Extremes *extremes)
 {
-   DBG_OBJ_MSG ("resize", 0, "<b>getExtremes</b>");
-   DBG_OBJ_MSG_START ();
+   DBG_OBJ_ENTER0 ("resize", 0, "getExtremes");
 
    Extremes widgetExtremes;
    childWidget->getExtremes (&widgetExtremes);
@@ -361,41 +379,82 @@ void ComplexButtonResource::getExtremes (Extremes *extremes)
 
    DBG_OBJ_MSGF ("resize", 1, "result: %d / %d",
                  extremes->minWidth, extremes->maxWidth);
-   DBG_OBJ_MSG_END ();
+   DBG_OBJ_LEAVE ();
 }
 
 void ComplexButtonResource::sizeAllocate (Allocation *allocation)
 {
 }
 
-void ComplexButtonResource::setWidth (int width)
+int ComplexButtonResource::getAvailWidthOfChild (Widget *child, bool forceValue)
 {
-   DBG_OBJ_MSGF ("resize", 0, "<b>setWidth</b> (%d)", width);
-   DBG_OBJ_MSG_START ();
-
-   childWidget->setWidth (width - 2 * reliefXThickness ());
-
-   DBG_OBJ_MSG_END ();
+   int embedWidth = getEmbed()->getAvailWidth (forceValue);
+   if (embedWidth == -1)
+      return -1;
+   else
+      return misc::max (embedWidth - 2 * reliefXThickness (), 0);
 }
 
-void ComplexButtonResource::setAscent (int ascent)
+int ComplexButtonResource::getAvailHeightOfChild (Widget *child,
+                                                  bool forceValue)
 {
-   DBG_OBJ_MSGF ("resize", 0, "<b>setAscent</b> (%d)", ascent);
-   DBG_OBJ_MSG_START ();
-
-   childWidget->setAscent (ascent - reliefYThickness ());
-
-   DBG_OBJ_MSG_END ();
+   int embedHeight = getEmbed()->getAvailHeight (forceValue);
+   if (embedHeight == -1)
+      return -1;
+   else
+      return misc::max (embedHeight - 2 * reliefYThickness (), 0);
 }
 
-void ComplexButtonResource::setDescent (int descent)
+void ComplexButtonResource::correctRequisitionOfChild (Widget *child,
+                                                       Requisition *requisition,
+                                                       void (*splitHeightFun)
+                                                       (int, int*, int*))
 {
-   DBG_OBJ_MSGF ("resize", 0, "<b>setDescent</b> (%d)", descent);
-   DBG_OBJ_MSG_START ();
+   // Similar to Widget::correctRequisitionOfChild, but for percentage
+   // the relief has to be considered.
+   
+   if (style::isPerLength (child->getStyle()->width)) {
+      int availWidth = getEmbed()->getAvailHeight (false);
+      if (availWidth != -1) {
+         int baseWidth = misc::max (availWidth
+                                    - getEmbed()->boxDiffWidth ()
+                                    - 2 * reliefXThickness (),
+                                    0);
+         requisition->width =
+            child->applyPerWidth (baseWidth, child->getStyle()->width);
+      }
+   } else
+      getEmbed()->correctReqWidthOfChildNoRec (child, requisition);
 
-   childWidget->setDescent (descent - reliefYThickness ());
+   // TODO Percentage heights are ignored again.
+   getEmbed()->correctReqHeightOfChildNoRec (child, requisition,
+                                             splitHeightFun);
 
-   DBG_OBJ_MSG_END ();
+}
+
+void ComplexButtonResource::correctExtremesOfChild (Widget *child,
+                                                    Extremes *extremes)
+{
+   // Similar to Widget::correctExtremesOfChild, but for percentage
+   // the relief has to be considered.
+   
+   if (style::isPerLength (child->getStyle()->width)) {
+      int availWidth = getEmbed()->getAvailHeight (false);
+      if (availWidth != -1) {
+         int baseWidth = misc::max (availWidth
+                                    - getEmbed()->boxDiffWidth ()
+                                    - 2 * reliefXThickness (),
+                                    0);
+         extremes->minWidth = extremes->maxWidth =
+            child->applyPerWidth (baseWidth, child->getStyle()->width);
+      }
+   } else
+      getEmbed()->correctExtremesOfChildNoRec (child, extremes);
+}
+
+void ComplexButtonResource::containerSizeChangedForChildren ()
+{
+   layout->containerSizeChanged ();
 }
 
 Iterator *ComplexButtonResource::iterator (Content::Type mask, bool atEnd)
