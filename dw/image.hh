@@ -121,6 +121,7 @@ class Image: public core::Widget, public core::ImgRenderer
 private:
    char *altText;
    core::Imgbuf *buffer;
+   int bufWidth, bufHeight;
    int altTextWidth;
    bool clicking;
    int currLink;
@@ -130,7 +131,9 @@ private:
 
 protected:
    void sizeRequestImpl (core::Requisition *requisition);
+   void getExtremesImpl (core::Extremes *extremes);
    void sizeAllocateImpl (core::Allocation *allocation);
+   void containerSizeChangedForChildren ();
 
    void draw (core::View *view, core::Rectangle *area);
 

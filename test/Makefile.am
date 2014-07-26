@@ -17,6 +17,7 @@ noinst_PROGRAMS = \
 	dw-images-scaled \
 	dw-images-scaled2 \
 	dw-lists \
+	dw-simple-container-test \
 	dw-table-aligned \
 	dw-table \
 	dw-border-test \
@@ -118,6 +119,17 @@ dw_lists_LDADD = \
 	$(top_builddir)/dw/libDw-core.a \
 	$(top_builddir)/lout/liblout.a \
 	@LIBFLTK_LIBS@ @LIBX11_LIBS@
+
+dw_simple_container_test_SOURCES = \
+	dw_simple_container.hh \
+	dw_simple_container.cc \
+	dw_simple_container_test.cc
+dw_simple_container_test_LDADD = \
+	$(top_builddir)/dw/libDw-widgets.a \
+	$(top_builddir)/dw/libDw-fltk.a \
+	$(top_builddir)/dw/libDw-core.a \
+	$(top_builddir)/lout/liblout.a \
+	@LIBFLTK_LIBS@
 
 dw_table_aligned_SOURCES = dw_table_aligned.cc
 dw_table_aligned_LDADD = \
