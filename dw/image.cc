@@ -149,11 +149,15 @@ Image::Image(const char *altText)
    this->altText = altText ? strdup (altText) : NULL;
    altTextWidth = -1; // not yet calculated
    buffer = NULL;
+   bufWidth = bufHeight = -1;
    clicking = false;
    currLink = -1;
    mapList = NULL;
    mapKey = NULL;
    isMap = false;
+
+   DBG_OBJ_SET_NUM ("bufWidth", bufWidth);
+   DBG_OBJ_SET_NUM ("bufHeight", bufHeight);
 }
 
 Image::~Image()
@@ -170,81 +174,104 @@ Image::~Image()
 
 void Image::sizeRequestImpl (core::Requisition *requisition)
 {
+   DBG_OBJ_ENTER0 ("resize", 0, "sizeRequestImpl");
+
    if (buffer) {
-      if (getStyle ()->height == core::style::LENGTH_AUTO &&
-          core::style::isAbsLength (getStyle ()->width) &&
-          buffer->getRootWidth () > 0) {
-         // preserve aspect ratio when only width is given
-         requisition->width = core::style::absLengthVal (getStyle ()->width);
-         requisition->ascent = buffer->getRootHeight () *
-                               requisition->width / buffer->getRootWidth ();
-      } else if (getStyle ()->width == core::style::LENGTH_AUTO &&
-                 core::style::isAbsLength (getStyle ()->height) &&
-                 buffer->getRootHeight () > 0) {
-         // preserve aspect ratio when only height is given
-         requisition->ascent = core::style::absLengthVal (getStyle ()->height);
-         requisition->width = buffer->getRootWidth () *
-                               requisition->ascent / buffer->getRootHeight ();
-      } else {
-         requisition->width = buffer->getRootWidth ();
-         requisition->ascent = buffer->getRootHeight ();
-      }
-      requisition->descent = 0;
-   } else {
-      if (altText && altText[0]) {
-         if (altTextWidth == -1)
-            altTextWidth =
-               layout->textWidth (getStyle()->font, altText, strlen (altText));
+      requisition->width = buffer->getRootWidth ();
+      requisition->ascent = buffer->getRootHeight ();
+   } else
+      requisition->width = requisition->ascent = 0;
 
-         requisition->width = altTextWidth;
-         requisition->ascent = getStyle()->font->ascent;
-         requisition->descent = getStyle()->font->descent;
-      } else {
-         requisition->width = 0;
-         requisition->ascent = 0;
-         requisition->descent = 0;
-      }
-   }
+   requisition->width += boxDiffWidth ();
+   requisition->ascent += boxOffsetY ();
 
-   requisition->width += getStyle()->boxDiffWidth ();
-   requisition->ascent += getStyle()->boxOffsetY ();
-   requisition->descent += getStyle()->boxRestHeight ();
+   requisition->descent = boxRestHeight ();
+
+   correctRequisition (requisition, core::splitHeightPreserveDescent);
+
+   if (buffer) {
+      // If one dimension is set, preserve the aspect ratio (without
+      // extraSpace/margin/border/padding). Notice that
+      // requisition->descent could have been changed in
+      // core::splitHeightPreserveDescent, so we do not make any
+      // assumtions here about it (and requisition->ascent).
+
+      // TODO Check again possible overflows. (Aren't buffer
+      // dimensions limited to 2^15?)
+
+      if (getStyle()->width == core::style::LENGTH_AUTO &&
+          getStyle()->height != core::style::LENGTH_AUTO) {
+         requisition->width =
+            (requisition->ascent + requisition->descent - boxDiffHeight ())
+            * buffer->getRootWidth () / buffer->getRootHeight ()
+            + boxDiffWidth ();
+      } else if (getStyle()->width != core::style::LENGTH_AUTO &&
+                 getStyle()->height == core::style::LENGTH_AUTO) {
+         requisition->ascent = (requisition->width + boxDiffWidth ())
+            * buffer->getRootHeight () / buffer->getRootWidth ()
+            + boxOffsetY ();
+         requisition->descent = boxRestHeight ();
+      }
+   }         
+
+   DBG_OBJ_MSGF ("resize", 1, "=> %d * (%d + %d)",
+                 requisition->width, requisition->ascent, requisition->descent);
+   DBG_OBJ_LEAVE ();
+}
+
+void Image::getExtremesImpl (core::Extremes *extremes)
+{
+   int width = (buffer ? buffer->getRootWidth () : 0) + boxDiffWidth ();
+
+   // With percentage width, the image may be narrower than the buffer.
+   extremes->minWidth =
+      core::style::isPerLength (getStyle()->width) ? boxDiffWidth () : width;
+
+   // (We ignore the same effect for the maximal width.)
+   extremes->maxWidth = width;
+
+   extremes->minWidthIntrinsic = extremes->minWidth;
+   extremes->maxWidthIntrinsic = extremes->maxWidth;
+
+   correctExtremes (extremes);
 }
 
 void Image::sizeAllocateImpl (core::Allocation *allocation)
 {
-   core::Imgbuf *oldBuffer;
-   int dx, dy;
+   DBG_OBJ_ENTER ("resize", 0, "sizeAllocateImpl", "%d, %d; %d * (%d + %d)",
+                  allocation->x, allocation->y, allocation->width,
+                  allocation->ascent, allocation->descent);
 
-   /* if image is moved only */
-   if (allocation->width == this->allocation.width &&
-       allocation->ascent + allocation->descent == getHeight ())
-      return;
+   
+   int newBufWidth = allocation->width - boxDiffWidth ();
+   int newBufHeight =
+      allocation->ascent + allocation->descent - boxDiffHeight ();
 
-   dx = getStyle()->boxDiffWidth ();
-   dy = getStyle()->boxDiffHeight ();
-#if 0
-   MSG("boxDiffHeight = %d + %d, buffer=%p\n",
-       getStyle()->boxOffsetY(), getStyle()->boxRestHeight(), buffer);
-   MSG("getContentWidth() = allocation.width - style->boxDiffWidth ()"
-       " = %d - %d = %d\n",
-       this->allocation.width, getStyle()->boxDiffWidth(),
-       this->allocation.width - getStyle()->boxDiffWidth());
-   MSG("getContentHeight() = getHeight() - style->boxDiffHeight ()"
-       " = %d - %d = %d\n", this->getHeight(), getStyle()->boxDiffHeight(),
-       this->getHeight() - getStyle()->boxDiffHeight());
-#endif
-   if (buffer &&
-       (allocation->width - dx > 0 ||
-        allocation->ascent + allocation->descent - dy > 0)) {
-      // Zero content size : simply wait...
-      // Only one dimension: naturally scale
-      oldBuffer = buffer;
-      buffer = oldBuffer->getScaledBuf (allocation->width - dx,
-                                        allocation->ascent
-                                        + allocation->descent - dy);
+   if (buffer && newBufWidth > 0 && newBufHeight > 0 &&
+       // Save some time when size did not change:
+       (newBufWidth != bufWidth || newBufHeight != bufHeight)) {
+      DBG_OBJ_MSG ("resize", 1, "replacing buffer");
+      
+      core::Imgbuf *oldBuffer = buffer;
+      buffer = oldBuffer->getScaledBuf (newBufWidth, newBufHeight);
       oldBuffer->unref ();
+      
+      bufWidth = newBufWidth;
+      bufHeight = newBufHeight;
+      
+      DBG_OBJ_ASSOC_CHILD (this->buffer);
+      DBG_OBJ_SET_NUM ("bufWidth", bufWidth);
+      DBG_OBJ_SET_NUM ("bufHeight", bufHeight);
    }
+   
+   DBG_OBJ_LEAVE ();
+}
+
+void Image::containerSizeChangedForChildren ()
+{
+   DBG_OBJ_ENTER0 ("resize", 0, "containerSizeChangedForChildren");
+   // Nothing to do.
+   DBG_OBJ_LEAVE ();
 }
 
 void Image::enterNotifyImpl (core::EventCrossing *event)
@@ -429,15 +456,21 @@ void Image::setBuffer (core::Imgbuf *buffer, bool resize)
       getContentWidth () > 0 && getContentHeight () > 0) {
       // Don't create a new buffer for the transition from alt text to img,
       // and only scale when both dimensions are known.
-      this->buffer =
-         buffer->getScaledBuf (getContentWidth (), getContentHeight ());
+
+      bufWidth = getContentWidth ();
+      bufHeight = getContentHeight ();
+      this->buffer = buffer->getScaledBuf (bufWidth, bufHeight);
    } else {
       this->buffer = buffer;
+      bufWidth = buffer->getRootWidth ();
+      bufHeight = buffer->getRootHeight ();
       buffer->ref ();
    }
    queueResize (0, true);
 
    DBG_OBJ_ASSOC_CHILD (this->buffer);
+   DBG_OBJ_SET_NUM ("bufWidth", bufWidth);
+   DBG_OBJ_SET_NUM ("bufHeight", bufHeight);
 
    if (oldBuf)
       oldBuf->unref ();

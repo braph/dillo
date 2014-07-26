@@ -69,32 +69,11 @@ protected:
       EXTREMES_CHANGED = 1 << 5,
 
       /**
-       * \brief Set by the widget itself (in the constructor), when set...
-       *    methods are implemented.
-       *
-       * Will hopefully be removed, after redesigning the size model.
-       */
-      USES_HINTS       = 1 << 6,
-
-      /**
-       * \brief Set by the widget itself (in the constructor), when it contains
-       *    some contents, e.g. an image, as opposed to a horizontal ruler.
-       *
-       * Will hopefully be removed, after redesigning the size model.
-       */
-      HAS_CONTENTS     = 1 << 7,
-
-      /**
        * \brief Set, when a widget was already once allocated,
        *
        * The dw::Image widget uses this flag, see dw::Image::setBuffer.
        */
-      WAS_ALLOCATED    = 1 << 8,
-
-      /**
-       * \brief Set for block-level widgets (as opposed to inline widgets)
-       */
-      BLOCK_LEVEL      = 1 << 9,
+      WAS_ALLOCATED    = 1 << 6,
    };
 
    /**
@@ -120,17 +99,31 @@ protected:
    WidgetImgRenderer *widgetImgRenderer;
 
 private:
+   static bool adjustMinWidth;
+
    /**
     * \brief The parent widget, NULL for top-level widgets.
     */
    Widget *parent;
 
    /**
+    * \brief ...
+    */
+   Widget *quasiParent;
+
+   /**
     * \brief The generating widget, NULL for top-level widgets, or if
-    * not set; in the latter case, the effective generator (see
-    * getGenerator) is the parent.
+    *    not set; in the latter case, the effective generator (see
+    *    getGenerator) is the parent.
     */
    Widget *generator;
+
+   /**
+    * \brief The containing widget, equivalent to the "containing
+    *    block" defined by CSS. May be NULL, in this case the viewport
+    *    is used.
+    */
+   Widget *container;
 
    style::Style *style;
 
@@ -164,7 +157,10 @@ private:
     */
    bool buttonSensitiveSet;
 
-   void actualQueueResize (int ref, bool extremesChanged);
+   void queueResize (int ref, bool extremesChanged, bool fast);
+   inline void queueResizeFast (int ref, bool extremesChanged)
+   { queueResize (ref, extremesChanged, true); }
+   void actualQueueResize (int ref, bool extremesChanged, bool fast);
 
 public:
    /**
@@ -191,20 +187,23 @@ protected:
 
    Layout *layout;
 
+   /**
+    * \brief Space around the margin box. Allocation is extraSpace +
+    *    margin + border + padding + contents;
+    */
+   style::Box extraSpace;
+
    /*inline void printFlags () {
       DBG_IF_RTFL {
          char buf[10 * 3 - 1 + 1];
-         snprintf (buf, sizeof (buf), "%s:%s:%s:%s:%s:%s:%s:%s:%s:%s",
+         snprintf (buf, sizeof (buf), "%s:%s:%s:%s:%s:%s:%s",
                    (flags & RESIZE_QUEUED)    ? "Rq" : "--",
                    (flags & EXTREMES_QUEUED)  ? "Eq" : "--",
                    (flags & NEEDS_RESIZE)     ? "nR" : "--",
                    (flags & NEEDS_ALLOCATE)   ? "nA" : "--",
                    (flags & ALLOCATE_QUEUED)  ? "Aq" : "--",
                    (flags & EXTREMES_CHANGED) ? "Ec" : "--",
-                   (flags & USES_HINTS)       ? "uh" : "--",
-                   (flags & HAS_CONTENTS)     ? "hc" : "--",
-                   (flags & WAS_ALLOCATED)    ? "wA" : "--",
-                   (flags & BLOCK_LEVEL)      ? "bl" : "--");
+                   (flags & WAS_ALLOCATED)    ? "wA" : "--");
          DBG_OBJ_SET_SYM ("flags", buf);
       }
    }*/
@@ -241,26 +240,11 @@ protected:
             DBG_OBJ_SET_SYM ("flags.EXTREMES_CHANGED",
                              (flags & EXTREMES_CHANGED) ? "true" : "false");
             break;
-            
-         case USES_HINTS:
-            DBG_OBJ_SET_SYM ("flags.USES_HINTS",
-                             (flags & USES_HINTS) ? "true" : "false");
-            break;
-            
-         case HAS_CONTENTS:
-            DBG_OBJ_SET_SYM ("flags.HAS_CONTENTS",
-                             (flags & HAS_CONTENTS) ? "true" : "false");
-            break;
-            
+                       
          case WAS_ALLOCATED:
             DBG_OBJ_SET_SYM ("flags.WAS_ALLOCATED",
                              (flags & WAS_ALLOCATED) ? "true" : "false");
-            break;
-            
-         case BLOCK_LEVEL:
-            DBG_OBJ_SET_SYM ("flags.BLOCK_LEVEL",
-                             (flags & BLOCK_LEVEL) ? "true" : "false");
-            break;
+            break;           
          }
       }
    }
@@ -272,11 +256,10 @@ protected:
 
 
    inline void queueDraw ()
-   {
-      queueDrawArea (0, 0, allocation.width, getHeight());
-   }
+   { queueDrawArea (0, 0, allocation.width, getHeight()); }
    void queueDrawArea (int x, int y, int width, int height);
-   void queueResize (int ref, bool extremesChanged);
+   inline void queueResize (int ref, bool extremesChanged)
+   { queueResize (ref, extremesChanged, false); }
 
    /**
     * \brief See \ref dw-widget-sizes.
@@ -286,7 +269,7 @@ protected:
    /**
     * \brief See \ref dw-widget-sizes.
     */
-   virtual void getExtremesImpl (Extremes *extremes);
+   virtual void getExtremesImpl (Extremes *extremes) = 0;
 
    /**
     * \brief See \ref dw-widget-sizes.
@@ -308,6 +291,26 @@ protected:
     * \brief See \ref dw-widget-sizes.
     */
    virtual void markExtremesChange (int ref);
+
+   int getMinWidth (Extremes *extremes, bool forceValue);
+
+   virtual int getAvailWidthOfChild (Widget *child, bool forceValue);
+   virtual int getAvailHeightOfChild (Widget *child, bool forceValue);
+   virtual void correctRequisitionOfChild (Widget *child,
+                                           Requisition *requisition,
+                                           void (*splitHeightFun) (int, int*,
+                                                                   int*));
+   void correctReqWidthOfChild (Widget *child, Requisition *requisition);
+   void correctReqHeightOfChild (Widget *child, Requisition *requisition,
+                                 void (*splitHeightFun) (int, int*, int*));
+   virtual void correctExtremesOfChild (Widget *child, Extremes *extremes);
+
+   virtual void containerSizeChangedForChildren ();
+
+   virtual bool affectedByContainerSizeChange ();
+   virtual bool affectsSizeChangeContainerChild (Widget *child);
+   virtual bool usesAvailWidth ();
+   virtual bool usesAvailHeight ();
 
    virtual void notifySetAsTopLevel();
    virtual void notifySetParent();
@@ -384,6 +387,9 @@ private:
 public:
    static int CLASS_ID;
 
+   inline static void setAdjustMinWidth (bool adjustMinWidth)
+   { Widget::adjustMinWidth = adjustMinWidth; }
+
    Widget ();
    ~Widget ();
 
@@ -394,11 +400,9 @@ public:
    inline bool allocateQueued ()  { return flags & ALLOCATE_QUEUED; }
    inline bool extremesChanged () { return flags & EXTREMES_CHANGED; }
    inline bool wasAllocated ()    { return flags & WAS_ALLOCATED; }
-   inline bool usesHints ()       { return flags & USES_HINTS; }
-   inline bool hasContents ()     { return flags & HAS_CONTENTS; }
-   inline bool blockLevel ()      { return flags & BLOCK_LEVEL; }
 
    void setParent (Widget *parent);
+   void setQuasiParent (Widget *quasiParent);
 
    void setGenerator (Widget *generator) { this->generator = generator; }
 
@@ -406,12 +410,35 @@ public:
    /** \todo I do not like this. */
    inline Allocation *getAllocation () { return &allocation; }
 
+   inline int boxOffsetX ()
+   { return extraSpace.left + getStyle()->boxOffsetX (); }
+   inline int boxRestWidth ()
+   { return extraSpace.right + getStyle()->boxRestWidth (); }
+   inline int boxDiffWidth () { return boxOffsetX () + boxRestWidth (); }
+   inline int boxOffsetY ()
+   { return extraSpace.top + getStyle()->boxOffsetY (); }
+   inline int boxRestHeight ()
+   { return extraSpace.bottom + getStyle()->boxRestHeight (); }
+   inline int boxDiffHeight () { return boxOffsetY () + boxRestHeight (); }
+
    void sizeRequest (Requisition *requisition);
    void getExtremes (Extremes *extremes);
    void sizeAllocate (Allocation *allocation);
-   virtual void setWidth (int width);
-   virtual void setAscent (int ascent);
-   virtual void setDescent (int descent);
+
+   int getAvailWidth (bool forceValue);
+   int getAvailHeight (bool forceValue);
+   virtual bool getAdjustMinWidth () { return Widget::adjustMinWidth; }
+   void correctRequisition (Requisition *requisition,
+                            void (*splitHeightFun) (int, int*, int*));
+   void correctExtremes (Extremes *extremes);
+
+   virtual int applyPerWidth (int containerWidth, style::Length perWidth);
+   virtual int applyPerHeight (int containerHeight, style::Length perHeight);
+   
+   virtual bool isBlockLevel ();
+   virtual bool isPossibleContainer ();
+
+   void containerSizeChanged ();
 
    bool intersects (Rectangle *area, Rectangle *intersection);
 
@@ -437,6 +464,7 @@ public:
    inline bool isButtonSensitive () { return buttonSensitive; }
 
    inline Widget *getParent () { return parent; }
+   inline Widget *getContainer () { return container; }
    Widget *getTopLevel ();
    int getLevel ();
    int getGeneratorLevel ();
@@ -469,6 +497,9 @@ public:
    virtual Iterator *iterator (Content::Type mask, bool atEnd) = 0;
    virtual void removeChild (Widget *child);
 };
+
+void splitHeightPreserveAscent (int height, int *ascent, int *descent);
+void splitHeightPreserveDescent (int height, int *ascent, int *descent);
 
 } // namespace core
 } // namespace dw

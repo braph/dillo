@@ -28,26 +28,39 @@ namespace dw {
 
 Ruler::Ruler ()
 {
-   setFlags (USES_HINTS);
-   setFlags (BLOCK_LEVEL);
-   unsetFlags (HAS_CONTENTS);
-   availWidth = 0;
 }
 
 void Ruler::sizeRequestImpl (core::Requisition *requisition)
 {
    requisition->width =
-      lout::misc::max (availWidth, getStyle()->boxDiffWidth ());
+      lout::misc::max (getAvailWidth (true), getStyle()->boxDiffWidth ());
    requisition->ascent = getStyle()->boxOffsetY ();
    requisition->descent = getStyle()->boxRestHeight ();
 }
 
-void Ruler::setWidth (int width)
+void Ruler::getExtremesImpl (core::Extremes *extremes)
 {
-   if (availWidth != width) {
-      availWidth = width;
-      queueResize (0, false);
-   }
+   extremes->minWidth = extremes->maxWidth = getStyle()->boxDiffWidth ();
+   extremes->minWidthIntrinsic = extremes->minWidth;
+   extremes->maxWidthIntrinsic = extremes->maxWidth;
+   correctExtremes (extremes);
+}
+
+bool Ruler::isBlockLevel ()
+{
+   return true;
+}
+
+void Ruler::containerSizeChangedForChildren ()
+{
+   DBG_OBJ_ENTER0 ("resize", 0, "containerSizeChangedForChildren");
+   // Nothing to do.
+   DBG_OBJ_LEAVE ();
+}
+
+bool Ruler::usesAvailWidth ()
+{
+   return true;
 }
 
 void Ruler::draw (core::View *view, core::Rectangle *area)

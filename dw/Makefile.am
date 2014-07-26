@@ -57,6 +57,8 @@ libDw_fltk_a_SOURCES = \
 libDw_fltk_a_CXXFLAGS = @LIBFLTK_CXXFLAGS@
 
 libDw_widgets_a_SOURCES = \
+	alignedtablecell.cc \
+	alignedtablecell.hh \
 	alignedtextblock.cc \
 	alignedtextblock.hh \
 	bullet.cc \
@@ -71,7 +73,10 @@ libDw_widgets_a_SOURCES = \
 	outofflowmgr.hh \
 	ruler.cc \
 	ruler.hh \
+	simpletablecell.cc \
+	simpletablecell.hh \
 	table.cc \
+	table_iterator.cc \
 	table.hh \
 	tablecell.cc \
 	tablecell.hh \

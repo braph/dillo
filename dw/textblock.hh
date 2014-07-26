@@ -130,7 +130,7 @@ namespace dw {
  * widget:
  *
  * <ul>
- * <li> The available size of the widget has changed, e.g., because the
+ * <li> The line break size of the widget has changed, e.g., because the
  *      user has changed the size of the browser window. In this case,
  *      it is necessary to rewrap all the lines.
  *
@@ -306,14 +306,18 @@ protected:
       int parMin;       /* The sum of all word minima (plus spaces,
                            hyphen width etc.) since the last possible
                            break within this paragraph. */
+      int parMinIntrinsic;
       int parMax;       /* The sum of all word maxima in this
                            paragraph (plus spaces, hyphen width
                            etc.). */
+      int parMaxIntrinsic;
 
       int maxParMin;    /* Maximum of all paragraph minima (value of
                            "parMin"), including this paragraph. */
+      int maxParMinIntrinsic;
       int maxParMax;    /* Maximum of all paragraph maxima (value of
                            "parMax""), including this paragraph. */
+      int maxParMaxIntrinsic;
    };
 
    struct Line
@@ -334,8 +338,7 @@ protected:
       int contentAscent;        /* ??? */
       int contentDescent;       /* ??? */
       int breakSpace;           /* Space between this line and the next one. */
-      int leftOffset;           /* ??? */
-      int offsetCompleteWidget; /* ??? */
+      int textOffset;           /* ??? */
 
       /* This is similar to descent, but includes the bottom margins of the
        * widgets within this line. */
@@ -361,6 +364,9 @@ protected:
        * even a following line, when positioned before (this is the
        * reason this attribute exists); see \ref dw-out-of-flow. */
       int lastOofRefPositionedBeforeThisLine;
+
+      int leftOffset, rightOffset;
+      enum { LEFT, RIGHT, CENTER } alignment;
    };
 
    struct Word
@@ -472,7 +478,7 @@ protected:
    /* These fields provide some ad-hoc-functionality, used by sub-classes. */
    bool hasListitemValue; /* If true, the first word of the page is treated
                           specially (search in source). */
-   int innerPadding;    /* This is an additional padding on the left side
+   int leftInnerPadding;  /* This is an additional padding on the left side
                             (used by ListItem). */
    int line1Offset;     /* This is an additional offset of the first line.
                            May be negative (shift to left) or positive
@@ -489,7 +495,7 @@ protected:
     *      (which is used by DwTable!), and
     * (ii) line1_offset is ignored (line1_offset_eff is set to 0),
     *      when line1_offset plus the width of the first word is
-    *      greater than the the available witdh.
+    *      greater than the the line break witdh.
     *
     * \todo Eliminate all these ad-hoc features by a new, simpler and
     *       more elegant design. ;-)
@@ -516,8 +522,8 @@ protected:
    int redrawY;
    int lastWordDrawn;
 
-   /* These values are set by set_... */
-   int availWidth, availAscent, availDescent;
+   /* This value is (currently) set by setAscent(). */
+   int lineBreakWidth;
 
    // Additional vertical offset, used for the "clear" attribute.
    int verticalOffset;
@@ -702,8 +708,6 @@ protected:
    bool sendSelectionEvent (core::SelectionState::EventType eventType,
                             core::MousePositionEvent *event);
 
-   void accumulateWordExtremes (int firstWord, int lastWord,
-                                int *maxOfMinWidth, int *sumOfMaxWidth);
    void processWord (int wordIndex);
    virtual int wordWrap (int wordIndex, bool wrapAll);
    int wrapWordInFlow (int wordIndex, bool wrapAll);
@@ -725,7 +729,6 @@ protected:
    bool isHyphenationCandidate (Word *word);
    int calcLinePartHeight (int firstWord, int lastWord);
    
-   
    void handleWordExtremes (int wordIndex);
    void correctLastWordExtremes ();
 
@@ -737,22 +740,27 @@ protected:
    void moveWordIndices (int wordIndex, int num, int *addIndex1 = NULL);
    void accumulateWordForLine (int lineIndex, int wordIndex);
    void accumulateWordData (int wordIndex);
-   int calcAvailWidth (int lineIndex);
+   int calcLineBreakWidth (int lineIndex);
    void initLine1Offset (int wordIndex);
    void alignLine (int lineIndex);
+   void calcTextOffset (int lineIndex, int totalWidth);
 
    void sizeRequestImpl (core::Requisition *requisition);
    void getExtremesImpl (core::Extremes *extremes);
    void sizeAllocateImpl (core::Allocation *allocation);
+   int getAvailWidthOfChild (Widget *child, bool forceValue);
+   void containerSizeChangedForChildren ();
+   bool usesAvailWidth ();
    void resizeDrawImpl ();
 
    void markSizeChange (int ref);
    void markExtremesChange (int ref);
+
    void notifySetAsTopLevel();
    void notifySetParent();
-   void setWidth (int width);
-   void setAscent (int ascent);
-   void setDescent (int descent);
+
+   bool isBlockLevel ();
+
    void draw (core::View *view, core::Rectangle *area);
 
    bool buttonPressImpl (core::EventButton *event);
@@ -770,6 +778,16 @@ protected:
                        int numBreaks, int *breakPos,
                        core::Requisition *wordSize);
    static bool isContainingBlock (Widget *widget);
+
+   inline bool mustBeWidenedToAvailWidth () {
+      DBG_OBJ_ENTER0 ("resize", 0, "mustBeWidenedToAvailWidth");
+      // TODO Consider inline blocks etc. later.
+      bool b = /*getStyle()->display == core::style::DISPLAY_BLOCK &&*/
+         getStyle()->vloat == core::style::FLOAT_NONE;
+      DBG_OBJ_MSGF ("resize", 0, "=> %s", b ? "true" : "false");
+      DBG_OBJ_LEAVE ();
+      return b;
+   }
 
 public:
    static int CLASS_ID;
@@ -808,15 +826,13 @@ public:
 
    void borderChanged (int y, core::Widget *vloat);
    inline void oofSizeChanged (bool extremesChanged) {
-      DBG_OBJ_MSGF ("resize", 0, "<b>oofSizeChanged</b> (%s)",
-                    extremesChanged ? "true" : "false");
+      DBG_OBJ_ENTER ("resize", 0, "oofSizeChanged", "%s",
+                     extremesChanged ? "true" : "false");
       DBG_OBJ_MSG_START ();
       queueResize (-1, extremesChanged);
-      DBG_OBJ_MSG_END ();
+      DBG_OBJ_LEAVE ();
    }
-   inline int getAvailWidth () { return availWidth; }
-   inline int getAvailAscent () { return availAscent; }
-   inline int getAvailDescent () { return availDescent; }
+   inline int getLineBreakWidth () { return lineBreakWidth; }
 };
 
 #define DBG_SET_WORD_PENALTY(n, i, is)             \
