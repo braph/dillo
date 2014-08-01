@@ -157,13 +157,15 @@ private:
    public:
       Widget *widget;
       int ref;
-      bool extremesChanged;
+      bool extremesChanged, fast;
       
-      inline QueueResizeItem (Widget *widget, int ref, bool extremesChanged)
+      inline QueueResizeItem (Widget *widget, int ref, bool extremesChanged,
+                              bool fast)
       {
          this->widget = widget;
          this->ref = ref;
          this->extremesChanged = extremesChanged;
+         this->fast = fast;
       }
    };
 
@@ -327,6 +329,8 @@ public:
    {
       return buttonEvent (BUTTON_PRESS, view, numPressed, x, y, state, button);
    }
+
+   void containerSizeChanged ();
 
    /**
     * \brief This function is called by a view, to delegate a button press

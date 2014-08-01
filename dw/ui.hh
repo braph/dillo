@@ -231,6 +231,16 @@ protected:
    void sizeRequestImpl (Requisition *requisition);
    void getExtremesImpl (Extremes *extremes);
    void sizeAllocateImpl (Allocation *allocation);
+
+   int getAvailWidthOfChild (Widget *child, bool forceValue);
+   int getAvailHeightOfChild (Widget *child, bool forceValue);
+   void correctRequisitionOfChild (Widget *child,
+                                   Requisition *requisition,
+                                   void (*splitHeightFun) (int, int*, int*));
+   void correctExtremesOfChild (Widget *child, Extremes *extremes);
+
+   void containerSizeChangedForChildren ();
+
    void enterNotifyImpl (core::EventCrossing *event);
    void leaveNotifyImpl (core::EventCrossing *event);
    bool buttonPressImpl (core::EventButton *event);
@@ -241,18 +251,26 @@ public:
    Embed(Resource *resource);
    ~Embed();
 
-   void setWidth (int width);
-   void setAscent (int ascent);
-   void setDescent (int descent);
    void setDisplayed (bool displayed);
    void setEnabled (bool enabled);
    void draw (View *view, Rectangle *area);
    Iterator *iterator (Content::Type mask, bool atEnd);
    void setStyle (style::Style *style);
 
-   inline void setUsesHints () { setFlags (USES_HINTS); }
-
    inline Resource *getResource () { return resource; }
+
+   inline void correctReqWidthOfChildNoRec (Widget *child,
+                                            Requisition *requisition)
+   { Widget::correctReqWidthOfChild (child, requisition); }
+
+   inline void correctReqHeightOfChildNoRec (Widget *child,
+                                             Requisition *requisition,
+                                             void (*splitHeightFun) (int, int*,
+                                                                     int*))
+   { Widget::correctReqHeightOfChild (child, requisition, splitHeightFun); }
+
+   virtual void correctExtremesOfChildNoRec (Widget *child, Extremes *extremes)
+   { Widget::correctExtremesOfChild (child, extremes); }
 };
 
 /**
@@ -337,9 +355,16 @@ public:
    virtual void sizeRequest (Requisition *requisition) = 0;
    virtual void getExtremes (Extremes *extremes);
    virtual void sizeAllocate (Allocation *allocation);
-   virtual void setWidth (int width);
-   virtual void setAscent (int ascent);
-   virtual void setDescent (int descent);
+
+   virtual int getAvailWidthOfChild (Widget *child, bool forceValue);
+   virtual int getAvailHeightOfChild (Widget *child, bool forceValue);
+   virtual void correctRequisitionOfChild (Widget *child,
+                                           Requisition *requisition,
+                                           void (*splitHeightFun) (int, int*,
+                                                                   int*));
+   virtual void correctExtremesOfChild (Widget *child, Extremes *extremes);
+   virtual void containerSizeChangedForChildren ();
+
    virtual void setDisplayed (bool displayed);
    virtual void draw (View *view, Rectangle *area);
    virtual Iterator *iterator (Content::Type mask, bool atEnd) = 0;
@@ -407,9 +432,15 @@ public:
    void sizeRequest (Requisition *requisition);
    void getExtremes (Extremes *extremes);
    void sizeAllocate (Allocation *allocation);
-   void setWidth (int width);
-   void setAscent (int ascent);
-   void setDescent (int descent);
+
+   int getAvailWidthOfChild (Widget *child, bool forceValue);
+   int getAvailHeightOfChild (Widget *child, bool forceValue);
+   void correctRequisitionOfChild (Widget *child,
+                                   Requisition *requisition,
+                                   void (*splitHeightFun) (int, int*, int*));
+   void correctExtremesOfChild (Widget *child, Extremes *extremes);
+   void containerSizeChangedForChildren ();
+
    Iterator *iterator (Content::Type mask, bool atEnd);
    int getClickX () {return click_x;};
    int getClickY () {return click_y;};
