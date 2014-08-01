@@ -2,13 +2,18 @@
 #define __DW_TABLE_HH__
 
 #include "core.hh"
-#include "tablecell.hh"
+#include "alignedtablecell.hh"
 #include "../lout/misc.hh"
 
 namespace dw {
 
 /**
  * \brief A Widget for rendering tables.
+ *
+ * <div style="border: 2px solid #ff0000; margin-top: 0.5em;
+ * margin-bottom: 0.5em; padding: 0.5em 1em;
+ * background-color: #ffefe0"><b>Warning:</b> Some parts of this
+ * description are outdated since \ref dw-grows.</div>
  *
  * <h3>Introduction</h3>
  *
@@ -191,8 +196,9 @@ namespace dw {
  *
  * <ul>
  * <li> the specified absolute width of the table, when given, or
- * <li> the available width (set by dw::Table::setWidth) times the specified
- *      percentage width of t(at max 100%), if the latter is given, or
+ * <li> the available width (set by dw::Table::setWidth [TODO outdated]) times
+ *      the specified percentage width of t(at max 100%), if the latter is
+ *      given, or
  * <li> otherwise the available width.
  * </ul>
  *
@@ -316,7 +322,6 @@ namespace dw {
 class Table: public core::Widget
 {
 private:
-
    struct Child
    {
       enum {
@@ -355,8 +360,9 @@ private:
 
    friend class TableIterator;
 
+   static bool adjustTableMinWidth;
+
    bool limitTextWidth, rowClosed;
-   int availWidth, availAscent, availDescent;  // set by set...
 
    int numRows, numCols, curRow, curCol;
    lout::misc::SimpleVector<Child*> *children;
@@ -367,6 +373,28 @@ private:
     * \brief The extremes of all columns.
     */
    lout::misc::SimpleVector<core::Extremes> *colExtremes;
+
+   /**
+    * \brief Wether the column itself (in the future?) or at least one
+    *    cell in this column or spanning over this column has CSS
+    *    'width' specified.
+    *
+    * Filled by forceCalcColumnExtremes(), since it is needed to
+    * calculate the column widths.
+    */
+   lout::misc::SimpleVector<bool> *colWidthSpecified;
+   int numColWidthSpecified;
+
+   /**
+    * \brief Wether the column itself (in the future?) or at least one
+    *    cell in this column or spanning over this column has CSS
+    *    'width' specified *as percentage value*.
+    *
+    * Filled by forceCalcColumnExtremes(), since it is needed to
+    * calculate the column widths.
+    */
+   lout::misc::SimpleVector<bool> *colWidthPercentage;
+   int numColWidthPercentage;
 
    /**
     * \brief The widths of all columns.
@@ -383,19 +411,19 @@ private:
     * If a Cell has rowspan > 1, it goes into this array
     */
    lout::misc::SimpleVector<int> *rowSpanCells;
-   /**
-    * If a Cell has colspan > 1, it goes into this array
-    */
-   lout::misc::SimpleVector<int> *colSpanCells;
    lout::misc::SimpleVector<int> *baseline;
 
    lout::misc::SimpleVector<core::style::Style*> *rowStyle;
 
-   /**
-    * hasColPercent becomes true when any cell specifies a percentage width.
-    */
-   int hasColPercent;
-   lout::misc::SimpleVector<core::style::Length> *colPercents;
+   bool colWidthsUpToDateWidthColExtremes;
+
+   enum ExtrMod { MIN, MIN_INTR, MIN_MIN, MAX_MIN, MAX, MAX_INTR, DATA };
+
+   const char *getExtrModName (ExtrMod mod);
+   int getExtreme (core::Extremes *extremes, ExtrMod mod);
+   void setExtreme (core::Extremes *extremes, ExtrMod mod, int value);
+   int getColExtreme (int col, ExtrMod mod, void *data);
+   inline void setColExtreme (int col, ExtrMod mod, void *data, int value);
 
    inline bool childDefined(int n)
    {
@@ -403,17 +431,24 @@ private:
          children->get(n)->type != Child::SPAN_SPACE;
    }
 
+   int calcAvailWidthForDescendant (Widget *child);
+
    void reallocChildren (int newNumCols, int newNumRows);
 
-   void calcCellSizes ();
-   void forceCalcCellSizes ();
+   void calcCellSizes (bool calcHeights);
+   void forceCalcCellSizes (bool calcHeights);
    void apportionRowSpan ();
 
    void calcColumnExtremes ();
    void forceCalcColumnExtremes ();
+   void calcExtremesSpanMulteCols (int col, int cs,
+                                   core::Extremes *cellExtremes,
+                                   ExtrMod minExtrMod, ExtrMod maxExtrMod,
+                                   void *extrData);
 
-   void apportion2 (int totalWidth, int forceTotalWidth);
-   void apportion_percentages2 (int totalWidth, int forceTotalWidth);
+   void apportion2 (int totalWidth, int firstCol, int lastCol,
+                    ExtrMod minExtrMod, ExtrMod maxExtrMod, void *extrData,
+                    lout::misc::SimpleVector<int> *dest, int destOffset);
 
    void setCumHeight (int row, int value)
    {
@@ -423,23 +458,25 @@ private:
       }
    }
 
-   inline void setColWidth (int col, int value)
-   {
-      if (value != colWidths->get (col)) {
-         redrawX = lout::misc::min (redrawX, value);
-         colWidths->set (col, value);
-      }
-   }
-
 protected:
    void sizeRequestImpl (core::Requisition *requisition);
    void getExtremesImpl (core::Extremes *extremes);
    void sizeAllocateImpl (core::Allocation *allocation);
    void resizeDrawImpl ();
 
-   void setWidth (int width);
-   void setAscent (int ascent);
-   void setDescent (int descent);
+   bool getAdjustMinWidth () { return Table::adjustTableMinWidth; }
+
+   int getAvailWidthOfChild (Widget *child, bool forceValue);
+   void correctRequisitionOfChild (core::Widget *child,
+                                   core::Requisition *requisition,
+                                   void (*splitHeightFun) (int, int*, int*));
+
+   void containerSizeChangedForChildren ();
+   bool affectsSizeChangeContainerChild (Widget *child);
+   bool usesAvailWidth ();
+
+   bool isBlockLevel ();
+
    void draw (core::View *view, core::Rectangle *area);
 
    //bool buttonPressImpl (core::EventButton *event);
@@ -451,14 +488,23 @@ protected:
 public:
    static int CLASS_ID;
 
+   inline static void setAdjustTableMinWidth (bool adjustTableMinWidth)
+   { Table::adjustTableMinWidth = adjustTableMinWidth; }
+
+   inline static int getAdjustTableMinWidth ()
+   { return Table::adjustTableMinWidth; }
+
    Table(bool limitTextWidth);
    ~Table();
+
+   int applyPerWidth (int containerWidth, core::style::Length perWidth);
+   int applyPerHeight (int containerHeight, core::style::Length perHeight);
 
    core::Iterator *iterator (core::Content::Type mask, bool atEnd);
 
    void addCell (Widget *widget, int colspan, int rowspan);
    void addRow (core::style::Style *style);
-   TableCell *getCellRef ();
+   AlignedTableCell *getCellRef ();
 };
 
 } // namespace dw
