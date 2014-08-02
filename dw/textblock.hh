@@ -781,8 +781,8 @@ protected:
 
    inline bool mustBeWidenedToAvailWidth () {
       DBG_OBJ_ENTER0 ("resize", 0, "mustBeWidenedToAvailWidth");
-      // TODO Consider inline blocks etc. later.
-      bool b = /*getStyle()->display == core::style::DISPLAY_BLOCK &&*/
+      // TODO Probably absolutely positioned textblocks must be excluded, too.
+      bool b = getStyle()->display == core::style::DISPLAY_BLOCK &&
          getStyle()->vloat == core::style::FLOAT_NONE;
       DBG_OBJ_MSGF ("resize", 0, "=> %s", b ? "true" : "false");
       DBG_OBJ_LEAVE ();
@@ -866,7 +866,7 @@ public:
                                  words->getRef(n)->content.widget); \
          break; \
       case ::dw::core::Content::BREAK: \
-         DBG_OBJ_ARRATTRSET_SYM ("words", n, "type", "TEXT"); \
+         DBG_OBJ_ARRATTRSET_SYM ("words", n, "type", "BREAK"); \
          DBG_OBJ_ARRATTRSET_NUM ("words", n, "text/widget/breakSpace", \
                                  words->getRef(n)->content.breakSpace); \
          break; \
