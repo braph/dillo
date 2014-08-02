@@ -671,46 +671,46 @@ void Widget::correctRequisition (Requisition *requisition,
       DBG_OBJ_MSG ("resize", 1, "no parent, regarding viewport");
       DBG_OBJ_MSG_START ();
 
-      if (style::isAbsLength (getStyle()->width)) {
-         DBG_OBJ_MSGF ("resize", 1, "absolute width: %dpx",
-                       style::absLengthVal (getStyle()->width));
-         requisition->width =
-            misc::max (style::absLengthVal (getStyle()->width)
-                       + boxDiffWidth (),
-                       getMinWidth (NULL, true));
-      } else if (style::isPerLength (getStyle()->width)) {
-         DBG_OBJ_MSGF ("resize", 1, "percentage width: %g%%",
-                       100 * style::perLengthVal_useThisOnlyForDebugging
-                                (getStyle()->width));
-         int viewportWidth =
-            layout->viewportWidth - (layout->canvasHeightGreater ?
-                                     layout->vScrollbarThickness : 0);
-         requisition->width =
-            misc::max (applyPerWidth (viewportWidth, getStyle()->width),
-                       getMinWidth (NULL, true));
-      }
-  
-      // TODO Perhaps split first, then add box ascent and descent.
-      if (style::isAbsLength (getStyle()->height)) {
-         DBG_OBJ_MSGF ("resize", 1, "absolute height: %dpx",
-                       style::absLengthVal (getStyle()->height));
-         splitHeightFun (style::absLengthVal (getStyle()->height)
-                         + boxDiffHeight (),
-                         &requisition->ascent, &requisition->descent);
-      } else if (style::isPerLength (getStyle()->height)) {
-         DBG_OBJ_MSGF ("resize", 1, "percentage height: %g%%",
-                       100 * style::perLengthVal_useThisOnlyForDebugging
-                                (getStyle()->height));
-#if 0
-         // TODO Percentage heights are somewhat more complicated. Has
-         // to be clarified.
+      int limit = getMinWidth (NULL, true);
+      int viewportWidth =
+         layout->viewportWidth - (layout->canvasHeightGreater ?
+                                  layout->vScrollbarThickness : 0);
 
-         // For layout->viewportHeight, see comment in getAvailHeight().
-         splitHeightFun (applyPerHeight (layout->viewportHeight,
-                                         getStyle()->height),
-                         &requisition->ascent, &requisition->descent);
-#endif
-      }
+      int width = calcWidth (getStyle()->width, viewportWidth, NULL, limit);
+      int minWidth =
+         calcWidth (getStyle()->minWidth, viewportWidth, NULL, limit);
+      int maxWidth =
+         calcWidth (getStyle()->maxWidth, viewportWidth, NULL, limit);
+
+      DBG_OBJ_MSGF ("resize", 1, "width = %d, minWidth = %d, maxWidth = %d",
+                    width, minWidth, maxWidth);
+
+      if (width != -1)
+         requisition->width = width;
+      if (minWidth != -1 && requisition->width < minWidth)
+         requisition->width = minWidth;
+      if (maxWidth != -1 && requisition->width > maxWidth)
+         requisition->width = maxWidth;
+
+      // For layout->viewportHeight, see comment in getAvailHeight().
+      int height = calcHeight (getStyle()->height, false,
+                               layout->viewportHeight, NULL);
+      int minHeight = calcHeight (getStyle()->minHeight, false,
+                                  layout->viewportHeight, NULL);
+      int maxHeight = calcHeight (getStyle()->maxHeight, false,
+                                  layout->viewportHeight, NULL);
+
+      // TODO Perhaps split first, then add box ascent and descent.
+      if (height != -1)
+         splitHeightFun (height, &requisition->ascent, &requisition->descent);
+      if (minHeight != -1 &&
+          requisition->ascent + requisition->descent < minHeight)
+         splitHeightFun (minHeight, &requisition->ascent,
+                         &requisition->descent);
+      if (maxHeight != -1 &&
+          requisition->ascent + requisition->descent > maxHeight)
+         splitHeightFun (maxHeight, &requisition->ascent,
+                         &requisition->descent);
 
       DBG_OBJ_MSG_END ();
    } else if (parent) {
@@ -742,19 +742,26 @@ void Widget::correctExtremes (Extremes *extremes)
       DBG_OBJ_MSG ("resize", 1, "no parent, regarding viewport");
       DBG_OBJ_MSG_START ();
 
-      if (style::isAbsLength (getStyle()->width))
-         extremes->minWidth = extremes->maxWidth =
-            misc::max (style::absLengthVal (getStyle()->width)
-                       + boxDiffWidth (),
-                       getMinWidth (extremes, false));
-      else if (style::isPerLength (getStyle()->width)) {
-         int viewportWidth =
-            layout->viewportWidth - (layout->canvasHeightGreater ?
-                                     layout->vScrollbarThickness : 0);
-         extremes->minWidth = extremes->maxWidth =
-            misc::max (applyPerWidth (viewportWidth, getStyle()->width),
-                       getMinWidth (extremes, false));
-      }
+      int limit = getMinWidth (extremes, false);
+      int viewportWidth =
+         layout->viewportWidth - (layout->canvasHeightGreater ?
+                                  layout->vScrollbarThickness : 0);
+
+      int width = calcWidth (getStyle()->width, viewportWidth, NULL, limit);
+      int minWidth =
+         calcWidth (getStyle()->minWidth, viewportWidth, NULL, limit);
+      int maxWidth =
+         calcWidth (getStyle()->maxWidth, viewportWidth, NULL, limit);
+
+      DBG_OBJ_MSGF ("resize", 1, "width = %d, minWidth = %d, maxWidth = %d",
+                    width, minWidth, maxWidth);
+
+      if (width != -1)
+         extremes->minWidth = extremes->maxWidth = width;
+      if (minWidth != -1)
+         extremes->minWidth = minWidth;
+      if (maxWidth != -1)
+         extremes->maxWidth = maxWidth;
 
       DBG_OBJ_MSG_END ();
    } else if (parent) {
@@ -772,6 +779,93 @@ void Widget::correctExtremes (Extremes *extremes)
    DBG_OBJ_MSGF ("resize", 1, "=> %d / %d",
                  extremes->minWidth, extremes->maxWidth);
    DBG_OBJ_LEAVE ();
+}
+
+int Widget::calcWidth (style::Length cssValue, int refWidth, Widget *refWidget,
+                       int minWidth)
+{
+   DBG_OBJ_ENTER ("resize", 0, "calcWidth", "0x%x, %d, %p, %d",
+                  cssValue, refWidth, refWidget, minWidth);
+
+   assert (refWidth != -1 || refWidget != NULL);
+
+   int width = 0;
+
+   if (style::isAbsLength (cssValue)) {
+      DBG_OBJ_MSGF ("resize", 1, "absolute width: %dpx",
+                    style::absLengthVal (cssValue));
+      width =
+         misc::max (style::absLengthVal (cssValue) + boxDiffWidth (), minWidth);
+   } else if (style::isPerLength (cssValue)) {
+      DBG_OBJ_MSGF ("resize", 1, "percentage width: %g%%",
+                    100 *
+                    style::perLengthVal_useThisOnlyForDebugging (cssValue));
+      if (refWidth != -1)
+         width = misc::max (applyPerWidth (refWidth, cssValue), minWidth);
+      else {
+         int availWidth = refWidget->getAvailWidth (false);
+         if (availWidth != -1) {
+            int containerWidth = availWidth - refWidget->boxDiffWidth ();
+            width =
+               misc::max (applyPerWidth (containerWidth, cssValue), minWidth);
+         } else
+            width = -1;
+      }
+   } else {
+      DBG_OBJ_MSG ("resize", 1, "not specified");
+      width = -1;
+   }      
+
+   DBG_OBJ_MSGF ("resize", 1, "=> %d", width);
+   DBG_OBJ_LEAVE ();
+   return width;
+}
+
+int Widget::calcHeight (style::Length cssValue, bool usePercentage,
+                        int refHeight, Widget *refWidget)
+{
+   // TODO Search for usage of this method and check the value of
+   // "usePercentage"; this has to be clarified.
+
+   DBG_OBJ_ENTER ("resize", 0, "calcHeight", "0x%x, %s, %d, %p",
+                  cssValue, usePercentage ? "true" : "false", refHeight,
+                  refWidget);
+
+   assert (refHeight != -1 || refWidget != NULL);
+
+   int height = 0;
+
+   if (style::isAbsLength (cssValue)) {
+      DBG_OBJ_MSGF ("resize", 1, "absolute height: %dpx",
+                    style::absLengthVal (cssValue));
+      height =
+         misc::max (style::absLengthVal (cssValue) + boxDiffHeight (), 0);
+   } else if (style::isPerLength (cssValue)) {
+      DBG_OBJ_MSGF ("resize", 1, "percentage height: %g%%",
+                    100 *
+                    style::perLengthVal_useThisOnlyForDebugging (cssValue));
+      if (usePercentage) {
+         if (refHeight != -1)
+            height = misc::max (applyPerHeight (refHeight, cssValue), 0);
+         else {
+            int availHeight = refWidget->getAvailHeight (false);
+            if (availHeight != -1) {
+               int containerHeight = availHeight - refWidget->boxDiffHeight ();
+               height =
+                  misc::max (applyPerHeight (containerHeight, cssValue), 0);
+            } else
+               height = -1;
+         }
+      } else
+         height = -1;
+   } else {
+      DBG_OBJ_MSG ("resize", 1, "not specified");
+      height = -1;
+   }      
+
+   DBG_OBJ_MSGF ("resize", 1, "=> %d", height);
+   DBG_OBJ_LEAVE ();
+   return height;
 }
 
 /**
@@ -993,6 +1087,31 @@ void Widget::setStyle (style::Style *style)
 
    DBG_OBJ_SET_NUM ("style.border-spacing (h)", style->hBorderSpacing);
    DBG_OBJ_SET_NUM ("style.border-spacing (v)", style->vBorderSpacing);
+
+   DBG_OBJ_SET_SYM ("style.display",
+                    style->display == style::DISPLAY_BLOCK ? "block" :
+                    style->display == style::DISPLAY_INLINE ? "inline" :
+                    style->display == style::DISPLAY_INLINE_BLOCK ?
+                       "inline-block" :
+                    style->display == style::DISPLAY_LIST_ITEM ? "list-item" :
+                    style->display == style::DISPLAY_NONE ? "none" :
+                    style->display == style::DISPLAY_TABLE ? "table" :
+                    style->display == style::DISPLAY_TABLE_ROW_GROUP ?
+                       "table-row-group" :
+                    style->display == style::DISPLAY_TABLE_HEADER_GROUP ?
+                       "table-header-group" :
+                    style->display == style::DISPLAY_TABLE_FOOTER_GROUP ?
+                       "table-footer-group" :
+                    style->display == style::DISPLAY_TABLE_ROW ? "table-row" :
+                    style->display == style::DISPLAY_TABLE_CELL ? "table-cell" :
+                    "???");
+
+   DBG_OBJ_SET_NUM ("style.width (raw)", style->width);
+   DBG_OBJ_SET_NUM ("style.min-width (raw)", style->minWidth);
+   DBG_OBJ_SET_NUM ("style.max-width (raw)", style->maxWidth);
+   DBG_OBJ_SET_NUM ("style.height (raw)", style->height);
+   DBG_OBJ_SET_NUM ("style.min-height (raw)", style->minHeight);
+   DBG_OBJ_SET_NUM ("style.max-height (raw)", style->maxHeight);
 }
 
 /**
@@ -1452,21 +1571,22 @@ void Widget::correctReqWidthOfChild (Widget *child, Requisition *requisition)
 
    assert (this == child->quasiParent || this == child->container);
 
-   if (style::isAbsLength (child->getStyle()->width))
-      requisition->width =
-         misc::max (style::absLengthVal (child->getStyle()->width)
-                    + child->boxDiffWidth (),
-                    child->getMinWidth (NULL, true));
-   else if (style::isPerLength (child->getStyle()->width)) {
-      int availWidth = getAvailWidth (false);
-      if (availWidth != -1) {
-         int containerWidth = availWidth - boxDiffWidth ();
-         requisition->width =
-            misc::max (child->applyPerWidth (containerWidth,
-                                             child->getStyle()->width),
-                       child->getMinWidth (NULL, true));
-      }
-   }
+   int limit = child->getMinWidth (NULL, true);
+   int width = child->calcWidth (child->getStyle()->width, -1, this, limit);
+   int minWidth =
+      child->calcWidth (child->getStyle()->minWidth, -1, this, limit);
+   int maxWidth =
+      child->calcWidth (child->getStyle()->maxWidth, -1, this, limit);
+
+   DBG_OBJ_MSGF ("resize", 1, "width = %d, minWidth = %d, maxWidth = %d",
+                 width, minWidth, maxWidth);
+
+   if (width != -1)
+      requisition->width = width;
+   if (minWidth != -1 && requisition->width < minWidth)
+      requisition->width = minWidth;
+   if (maxWidth != -1 && requisition->width > maxWidth)
+      requisition->width = maxWidth;
 
    DBG_OBJ_MSGF ("resize", 1, "=> %d * (%d + %d)",
                  requisition->width, requisition->ascent,
@@ -1485,25 +1605,23 @@ void Widget::correctReqHeightOfChild (Widget *child, Requisition *requisition,
                   "%p, %d * (%d + %d), ...", child, requisition->width,
                   requisition->ascent, requisition->descent);
 
-   // TODO Perhaps split first, then add box ascent and descent.
-   if (style::isAbsLength (child->getStyle()->height))
-      splitHeightFun (style::absLengthVal (child->getStyle()->height)
-                      + child->boxDiffHeight (),
-                      &requisition->ascent, &requisition->descent);
-   else if (style::isPerLength (child->getStyle()->height)) {
-#if 0
-      // TODO Percentage heights are somewhat more complicated. Has to
-      // be clarified. See also Widget::correctRequisition.
+   int height = child->calcHeight (child->getStyle()->height, false, -1, this);
+   int minHeight =
+      child->calcHeight (child->getStyle()->minHeight, false, -1, this);
+   int maxHeight =
+      child->calcHeight (child->getStyle()->maxHeight, false, -1, this);
 
-      int availHeight = getAvailHeight (false);
-      if (availHeight != -1) {
-         int containerHeight = availHeight - boxDiffHeight ();
-         splitHeightFun (child->applyPerHeight (containerHeight,
-                                                child->getStyle()->height),
-                         &requisition->ascent, &requisition->descent);
-      }
-#endif
-   }
+   // TODO Perhaps split first, then add box ascent and descent.
+   if (height != -1)
+      splitHeightFun (height, &requisition->ascent, &requisition->descent);
+   if (minHeight != -1 &&
+       requisition->ascent + requisition->descent < minHeight)
+      splitHeightFun (minHeight, &requisition->ascent,
+                      &requisition->descent);
+   if (maxHeight != -1 &&
+       requisition->ascent + requisition->descent > maxHeight)
+      splitHeightFun (maxHeight, &requisition->ascent,
+                      &requisition->descent);
 
    DBG_OBJ_MSGF ("resize", 1, "=> %d * (%d + %d)",
                  requisition->width, requisition->ascent,
@@ -1525,29 +1643,22 @@ void Widget::correctExtremesOfChild (Widget *child, Extremes *extremes)
       (child->container ? child->container : child->parent);
    
    if (effContainer == this) {
-      if (style::isAbsLength (child->getStyle()->width)) {
-         DBG_OBJ_MSGF ("resize", 1, "absolute width: %dpx",
-                       style::absLengthVal (child->getStyle()->width));
-         extremes->minWidth = extremes->maxWidth =
-            misc::max (style::absLengthVal (child->getStyle()->width)
-                       + child->boxDiffWidth (),
-                       child->getMinWidth (extremes, false));
-      } else if (style::isPerLength (child->getStyle()->width)) {
-         DBG_OBJ_MSGF ("resize", 1, "percentage width: %g%%",
-                       100 * style::perLengthVal_useThisOnlyForDebugging
-                       (child->getStyle()->width));
-         int availWidth = getAvailWidth (false);
-         if (availWidth != -1) {
-            int containerWidth = availWidth - boxDiffWidth ();
-            DBG_OBJ_MSGF ("resize", 1, "containerWidth = %d - %d = %d", 
-                          availWidth, boxDiffWidth (), containerWidth);
-            extremes->minWidth = extremes->maxWidth =
-               misc::max (child->applyPerWidth (containerWidth,
-                                                child->getStyle()->width),
-                          child->getMinWidth (extremes, false));
-         }
-      } else
-         DBG_OBJ_MSG ("resize", 1, "no specification");
+      int limit = child->getMinWidth (extremes, false);
+      int width = child->calcWidth (child->getStyle()->width, -1, this, limit);
+      int minWidth =
+         child->calcWidth (child->getStyle()->minWidth, -1, this, limit);
+      int maxWidth =
+         child->calcWidth (child->getStyle()->maxWidth, -1, this, limit);
+      
+      DBG_OBJ_MSGF ("resize", 1, "width = %d, minWidth = %d, maxWidth = %d",
+                    width, minWidth, maxWidth);
+
+      if (width != -1)
+         extremes->minWidth = extremes->maxWidth = width;
+      if (minWidth != -1)
+         extremes->minWidth = minWidth;
+      if (maxWidth != -1)
+         extremes->maxWidth = maxWidth;
    } else {
       DBG_OBJ_MSG ("resize", 1, "delegated to (effective) container");
       DBG_OBJ_MSG_START ();
