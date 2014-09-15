@@ -69,6 +69,17 @@ libDw_widgets_a_SOURCES = \
 	image.hh \
 	listitem.cc \
 	listitem.hh \
+	oofawarewidget.cc \
+	oofawarewidget_iterator.cc \
+	oofawarewidget.hh \
+	ooffloatsmgr.cc \
+	ooffloatsmgr.hh \
+	oofposabsmgr.cc \
+	oofposabsmgr.hh \
+	oofposfixedmgr.cc \
+	oofposfixedmgr.hh \
+	oofpositionedmgr.cc \
+	oofpositionedmgr.hh \
 	outofflowmgr.cc \
 	outofflowmgr.hh \
 	ruler.cc \
