@@ -193,6 +193,12 @@ protected:
     */
    style::Box extraSpace;
 
+   /**
+    * \brief Set iff this widget constitutes a stacking context, as
+    *    defined by CSS.
+    */
+   StackingContextMgr *stackingContextMgr;
+
    /*inline void printFlags () {
       DBG_IF_RTFL {
          char buf[10 * 3 - 1 + 1];
@@ -291,8 +297,6 @@ protected:
     * \brief See \ref dw-widget-sizes.
     */
    virtual void markExtremesChange (int ref);
-
-   int getMinWidth (Extremes *extremes, bool forceValue);
 
    virtual int getAvailWidthOfChild (Widget *child, bool forceValue);
    virtual int getAvailHeightOfChild (Widget *child, bool forceValue);
@@ -440,6 +444,8 @@ public:
 
    virtual int applyPerWidth (int containerWidth, style::Length perWidth);
    virtual int applyPerHeight (int containerHeight, style::Length perHeight);
+
+   int getMinWidth (Extremes *extremes, bool forceValue);
 
    virtual bool isBlockLevel ();
    virtual bool isPossibleContainer ();

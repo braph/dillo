@@ -1,7 +1,7 @@
 /*
  * Dillo Widget
  *
- * Copyright 2013-2014 Sebastian Geerken <sgeerken@dillo.org>
+ * Copyright 2014 Sebastian Geerken <sgeerken@dillo.org>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -17,22 +17,42 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-
-#include "outofflowmgr.hh"
+#include "oofposabsmgr.hh"
 #include "oofawarewidget.hh"
-#include "../lout/debug.hh"
-
 
 namespace dw {
 
 namespace oof {
 
-OutOfFlowMgr::OutOfFlowMgr ()
+OOFPosAbsMgr::OOFPosAbsMgr (OOFAwareWidget *container) :
+   OOFPositionedMgr (container)
 {
+   DBG_OBJ_CREATE ("dw::OOFPosAbsMgr");
 }
 
-OutOfFlowMgr::~OutOfFlowMgr ()
+OOFPosAbsMgr::~OOFPosAbsMgr ()
 {
+   DBG_OBJ_DELETE ();
+}
+
+int OOFPosAbsMgr::containerBoxOffsetX ()
+{
+   return container->boxOffsetX () - container->getStyle()->padding.left;
+}
+
+int OOFPosAbsMgr::containerBoxOffsetY ()
+{
+   return container->boxOffsetY () - container->getStyle()->padding.top;
+}
+
+int OOFPosAbsMgr::containerBoxRestWidth ()
+{
+   return container->boxRestWidth () - container->getStyle()->padding.right;
+}
+
+int OOFPosAbsMgr::containerBoxRestHeight ()
+{
+   return container->boxRestHeight () - container->getStyle()->padding.bottom;
 }
 
 } // namespace oof
