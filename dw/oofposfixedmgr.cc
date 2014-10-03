@@ -1,7 +1,7 @@
 /*
  * Dillo Widget
  *
- * Copyright 2013-2014 Sebastian Geerken <sgeerken@dillo.org>
+ * Copyright 2014 Sebastian Geerken <sgeerken@dillo.org>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -17,22 +17,42 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-
-#include "outofflowmgr.hh"
-#include "oofawarewidget.hh"
-#include "../lout/debug.hh"
-
+#include "oofposfixedmgr.hh"
 
 namespace dw {
 
 namespace oof {
 
-OutOfFlowMgr::OutOfFlowMgr ()
+OOFPosFixedMgr::OOFPosFixedMgr (OOFAwareWidget *container) :
+   OOFPositionedMgr (container)
 {
+   DBG_OBJ_CREATE ("dw::OOFPosFixedMgr");
 }
 
-OutOfFlowMgr::~OutOfFlowMgr ()
+OOFPosFixedMgr::~OOFPosFixedMgr ()
 {
+   DBG_OBJ_DELETE ();
+}
+
+
+int OOFPosFixedMgr::containerBoxOffsetX ()
+{
+   return 0;
+}
+
+int OOFPosFixedMgr::containerBoxOffsetY ()
+{
+   return 0;
+}
+
+int OOFPosFixedMgr::containerBoxRestWidth ()
+{
+   return 0;
+}
+
+int OOFPosFixedMgr::containerBoxRestHeight ()
+{
+   return 0;
 }
 
 } // namespace oof

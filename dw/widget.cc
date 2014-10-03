@@ -91,6 +91,8 @@ Widget::Widget ()
    deleteCallbackFunc = NULL;
 
    widgetImgRenderer = NULL;
+
+   stackingContextMgr = NULL;
 }
 
 Widget::~Widget ()
@@ -103,6 +105,9 @@ Widget::~Widget ()
          style->backgroundImage->removeExternalImgRenderer (widgetImgRenderer);
       delete widgetImgRenderer;
    }
+
+   if (stackingContextMgr)
+      delete stackingContextMgr;
 
    if (style)
       style->unref ();
@@ -125,21 +130,24 @@ Widget::~Widget ()
  */
 bool Widget::intersects (Rectangle *area, Rectangle *intersection)
 {
-   Rectangle parentArea, childArea;
-
-   parentArea = *area;
-   parentArea.x += parent->allocation.x;
-   parentArea.y += parent->allocation.y;
-
-   childArea.x = allocation.x;
-   childArea.y = allocation.y;
-   childArea.width = allocation.width;
-   childArea.height = getHeight ();
-
-   if (parentArea.intersectsWith (&childArea, intersection)) {
-      intersection->x -= allocation.x;
-      intersection->y -= allocation.y;
-      return true;
+   if (wasAllocated ()) {
+      Rectangle parentArea, childArea;
+      
+      parentArea = *area;
+      parentArea.x += parent->allocation.x;
+      parentArea.y += parent->allocation.y;
+      
+      childArea.x = allocation.x;
+      childArea.y = allocation.y;
+      childArea.width = allocation.width;
+      childArea.height = getHeight ();
+      
+      if (parentArea.intersectsWith (&childArea, intersection)) {
+         intersection->x -= allocation.x;
+         intersection->y -= allocation.y;
+         return true;
+      } else
+         return false;
    } else
       return false;
 }
@@ -169,6 +177,17 @@ void Widget::setParent (Widget *parent)
    // used). Does not occur in dillo, where the toplevel widget is a
    // Textblock.
    DBG_OBJ_SET_PTR ("container", container);
+
+   // If at all, stackingContextMgr should have set *before*, see also
+   // Widget::setStyle() and Layout::addWidget().
+   if (stackingContextMgr) {
+      Widget *stackingContextWidget = parent;
+      while (stackingContextWidget &&
+             stackingContextWidget->stackingContextMgr == NULL)
+         stackingContextWidget = stackingContextWidget->parent;
+      assert (stackingContextWidget);
+      stackingContextWidget->stackingContextMgr->addChildSCWidget (this);
+   }
 
    notifySetParent();
 }
@@ -496,6 +515,7 @@ void Widget::sizeRequest (Requisition *requisition)
    }
 
    if (needsResize ()) {
+      calcExtraSpace ();
       /** \todo Check requisition == &(this->requisition) and do what? */
       sizeRequestImpl (requisition);
       this->requisition = *requisition;
@@ -622,7 +642,7 @@ int Widget::getAvailHeight (bool forceValue)
       } else if (style::isPerLength (getStyle()->height)) {
          DBG_OBJ_MSGF ("resize", 1, "percentage height: %g%%",
                        100 * style::perLengthVal_useThisOnlyForDebugging
-                       (getStyle()->height));
+                                (getStyle()->height));
          // Notice that here -- unlike getAvailWidth() --
          // layout->hScrollbarThickness is not considered here;
          // something like canvasWidthGreater (analogue to
@@ -903,6 +923,8 @@ void Widget::getExtremes (Extremes *extremes)
    }
 
    if (extremesChanged ()) {
+      calcExtraSpace ();
+
       // For backward compatibility (part 1/2):
       extremes->minWidthIntrinsic = extremes->maxWidthIntrinsic = -1;
 
@@ -929,6 +951,24 @@ void Widget::getExtremes (Extremes *extremes)
    leaveGetExtremes ();
 
    DBG_OBJ_LEAVE ();
+}
+
+/**
+ * \brief Calculates dw::core::Widget::extraSpace.
+ *
+ * Delegated to dw::core::Widget::calcExtraSpaceImpl. Called both from
+ * dw::core::Widget::sizeRequest and dw::core::Widget::getExtremes.
+ */
+void Widget::calcExtraSpace ()
+{
+   extraSpace.top = extraSpace.right = extraSpace.bottom = extraSpace.left = 0;
+   calcExtraSpaceImpl ();
+
+   DBG_OBJ_SET_NUM ("extraSpace.top", extraSpace.top);
+   DBG_OBJ_SET_NUM ("extraSpace.bottom", extraSpace.bottom);
+   DBG_OBJ_SET_NUM ("extraSpace.left", extraSpace.left);
+   DBG_OBJ_SET_NUM ("extraSpace.right", extraSpace.right);
+   
 }
 
 /**
@@ -1075,6 +1115,15 @@ void Widget::setStyle (style::Style *style)
       layout->updateCursor ();
    }
 
+   // After Layout::addWidget() (as toplevel widget) or Widget::setParent()
+   // (which also sets layout), changes of the style cannot be considered
+   // anymore. (Should print a warning?)
+   if (layout == NULL &&
+       StackingContextMgr::isEstablishingStackingContext (this)) {
+      stackingContextMgr = new StackingContextMgr (this);
+      DBG_OBJ_ASSOC_CHILD (stackingContextMgr);
+   }
+
    if (sizeChanged)
       queueResize (0, true);
    else
@@ -1208,8 +1257,10 @@ void Widget::drawWidgetBox (View *view, Rectangle *area, bool inverse)
    canvasArea.width = area->width;
    canvasArea.height = area->height;
 
-   style::drawBorder (view, layout, &canvasArea, allocation.x, allocation.y,
-                      allocation.width, getHeight (), style, inverse);
+   int xMar, yMar, widthMar, heightMar;
+   getMarginArea (&xMar, &yMar, &widthMar, &heightMar);
+   style::drawBorder (view, layout, &canvasArea, xMar, yMar, widthMar,
+                      heightMar, style, inverse);
 
    int xPad, yPad, widthPad, heightPad;
    getPaddingArea (&xPad, &yPad, &widthPad, &heightPad);
@@ -1335,42 +1386,50 @@ Widget *Widget::getNearestCommonAncestor (Widget *otherWidget)
  *
  * Used by dw::core::Layout:getWidgetAtPoint.
  */
-Widget *Widget::getWidgetAtPoint (int x, int y, int level)
+Widget *Widget::getWidgetAtPoint (int x, int y)
 {
-   Iterator *it;
-   Widget *childAtPoint;
-
-   //printf ("%*s-> examining the %s %p (%d, %d, %d x (%d + %d))\n",
-   //        3 * level, "", getClassName (), this, allocation.x, allocation.y,
-   //        allocation.width, allocation.ascent, allocation.descent);
-
    if (x >= allocation.x &&
        y >= allocation.y &&
        x <= allocation.x + allocation.width &&
        y <= allocation.y + getHeight ()) {
-      //_MSG ("%*s   -> inside\n", 3 * level, "");
-      /*
-       * Iterate over the children of this widget. Test recursively, whether
-       * the point is within the child (or one of its children...). If there
-       * is such a child, it is returned. Otherwise, this widget is returned.
-       */
-      childAtPoint = NULL;
-      it = iterator ((Content::Type)
-                     (Content::WIDGET_IN_FLOW | Content::WIDGET_OOF_CONT),
-                     false);
+
+      if (stackingContextMgr) {
+         Widget *scmWidget =
+            stackingContextMgr->getTopWidgetAtPoint (x, y);
+         if (scmWidget)
+            return scmWidget;
+      }
+
+      // Iterate over the children of this widget. Test recursively, whether
+      // the point is within the child (or one of its children...). If there
+      // is such a child, it is returned. Otherwise, this widget is returned.
+
+      Widget *childAtPoint = NULL;
+      Iterator *it =
+         iterator ((Content::Type)
+                   (Content::WIDGET_IN_FLOW | Content::WIDGET_OOF_CONT),
+                   false);
 
       while (childAtPoint == NULL && it->next ()) {
          Widget *child = it->getContent()->widget;
-         if (child->wasAllocated ())
-            childAtPoint = child->getWidgetAtPoint (x, y, level + 1);
+         if (!StackingContextMgr::handledByStackingContextMgr (child) &&
+             child->wasAllocated ())
+            childAtPoint = child->getWidgetAtPoint (x, y);
       }
 
       it->unref ();
 
       if (childAtPoint)
          return childAtPoint;
-      else
-         return this;
+
+      if (stackingContextMgr) {
+         Widget *scmWidget =
+            stackingContextMgr->getBottomWidgetAtPoint (x, y);
+         if (scmWidget)
+            return scmWidget;
+      }
+       
+      return this;
    } else
       return NULL;
 }
@@ -1383,6 +1442,24 @@ void Widget::scrollTo (HPosition hpos, VPosition vpos,
                      x + allocation.x, y + allocation.y, width, height);
 }
 
+void Widget::getMarginArea (int *xMar, int *yMar, int *widthMar, int *heightMar)
+{
+   *xMar = allocation.x + extraSpace.left;
+   *yMar = allocation.y + extraSpace.top;
+   *widthMar = allocation.width - (extraSpace.left + extraSpace.right);
+   *heightMar = getHeight () - (extraSpace.top + extraSpace.bottom);
+}
+
+void Widget::getBorderArea (int *xBor, int *yBor, int *widthBor, int *heightBor)
+{
+   getMarginArea (xBor, yBor, widthBor, heightBor);
+
+   *xBor += style->margin.left;
+   *yBor += style->margin.top;
+   *widthBor -= style->margin.left + style->margin.right;
+   *heightBor -= style->margin.top + style->margin.bottom;
+}
+
 /**
  * \brief Return the padding area (content plus padding).
  *
@@ -1392,15 +1469,28 @@ void Widget::scrollTo (HPosition hpos, VPosition vpos,
 void Widget::getPaddingArea (int *xPad, int *yPad, int *widthPad,
                              int *heightPad)
 {
-   *xPad = allocation.x + style->margin.left + style->borderWidth.left;
-   *yPad = allocation.y + style->margin.top + style->borderWidth.top;
-   *widthPad = allocation.width - style->margin.left - style->borderWidth.left
-      - style->margin.right - style->borderWidth.right;
-   *heightPad = getHeight () -  style->margin.top - style->borderWidth.top
-      - style->margin.bottom - style->borderWidth.bottom;
+   getBorderArea (xPad, yPad, widthPad, heightPad);
+
+   *xPad += style->borderWidth.left;
+   *yPad += style->borderWidth.top;
+   *widthPad -= style->borderWidth.left + style->borderWidth.right;
+   *heightPad -= style->borderWidth.top + style->borderWidth.bottom;
 }
 
 void Widget::sizeAllocateImpl (Allocation *allocation)
+{
+}
+
+/**
+ * \brief The actual implementation for calculating
+ *    dw::core::Widget::extraSpace.
+ *
+ * The implementation gets a clean value of
+ * dw::core::Widget::extraSpace, which is only corrected. To make sure
+ * all possible influences are considered, the implementation of the
+ * base class should be called, too.
+ */
+void Widget::calcExtraSpaceImpl ()
 {
 }
 
