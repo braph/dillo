@@ -374,6 +374,13 @@ void Layout::addWidget (Widget *widget)
       return;
    }
 
+   // The toplevel widget always establishes a stacking context. It could
+   // already be set in Widget::setStyle().
+   if (widget->stackingContextMgr == NULL) {
+      widget->stackingContextMgr = new StackingContextMgr (widget);
+      DBG_OBJ_ASSOC (widget, widget->stackingContextMgr);
+   }
+
    topLevel = widget;
    widget->layout = this;
    widget->container = NULL;
@@ -1093,12 +1100,17 @@ void Layout::leaveNotify (View *view, ButtonState state)
  */
 Widget *Layout::getWidgetAtPoint (int x, int y)
 {
-   _MSG ("------------------------------------------------------------\n");
-   _MSG ("widget at (%d, %d)\n", x, y);
+   DBG_OBJ_ENTER ("events", 0, "getWidgetAtPoint", "%d, %d", x, y);
+   Widget *widget;
+
    if (topLevel && topLevel->wasAllocated ())
-      return topLevel->getWidgetAtPoint (x, y, 0);
+      widget = topLevel->getWidgetAtPoint (x, y);
    else
-      return NULL;
+      widget = NULL;
+
+   DBG_OBJ_MSGF ("events", 0, "=> %p", widget);
+   DBG_OBJ_LEAVE ();
+   return widget;
 }
 
 
