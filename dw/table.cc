@@ -112,17 +112,19 @@ void Table::sizeRequestImpl (core::Requisition *requisition)
    /**
     * \bug Baselines are not regarded here.
     */
-   requisition->width = getStyle()->boxDiffWidth ()
-      + (numCols + 1) * getStyle()->hBorderSpacing;
+   requisition->width =
+      boxDiffWidth () + (numCols + 1) * getStyle()->hBorderSpacing;
    for (int col = 0; col < numCols; col++)
       requisition->width += colWidths->get (col);
 
    requisition->ascent =
-      getStyle()->boxDiffHeight () + cumHeight->get (numRows)
-      + getStyle()->vBorderSpacing;
+      boxDiffHeight () + cumHeight->get (numRows) + getStyle()->vBorderSpacing;
    requisition->descent = 0;
 
    correctRequisition (requisition, core::splitHeightPreserveDescent);
+
+   // For the order, see similar reasoning for dw::Textblock.
+   correctRequisitionByOOF (requisition, core::splitHeightPreserveDescent);
 
    DBG_OBJ_LEAVE ();
 }
@@ -152,6 +154,9 @@ void Table::getExtremesImpl (core::Extremes *extremes)
 
    correctExtremes (extremes);
 
+   // For the order, see similar reasoning for dw::Textblock.
+   correctExtremesByOOF (extremes);
+
    DBG_OBJ_LEAVE ();
 }
 
@@ -161,16 +166,16 @@ void Table::sizeAllocateImpl (core::Allocation *allocation)
                   allocation->x, allocation->y, allocation->width,
                   allocation->ascent, allocation->descent);
 
+   sizeAllocateStart (allocation);
+
    calcCellSizes (true);
 
    /**
     * \bug Baselines are not regarded here.
     */
 
-   int offy =
-      allocation->y + getStyle()->boxOffsetY () + getStyle()->vBorderSpacing;
-   int x =
-      allocation->x + getStyle()->boxOffsetX () + getStyle()->hBorderSpacing;
+   int offy = allocation->y + boxOffsetY () + getStyle()->vBorderSpacing;
+   int x = allocation->x + boxOffsetX () + getStyle()->hBorderSpacing;
 
    for (int col = 0; col < numCols; col++) {
       for (int row = 0; row < numRows; row++) {
@@ -201,6 +206,8 @@ void Table::sizeAllocateImpl (core::Allocation *allocation)
       x += colWidths->get (col) + getStyle()->hBorderSpacing;
    }
 
+   sizeAllocateEnd ();
+
    DBG_OBJ_LEAVE ();
 }
 
@@ -218,16 +225,22 @@ int Table::getAvailWidthOfChild (Widget *child, bool forceValue)
                   child, forceValue ? "true" : "false");
 
    int width;
+   oof::OutOfFlowMgr *oofm;
 
-   // Unlike other containers, the table widget sometimes narrows
-   // columns to a width less than specified by CSS (see
-   // forceCalcCellSizes). For this reason, the column widths have to
-   // be calculated in all cases.
-   if (forceValue) {
-      calcCellSizes (false);
-      width = calcAvailWidthForDescendant (child);
-   } else
-      width = -1;
+   if (isWidgetOOF(child) && (oofm = getWidgetOutOfFlowMgr(child)) &&
+       oofm->dealingWithSizeOfChild (child))
+      width = oofm->getAvailWidthOfChild (child, forceValue);
+   else {
+      // Unlike other containers, the table widget sometimes narrows
+      // columns to a width less than specified by CSS (see
+      // forceCalcCellSizes). For this reason, the column widths have to
+      // be calculated in all cases.
+      if (forceValue) {
+         calcCellSizes (false);
+         width = calcAvailWidthForDescendant (child);
+      } else
+         width = -1;
+   }
 
    DBG_OBJ_MSGF ("resize", 1, "=> %d", width);
    DBG_OBJ_LEAVE ();
@@ -306,6 +319,8 @@ void Table::containerSizeChangedForChildren ()
       }
    }
 
+   containerSizeChangedForChildrenOOF ();
+
    DBG_OBJ_LEAVE ();
 }
 
@@ -367,10 +382,13 @@ void Table::draw (core::View *view, core::Rectangle *area)
       if (childDefined (i)) {
          Widget *child = children->get(i)->cell.widget;
          core::Rectangle childArea;
-         if (child->intersects (area, &childArea))
+         if (!core::StackingContextMgr::handledByStackingContextMgr (child) &&
+             child->intersects (area, &childArea))
             child->draw (view, &childArea);
       }
    }
+
+   drawOOF (view, area);
 }
 
 void Table::removeChild (Widget *child)
@@ -465,6 +483,8 @@ void Table::addCell (Widget *widget, int colspan, int rowspan)
 
    curCol += colspanEff;
 
+   widget->parentRef = makeParentRefInFlow (0);
+   
    widget->setParent (this);
    if (rowStyle->get (curRow))
       widget->setBgColor (rowStyle->get(curRow)->backgroundColor);
