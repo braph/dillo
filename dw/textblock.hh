@@ -3,8 +3,7 @@
 
 #include <limits.h>
 
-#include "core.hh"
-#include "outofflowmgr.hh"
+#include "oofawarewidget.hh"
 #include "../lout/misc.hh"
 
 // These were used when improved line breaking and hyphenation were implemented.
@@ -168,7 +167,7 @@ namespace dw {
  *
  * dw::Textblock makes use of incremental resizing as described in \ref
  * dw-widget-sizes. The parentRef is, for children of a dw::Textblock, simply
- * the number of the line.
+ * the number of the line. [<b>Update:</b> Incorrect; see \ref dw-out-of-flow.]
  *
  * Generally, there are three cases which may change the size of the
  * widget:
@@ -196,7 +195,7 @@ namespace dw {
  * necessary, or otherwise the line from which a rewrap is necessary.
  *
  */
-class Textblock: public core::Widget
+class Textblock: public oof::OOFAwareWidget
 {
 private:
    /**
@@ -290,10 +289,8 @@ private:
 
    static const char *hyphenDrawChar;
 
-   Textblock *containingBlock;
-   OutOfFlowMgr *outOfFlowMgr;
-
 protected:
+
    /**
     * \brief Implementation used for words.
     */
@@ -505,27 +502,24 @@ protected:
       int wordIndex;
    };
 
-   class TextblockIterator: public core::Iterator
+   class TextblockIterator: public OOFAwareWidgetIterator
    {
-   private:
-      bool oofm;
-      int index;
+   protected:
+      int numContentsInFlow ();
+      void getContentInFlow (int index, core::Content *content);
 
    public:
       TextblockIterator (Textblock *textblock, core::Content::Type mask,
                          bool atEnd);
-      TextblockIterator (Textblock *textblock, core::Content::Type mask,
-                         bool oofm, int index);
+
+      static TextblockIterator *createWordIndexIterator
+        (Textblock *textblock, core::Content::Type mask, int wordIndex);
 
       lout::object::Object *clone();
-      int compareTo(lout::object::Comparable *other);
 
-      bool next ();
-      bool prev ();
       void highlight (int start, int end, core::HighlightLayer layer);
       void unhighlight (int direction, core::HighlightLayer layer);
       void getAllocation (int start, int end, core::Allocation *allocation);
-      void print ();
    };
 
    friend class TextblockIterator;
@@ -583,9 +577,6 @@ protected:
    /* This value is (currently) set by setAscent(). */
    int lineBreakWidth;
 
-   // Additional vertical offset, used for the "clear" attribute.
-   int verticalOffset;
-
    int wrapRefLines, wrapRefParagraphs;  /* 0-based. Important: Both
                                             are the line numbers, not
                                             the value stored in
@@ -635,7 +626,6 @@ protected:
    void calcBorders (int lastOofRef, int height);
    void showMissingLines ();
    void removeTemporaryLines ();
-   void setVerticalOffset (int verticalOffset);
 
    void decorateText (core::View *view, core::style::Style *style,
                       core::style::Color::Shading shading,
@@ -772,6 +762,7 @@ protected:
    void processWord (int wordIndex);
    virtual int wordWrap (int wordIndex, bool wrapAll);
    int wrapWordInFlow (int wordIndex, bool wrapAll);
+   int wrapWordOofRef (int wordIndex, bool wrapAll);
    void balanceBreakPosAndHeight (int wordIndex, int firstIndex,
                                   int *searchUntil, bool tempNewLine,
                                   int penaltyIndex, bool borderIsCalculated,
@@ -809,7 +800,12 @@ protected:
    void sizeRequestImpl (core::Requisition *requisition);
    void getExtremesImpl (core::Extremes *extremes);
    void sizeAllocateImpl (core::Allocation *allocation);
-   int getAvailWidthOfChild (Widget *child, bool forceValue);
+
+   void calcExtraSpaceImpl ();
+
+   int getAvailWidthOfChild (core::Widget *child, bool forceValue);
+   int getAvailHeightOfChild (core::Widget *child, bool forceValue);
+
    void containerSizeChangedForChildren ();
    bool affectsSizeChangeContainerChild (Widget *child);
    bool usesAvailWidth ();
@@ -817,9 +813,6 @@ protected:
 
    void markSizeChange (int ref);
    void markExtremesChange (int ref);
-
-   void notifySetAsTopLevel();
-   void notifySetParent();
 
    bool isBlockLevel ();
 
@@ -839,17 +832,23 @@ protected:
                        core::style::Style *style,
                        int numBreaks, int *breakPos,
                        core::Requisition *wordSize);
-   static bool isContainingBlock (Widget *widget);
 
    inline bool mustBeWidenedToAvailWidth () {
       DBG_OBJ_ENTER0 ("resize", 0, "mustBeWidenedToAvailWidth");
       bool toplevel = getParent () == NULL,
          block = getStyle()->display == core::style::DISPLAY_BLOCK,
-         vloat = getStyle()->vloat != core::style::FLOAT_NONE,
-         result =  toplevel || (block && !vloat);
-      DBG_OBJ_MSGF ("resize", 0, "=> %s (toplevel: %s, block: %s, float: %s)",
+         vloat = testWidgetFloat (this),
+         abspos = testWidgetAbsolutelyPositioned (this),
+         fixpos = testWidgetFixedlyPositioned (this),
+         // In detail, this depends on what the respective OOFM does
+         // with the child widget:
+         result =  toplevel || (block && !(vloat || abspos || fixpos));
+      DBG_OBJ_MSGF ("resize", 0,
+                    "=> %s (toplevel: %s, block: %s, float: %s, abspos: %s, "
+                    "fixpos: %s)",
                     result ? "true" : "false", toplevel ? "true" : "false",
-                    block ? "true" : "false", vloat ? "true" : "false");
+                    block ? "true" : "false", vloat ? "true" : "false",
+                    abspos ? "true" : "false", fixpos ? "true" : "false");
       DBG_OBJ_LEAVE ();
       return result;
    }
@@ -864,8 +863,8 @@ public:
    static void setPenaltyEmDashRight2 (int penaltyRightEmDash2);
    static void setStretchabilityFactor (int stretchabilityFactor);
 
-   Textblock(bool limitTextWidth);
-   ~Textblock();
+   Textblock (bool limitTextWidth);
+   ~Textblock ();
 
    core::Iterator *iterator (core::Content::Type mask, bool atEnd);
 
@@ -883,7 +882,7 @@ public:
    void addParbreak (int space, core::style::Style *style);
    void addLinebreak (core::style::Style *style);
 
-   core::Widget *getWidgetAtPoint (int x, int y, int level);
+   core::Widget *getWidgetAtPoint (int x, int y);
    void handOverBreak (core::style::Style *style);
    void changeLinkColor (int link, int newColor);
    void changeWordStyle (int from, int to, core::style::Style *style,
@@ -892,7 +891,9 @@ public:
    void borderChanged (int y, core::Widget *vloat);
    void clearPositionChanged ();
    void oofSizeChanged (bool extremesChanged);
-   inline int getLineBreakWidth () { return lineBreakWidth; }
+   int getLineBreakWidth ();
+   bool isPossibleContainer (int oofmIndex);
+   bool isPossibleContainerParent (int oofmIndex);
 };
 
 #define DBG_SET_WORD_PENALTY(n, i, is)             \
