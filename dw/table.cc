@@ -112,17 +112,19 @@ void Table::sizeRequestImpl (core::Requisition *requisition)
    /**
     * \bug Baselines are not regarded here.
     */
-   requisition->width = getStyle()->boxDiffWidth ()
-      + (numCols + 1) * getStyle()->hBorderSpacing;
+   requisition->width =
+      boxDiffWidth () + (numCols + 1) * getStyle()->hBorderSpacing;
    for (int col = 0; col < numCols; col++)
       requisition->width += colWidths->get (col);
 
    requisition->ascent =
-      getStyle()->boxDiffHeight () + cumHeight->get (numRows)
-      + getStyle()->vBorderSpacing;
+      boxDiffHeight () + cumHeight->get (numRows) + getStyle()->vBorderSpacing;
    requisition->descent = 0;
 
    correctRequisition (requisition, core::splitHeightPreserveDescent);
+
+   // For the order, see similar reasoning for dw::Textblock.
+   correctRequisitionByOOF (requisition, core::splitHeightPreserveDescent);
 
    DBG_OBJ_LEAVE ();
 }
@@ -152,6 +154,9 @@ void Table::getExtremesImpl (core::Extremes *extremes)
 
    correctExtremes (extremes);
 
+   // For the order, see similar reasoning for dw::Textblock.
+   correctExtremesByOOF (extremes);
+
    DBG_OBJ_LEAVE ();
 }
 
@@ -161,16 +166,16 @@ void Table::sizeAllocateImpl (core::Allocation *allocation)
                   allocation->x, allocation->y, allocation->width,
                   allocation->ascent, allocation->descent);
 
+   sizeAllocateStart (allocation);
+
    calcCellSizes (true);
 
    /**
     * \bug Baselines are not regarded here.
     */
 
-   int offy =
-      allocation->y + getStyle()->boxOffsetY () + getStyle()->vBorderSpacing;
-   int x =
-      allocation->x + getStyle()->boxOffsetX () + getStyle()->hBorderSpacing;
+   int offy = allocation->y + boxOffsetY () + getStyle()->vBorderSpacing;
+   int x = allocation->x + boxOffsetX () + getStyle()->hBorderSpacing;
 
    for (int col = 0; col < numCols; col++) {
       for (int row = 0; row < numRows; row++) {
@@ -201,6 +206,8 @@ void Table::sizeAllocateImpl (core::Allocation *allocation)
       x += colWidths->get (col) + getStyle()->hBorderSpacing;
    }
 
+   sizeAllocateEnd ();
+
    DBG_OBJ_LEAVE ();
 }
 
@@ -218,16 +225,22 @@ int Table::getAvailWidthOfChild (Widget *child, bool forceValue)
                   child, forceValue ? "true" : "false");
 
    int width;
+   oof::OutOfFlowMgr *oofm;
 
-   // Unlike other containers, the table widget sometimes narrows
-   // columns to a width less than specified by CSS (see
-   // forceCalcCellSizes). For this reason, the column widths have to
-   // be calculated in all cases.
-   if (forceValue) {
-      calcCellSizes (false);
-      width = calcAvailWidthForDescendant (child);
-   } else
-      width = -1;
+   if (isWidgetOOF(child) && (oofm = getWidgetOutOfFlowMgr(child)) &&
+       oofm->dealingWithSizeOfChild (child))
+      width = oofm->getAvailWidthOfChild (child, forceValue);
+   else {
+      // Unlike other containers, the table widget sometimes narrows
+      // columns to a width less than specified by CSS (see
+      // forceCalcCellSizes). For this reason, the column widths have to
+      // be calculated in all cases.
+      if (forceValue) {
+         calcCellSizes (false);
+         width = calcAvailWidthForDescendant (child);
+      } else
+         width = -1;
+   }
 
    DBG_OBJ_MSGF ("resize", 1, "=> %d", width);
    DBG_OBJ_LEAVE ();
@@ -306,6 +319,8 @@ void Table::containerSizeChangedForChildren ()
       }
    }
 
+   containerSizeChangedForChildrenOOF ();
+
    DBG_OBJ_LEAVE ();
 }
 
@@ -341,18 +356,22 @@ bool Table::isBlockLevel ()
    return true;
 }
 
-void Table::draw (core::View *view, core::Rectangle *area)
+void Table::drawLevel (core::View *view, core::Rectangle *area,
+                       core::StackingIteratorStack *iteratorStack,
+                       Widget **interruptedWidget, int majorLevel)
 {
-   // Can be optimized, by iterating on the lines in area.
-   drawWidgetBox (view, area, false);
+   DBG_OBJ_ENTER ("draw", 0, "Table/drawLevel", "(%d, %d, %d * %d), %s",
+                  area->x, area->y, area->width, area->height,
+                  OOFStackingIterator::majorLevelText (majorLevel));
 
 #if 0
+   // This old code belongs perhaps to the background. Check when reactivated.
    int offx = getStyle()->boxOffsetX () + getStyle()->hBorderSpacing;
    int offy = getStyle()->boxOffsetY () + getStyle()->vBorderSpacing;
    int width = getContentWidth ();
-
+   
    // This part seems unnecessary. It also segfaulted sometimes when
-   // cumHeight size was less than numRows. --jcid
+      // cumHeight size was less than numRows. --jcid
    for (int row = 0; row < numRows; row++) {
       if (rowStyle->get (row))
          drawBox (view, rowStyle->get (row), area,
@@ -363,14 +382,95 @@ void Table::draw (core::View *view, core::Rectangle *area)
    }
 #endif
 
-   for (int i = 0; i < children->size (); i++) {
-      if (childDefined (i)) {
-         Widget *child = children->get(i)->cell.widget;
-         core::Rectangle childArea;
-         if (child->intersects (area, &childArea))
-            child->draw (view, &childArea);
+   switch (majorLevel) {
+   case OOFStackingIterator::IN_FLOW:
+      {
+         OOFStackingIterator *osi =
+            (OOFStackingIterator*)iteratorStack->getTop ();
+
+         while (*interruptedWidget == NULL && osi->index < children->size ()) {
+            if (childDefined (osi->index)) {
+               Widget *child = children->get(osi->index)->cell.widget;
+               core::Rectangle childArea;
+               if (!core::StackingContextMgr::handledByStackingContextMgr
+                   (child)
+                   && child->intersects (area, &childArea))
+                  child->drawTotal (view, &childArea, iteratorStack,
+                                    interruptedWidget);
+            }
+  
+            if (*interruptedWidget == NULL)
+               osi->index++;
+         }
       }
+      break;
+
+   default:
+      OOFAwareWidget::drawLevel (view, area, iteratorStack, interruptedWidget,
+                                 majorLevel);
+      break;
    }
+
+   DBG_OBJ_MSGF ("draw", 1, "=> %p", *interruptedWidget);
+   DBG_OBJ_LEAVE ();
+}
+
+core::Widget *Table::getWidgetAtPointLevel (int x, int y,
+                                            core::StackingIteratorStack
+                                            *iteratorStack,
+                                            Widget **interruptedWidget,
+                                            int majorLevel)
+{
+   DBG_OBJ_ENTER ("events", 0, "Table/getWidgetAtPointLevel", "%d, %d, %s",
+                  x, y, OOFStackingIterator::majorLevelText (majorLevel));
+
+   Widget *widgetAtPoint = NULL;
+
+   switch (majorLevel) {
+   case OOFStackingIterator::IN_FLOW:
+      {
+         OOFStackingIterator *osi =
+            (OOFStackingIterator*)iteratorStack->getTop ();
+
+         while (widgetAtPoint == NULL && *interruptedWidget == NULL &&
+                osi->index >= 0) {
+            if (childDefined (osi->index)) {
+               Widget *child = children->get(osi->index)->cell.widget;
+               if (!core::StackingContextMgr::handledByStackingContextMgr
+                   (child))
+                  widgetAtPoint =
+                     child->getWidgetAtPointTotal (x, y, iteratorStack,
+                                                   interruptedWidget);
+            }
+  
+            if (*interruptedWidget == NULL)
+               osi->index--;
+         }
+      }
+      break;
+
+   default:
+      widgetAtPoint =
+         OOFAwareWidget::getWidgetAtPointLevel (x, y, iteratorStack,
+                                                interruptedWidget, majorLevel);
+      break;
+   }
+
+   DBG_OBJ_MSGF ("events", 1, "=> %p (i: %p)",
+                 widgetAtPoint, *interruptedWidget);
+   DBG_OBJ_LEAVE ();
+   return widgetAtPoint;
+}
+
+int Table::getLastLevelIndex (int majorLevel, int minorLevel)
+{
+   switch (majorLevel) {
+   case OOFStackingIterator::IN_FLOW:
+      return children->size () - 1;
+
+   default:
+      return OOFAwareWidget::getLastLevelIndex (majorLevel, minorLevel);
+   }   
 }
 
 void Table::removeChild (Widget *child)
@@ -465,6 +565,8 @@ void Table::addCell (Widget *widget, int colspan, int rowspan)
 
    curCol += colspanEff;
 
+   widget->parentRef = makeParentRefInFlow (0);
+   
    widget->setParent (this);
    if (rowStyle->get (curRow))
       widget->setBgColor (rowStyle->get(curRow)->backgroundColor);

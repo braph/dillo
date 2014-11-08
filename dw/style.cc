@@ -93,6 +93,7 @@ void StyleAttrs::initValues ()
    display = DISPLAY_INLINE;
    whiteSpace = WHITE_SPACE_NORMAL;
    cursor = CURSOR_DEFAULT;
+   zIndex = Z_INDEX_AUTO;
 }
 
 /**
@@ -203,6 +204,7 @@ bool StyleAttrs::equals (object::Object *other) {
        listStylePosition == otherAttrs->listStylePosition &&
        listStyleType == otherAttrs->listStyleType &&
        cursor == otherAttrs->cursor &&
+       zIndex == otherAttrs->zIndex &&
        x_link == otherAttrs->x_link &&
        x_lang[0] == otherAttrs->x_lang[0] &&
        x_lang[1] == otherAttrs->x_lang[1] &&
@@ -260,6 +262,7 @@ int StyleAttrs::hashValue () {
       listStylePosition +
       listStyleType +
       cursor +
+      zIndex +
       x_link +
       x_lang[0] + x_lang[1] +
       x_img +
@@ -381,6 +384,7 @@ void Style::copyAttrs (StyleAttrs *attrs)
    listStylePosition = attrs->listStylePosition;
    listStyleType = attrs->listStyleType;
    cursor = attrs->cursor;
+   zIndex = attrs->zIndex;
    x_link = attrs->x_link;
    x_lang[0] = attrs->x_lang[0];
    x_lang[1] = attrs->x_lang[1];
