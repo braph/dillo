@@ -32,15 +32,14 @@ Ruler::Ruler ()
 
 void Ruler::sizeRequestImpl (core::Requisition *requisition)
 {
-   requisition->width =
-      lout::misc::max (getAvailWidth (true), getStyle()->boxDiffWidth ());
-   requisition->ascent = getStyle()->boxOffsetY ();
-   requisition->descent = getStyle()->boxRestHeight ();
+   requisition->width = lout::misc::max (getAvailWidth (true), boxDiffWidth ());
+   requisition->ascent = boxOffsetY ();
+   requisition->descent = boxRestHeight ();
 }
 
 void Ruler::getExtremesImpl (core::Extremes *extremes)
 {
-   extremes->minWidth = extremes->maxWidth = getStyle()->boxDiffWidth ();
+   extremes->minWidth = extremes->maxWidth = boxDiffWidth ();
    extremes->minWidthIntrinsic = extremes->minWidth;
    extremes->maxWidthIntrinsic = extremes->maxWidth;
    correctExtremes (extremes);
@@ -63,7 +62,9 @@ bool Ruler::usesAvailWidth ()
    return true;
 }
 
-void Ruler::draw (core::View *view, core::Rectangle *area)
+void Ruler::draw (core::View *view, core::Rectangle *area,
+                  core::StackingIteratorStack *iteratorStack,
+                  Widget **interruptedWidget)
 {
    drawWidgetBox (view, area, false);
 }

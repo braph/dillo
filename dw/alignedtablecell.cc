@@ -129,6 +129,11 @@ int AlignedTableCell::applyPerHeight (int containerHeight,
    return tablecell::applyPerHeight (this, containerHeight, perHeight);
 }
 
+bool AlignedTableCell::adjustExtraSpaceWhenCorrectingRequisitionByOOF ()
+{
+   return tablecell::adjustExtraSpaceWhenCorrectingRequisitionByOOF ();
+}
+
 int AlignedTableCell::wordWrap(int wordIndex, bool wrapAll)
 {
    Textblock::Word *word;
@@ -191,7 +196,7 @@ int AlignedTableCell::getValue ()
 void AlignedTableCell::setMaxValue (int maxValue, int value)
 {
    line1Offset = maxValue - value;
-   queueResize (OutOfFlowMgr::createRefNormalFlow (0), true);
+   queueResize (makeParentRefInFlow (0), true);
 }
 
 } // namespace dw
