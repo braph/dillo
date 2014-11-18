@@ -591,7 +591,7 @@ int Textblock::wordWrap (int wordIndex, bool wrapAll)
 
    int n;
    if (word->content.type == core::Content::WIDGET_OOF_REF)
-      n = 0;
+      n = wrapWordOofRef (wordIndex, wrapAll);
    else
       n = wrapWordInFlow (wordIndex, wrapAll);
 
@@ -754,14 +754,15 @@ int Textblock::wrapWordInFlow (int wordIndex, bool wrapAll)
                           startSearch, breakPos);
             for (int i = startSearch; newFloatPos == -1 && i <= breakPos; i++) {
                core::Content *content = &(words->getRef(i)->content);
-               if (content->type == core::Content::WIDGET_OOF_REF &&
-                   // Later, absolutepositioned elements (which do not affect
-                   // borders) can be ignored at this point.
-                   (containingBlock->outOfFlowMgr->affectsLeftBorder
-                    (content->widget) ||
-                    containingBlock->outOfFlowMgr->affectsRightBorder
-                    (content->widget)))
-                  newFloatPos = i;
+               if (content->type == core::Content::WIDGET_OOF_REF) {
+                  for (int j = 0; newFloatPos == -1 && j < NUM_OOFM; j++) {
+                     if ((searchOutOfFlowMgr(j)->affectsLeftBorder(content
+                                                                   ->widget) ||
+                          searchOutOfFlowMgr(j)->affectsRightBorder (content
+                                                                     ->widget)))
+                        newFloatPos = i;
+                  }
+               }
             }
 
             DBG_OBJ_MSGF ("construct.word", 2, "newFloatPos = %d", newFloatPos);
@@ -772,10 +773,17 @@ int Textblock::wrapWordInFlow (int wordIndex, bool wrapAll)
                floatHandled = true;
 
                // Step 2: position the float and re-calculate the line.
-               lastFloatPos = newFloatPos;
 
-               containingBlock->outOfFlowMgr->tellPosition
-                  (words->getRef(lastFloatPos)->content.widget, yNewLine);
+               // TODO "x" is not quite correct, but this does not matter
+               // (currently?).
+
+               lastFloatPos = newFloatPos;
+               
+               Widget *widget = words->getRef(lastFloatPos)->content.widget;
+               oof::OutOfFlowMgr *oofm =
+                  searchOutOfFlowMgr (getWidgetOOFIndex (widget));
+               if (oofm && oofm->mayAffectBordersAtAll ())
+                  oofm->tellPosition (widget, boxOffsetX (), yNewLine);
 
                balanceBreakPosAndHeight (wordIndex, firstIndex, &searchUntil,
                                          tempNewLine, penaltyIndex, false,
@@ -841,8 +849,7 @@ int Textblock::wrapWordInFlow (int wordIndex, bool wrapAll)
          firstWordWithoutLine = lines->getLastRef()->lastWord + 1;
 
       if (wordIndex >= firstWordWithoutLine) {
-         word->content.widget->parentRef =
-            OutOfFlowMgr::createRefNormalFlow (lines->size ());
+         word->content.widget->parentRef = makeParentRefInFlow (lines->size ());
          DBG_OBJ_SET_NUM_O (word->content.widget, "parentRef",
                             word->content.widget->parentRef);
       }
@@ -851,6 +858,29 @@ int Textblock::wrapWordInFlow (int wordIndex, bool wrapAll)
    DBG_OBJ_LEAVE ();
 
    return diffWords;
+}
+
+int Textblock::wrapWordOofRef (int wordIndex, bool wrapAll)
+{
+   DBG_OBJ_ENTER ("construct.word", 0, "wrapWordOofRef", "%d, %s",
+                  wordIndex, wrapAll ? "true" : "false");
+
+   Word *word = words->getRef (wordIndex);
+   Widget *widget = word->content.widget;
+   int yNewLine = yOffsetOfLineToBeCreated ();
+
+   // Floats, which affect either border, are handled in wrapWordInFlow; this
+   // is rather for positioned elements.
+   oof::OutOfFlowMgr *oofm = searchOutOfFlowMgr (getWidgetOOFIndex (widget));
+   DBG_OBJ_MSGF ("construct.word", 1, "parentRef = %d, oofm = %p",
+                 widget->parentRef, oofm);
+   if (oofm && !oofm->mayAffectBordersAtAll ())
+      // TODO Again, "x" is not correct (see above).
+      oofm->tellPosition (widget, boxOffsetX (), yNewLine);
+
+   DBG_OBJ_LEAVE ();
+
+   return 0; // Words list not changed.
 }
 
 // *height must be initialized, but not *breakPos.
@@ -1434,8 +1464,9 @@ void Textblock::moveWordIndices (int wordIndex, int num, int *addIndex1)
    DBG_OBJ_ENTER ("construct.word", 0, "moveWordIndices", "%d, %d",
                  wordIndex, num);
 
-   if (containingBlock->outOfFlowMgr)
-      containingBlock->outOfFlowMgr->moveExternalIndices (this, wordIndex, num);
+   for (int i = 0; i < NUM_OOFM; i++)
+      if (searchOutOfFlowMgr(i))
+         searchOutOfFlowMgr(i)->moveExternalIndices (this, wordIndex, num);
 
    for (int i = lines->size () - 1; i >= 0; i--) {
       Line *line = lines->getRef (i);
@@ -1507,8 +1538,7 @@ void Textblock::accumulateWordForLine (int lineIndex, int wordIndex)
       borderDescent =
          marginDescent - word->content.widget->getStyle()->margin.bottom;
 
-      word->content.widget->parentRef =
-         OutOfFlowMgr::createRefNormalFlow (lineIndex);
+      word->content.widget->parentRef = makeParentRefInFlow (lineIndex);
       DBG_OBJ_SET_NUM_O (word->content.widget, "parentRef",
                          word->content.widget->parentRef);
    } else {
@@ -1634,8 +1664,7 @@ int Textblock::calcLineBreakWidth (int lineIndex)
    if (limitTextWidth &&
        layout->getUsesViewport () &&
        // margin/border/padding will be subtracted later,  via OOFM.
-       lineBreakWidth - getStyle()->boxDiffWidth()
-       > layout->getWidthViewport () - 10)
+       lineBreakWidth - boxDiffWidth() > layout->getWidthViewport () - 10)
       lineBreakWidth = layout->getWidthViewport () - 10;
    if (lineIndex == 0)
       lineBreakWidth -= line1OffsetEff;
@@ -1647,8 +1676,8 @@ int Textblock::calcLineBreakWidth (int lineIndex)
    } else
       leftBorder = rightBorder = 0;
 
-   leftBorder = misc::max (leftBorder, getStyle()->boxOffsetX());
-   rightBorder = misc::max (rightBorder, getStyle()->boxRestWidth());
+   leftBorder = misc::max (leftBorder, boxOffsetX());
+   rightBorder = misc::max (rightBorder, boxRestWidth());
 
    lineBreakWidth -= (leftBorder + rightBorder);
 
@@ -1922,17 +1951,6 @@ void Textblock::initNewLine ()
 {
    DBG_OBJ_ENTER0 ("construct.line", 0, "initNewLine");
 
-   // At the very beginning, in Textblock::Textblock, where this
-   // method is called, containingBlock is not yet defined.
-
-   if (containingBlock && containingBlock->outOfFlowMgr) {
-      if (lines->size () == 0) {
-         int clearPosition =
-            containingBlock->outOfFlowMgr->getClearPosition (this);
-         setVerticalOffset (misc::max (clearPosition, 0));
-      }
-   }
-
    calcBorders (lines->size() > 0 ?
                 lines->getLastRef()->lastOofRefPositionedBeforeThisLine : -1,
                 1);
@@ -1950,81 +1968,97 @@ void Textblock::calcBorders (int lastOofRef, int height)
    DBG_OBJ_ENTER ("construct.line", 0, "calcBorders", "%d, %d",
                  lastOofRef, height);
 
-   if (containingBlock && containingBlock->outOfFlowMgr) {
-      // Consider the example:
-      //
-      // <div>
-      //   Some text A ...
-      //   <p> Some text B ... <img style="float:right" ...> </p>
-      //   Some more text C ...
-      // </div>
-      //
-      // If the image is large enough, it should float around the last
-      // paragraph, "Some more text C ...":
-      //
-      //    Some more text A ...
-      //
-      //    Some more  ,---------.
-      //    text B ... |         |
-      //               |  <img>  |
-      //    Some more  |         | <---- Consider this line!
-      //    text C ... '---------'
-      //
-      // Since this float is generated in the <p> element, not in the-
-      // <div> element, and since they are represented by different
-      // instances of dw::Textblock, lastOofRefPositionedBeforeThisLine,
-      // and so lastOofRef, is -1 for the line marked with an arrow;
-      // this would result in ignoring the float, because -1 is
-      // equivalent to the very beginning of the <div> element ("Some
-      // more text A ..."), which is not affected by the float.
-      //
-      // On the other hand, the only relevant values of
-      // Line::lastOofRefPositionedBeforeThisLine are those greater
-      // than the first word of the new line, so a solution is to use
-      // the maximum of both.
+   newLineHasFloatLeft = newLineHasFloatRight = false;
+   newLineLeftBorder = newLineRightBorder = 0;
+   newLineLeftFloatHeight = newLineRightFloatHeight = 0;
 
+   bool oofmDefined = false;
+   for (int i = 0; i < NUM_OOFM && !oofmDefined; i++)
+      if (searchOutOfFlowMgr(i))
+         oofmDefined = true;
 
-      int firstWordOfLine = lines->size() > 0 ?
-         lines->getLastRef()->lastWord + 1 : 0;
+   if (oofmDefined) {
+      int firstWordOfLine =
+         lines->size() > 0 ? lines->getLastRef()->lastWord + 1 : 0;
       int effOofRef = misc::max (lastOofRef, firstWordOfLine - 1);
-
       int y = yOffsetOfLineToBeCreated ();
+           
+      for (int i = 0; i < NUM_OOFM; i++) {
+         oof::OutOfFlowMgr *oofm = searchOutOfFlowMgr(i);
+         if (oofm) {
+            // Consider the example:
+            //
+            // <div>
+            //   Some text A ...
+            //   <p> Some text B ... <img style="float:right" ...> </p>
+            //   Some more text C ...
+            // </div>
+            //
+            // If the image is large enough, it should float around the last
+            // paragraph, "Some more text C ...":
+            //
+            //    Some more text A ...
+            //
+            //    Some more  ,---------.
+            //    text B ... |         |
+            //               |  <img>  |
+            //    Some more  |         | <---- Consider this line!
+            //    text C ... '---------'
+            //
+            // Since this float is generated in the <p> element, not in the-
+            // <div> element, and since they are represented by different
+            // instances of dw::Textblock, lastOofRefPositionedBeforeThisLine,
+            // and so lastOofRef, is -1 for the line marked with an arrow;
+            // this would result in ignoring the float, because -1 is
+            // equivalent to the very beginning of the <div> element ("Some
+            // more text A ..."), which is not affected by the float.
+            //
+            // On the other hand, the only relevant values of
+            // Line::lastOofRefPositionedBeforeThisLine are those greater
+            // than the first word of the new line, so a solution is to use
+            // the maximum of both.
 
-      newLineHasFloatLeft =
-         containingBlock->outOfFlowMgr->hasFloatLeft (this, y, height, this,
-                                                      effOofRef);
-      newLineHasFloatRight =
-         containingBlock->outOfFlowMgr->hasFloatRight (this, y, height, this,
-                                                       effOofRef);
-      newLineLeftBorder =
-         containingBlock->outOfFlowMgr->getLeftBorder (this, y, height, this,
-                                                       effOofRef);
-      newLineRightBorder =
-         containingBlock->outOfFlowMgr->getRightBorder (this, y, height, this,
-                                                        effOofRef);
-      newLineLeftFloatHeight = newLineHasFloatLeft ?
-         containingBlock->outOfFlowMgr->getLeftFloatHeight (this, y, height,
-                                                            this, effOofRef) :
-         0;
-      newLineRightFloatHeight = newLineHasFloatRight ?
-         containingBlock->outOfFlowMgr->getRightFloatHeight (this, y, height,
-                                                             this, effOofRef) :
-         0;
-
-      DBG_OBJ_MSGF ("construct.line", 1,
-                    "%d * %d (%s) / %d * %d (%s), at %d (%d), until %d = "
-                    "max (%d, %d - 1)",
-                    newLineLeftBorder, newLineLeftFloatHeight,
-                    newLineHasFloatLeft ? "true" : "false",
-                    newLineRightBorder, newLineRightFloatHeight,
-                    newLineHasFloatRight ? "true" : "false",
-                    y, height, effOofRef, lastOofRef, firstWordOfLine);
-   } else {
-      newLineHasFloatLeft = newLineHasFloatRight = false;
-      newLineLeftBorder = newLineRightBorder = 0;
-      newLineLeftFloatHeight = newLineRightFloatHeight = 0;
-
-      DBG_OBJ_MSG ("construct.line", 0, "<i>no CB of OOFM</i>");
+            bool thisHasLeft, thisHasRight;
+            
+            thisHasLeft = oofm->hasFloatLeft (this, y, height, this, effOofRef);
+            newLineHasFloatLeft = newLineHasFloatLeft || thisHasLeft;
+            thisHasRight = oofm->hasFloatRight (this, y, height, this,
+                                                effOofRef);
+            newLineHasFloatRight = newLineHasFloatRight || thisHasRight;
+            
+            newLineLeftBorder =
+               misc::max (newLineLeftBorder,
+                          oofm->getLeftBorder (this, y, height, this,
+                                               effOofRef));
+            newLineRightBorder =
+               misc::max (newLineRightBorder,
+                          oofm->getRightBorder (this, y, height, this,
+                                                effOofRef));
+            
+            // TODO "max" is not really correct for the heights. (Does
+            // not matter, since only one, the float manager, returns
+            // meaningful values.)
+            if (thisHasLeft)
+               newLineLeftFloatHeight =
+                  misc::max (newLineLeftFloatHeight,
+                             oofm->getLeftFloatHeight (this, y, height, this,
+                                                       effOofRef));
+            if (thisHasRight)
+               newLineRightFloatHeight = 
+                  misc::max (newLineRightFloatHeight,
+                             oofm->getRightFloatHeight (this, y, height, this,
+                                                        effOofRef));
+            
+            DBG_OBJ_MSGF ("construct.line", 1,
+                          "OOFM #%d: %d * %d (%s) / %d * %d (%s), at %d (%d), "
+                          "until %d = max (%d, %d - 1)",
+                          i, newLineLeftBorder, newLineLeftFloatHeight,
+                          newLineHasFloatLeft ? "true" : "false",
+                          newLineRightBorder, newLineRightFloatHeight,
+                          newLineHasFloatRight ? "true" : "false",
+                          y, height, effOofRef, lastOofRef, firstWordOfLine);
+         }
+      }
    }
 
    DBG_OBJ_SET_BOOL ("newLineHasFloatLeft", newLineHasFloatLeft);
