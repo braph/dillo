@@ -44,7 +44,9 @@ public:
    SimpleContainer ();
    ~SimpleContainer ();
 
-   void draw (core::View *view, core::Rectangle *area);
+   void draw (core::View *view, core::Rectangle *area,
+              core::StackingIteratorStack *iteratorStack,
+              Widget **interruptedWidget);
    core::Iterator *iterator (core::Content::Type mask, bool atEnd);
    void removeChild (Widget *child);
 

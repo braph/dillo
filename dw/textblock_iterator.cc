@@ -33,173 +33,48 @@ namespace dw {
 Textblock::TextblockIterator::TextblockIterator (Textblock *textblock,
                                                  core::Content::Type mask,
                                                  bool atEnd):
-   core::Iterator (textblock, mask, atEnd)
+   OOFAwareWidgetIterator (textblock, mask, atEnd, textblock->words->size ())
 {
-   if (atEnd) {
-      if (textblock->outOfFlowMgr) {
-         oofm = true;
-         index = textblock->outOfFlowMgr->getNumWidgets();
-      } else {
-         oofm = false;
-         index = textblock->words->size();
-      }
-   } else {
-      oofm = false;
-      index = -1;
-   }
-
-   content.type = atEnd ? core::Content::END : core::Content::START;
 }
 
-Textblock::TextblockIterator::TextblockIterator (Textblock *textblock,
-                                                 core::Content::Type mask,
-                                                 bool oofm, int index):
-   core::Iterator (textblock, mask, false)
+Textblock::TextblockIterator
+   *Textblock::TextblockIterator::createWordIndexIterator (Textblock *textblock,
+                                                           core::Content::Type
+                                                           mask,
+                                                           int wordIndex)
 {
-   this->oofm = oofm;
-   this->index = index;
-
-   // TODO To be completely exact, oofm should be considered here.
-   if (index < 0)
-      content.type = core::Content::START;
-   else if (index >= textblock->words->size())
-      content.type = core::Content::END;
-   else
-      content = textblock->words->getRef(index)->content;
+   TextblockIterator *tbIt = new TextblockIterator (textblock, mask, false);
+   tbIt->setValues (0, wordIndex);
+   return tbIt;
 }
 
 object::Object *Textblock::TextblockIterator::clone()
 {
-   return
-      new TextblockIterator ((Textblock*)getWidget(), getMask(), oofm, index);
-}
-
-int Textblock::TextblockIterator::compareTo(object::Comparable *other)
-{
-   TextblockIterator *otherTI = (TextblockIterator*)other;
-
-   if (oofm && !otherTI->oofm)
-      return +1;
-   else if (!oofm && otherTI->oofm)
-      return -1;
-   else
-      return index - otherTI->index;
-}
-
-bool Textblock::TextblockIterator::next ()
-{
-   Textblock *textblock = (Textblock*)getWidget();
-
-   if (content.type == core::Content::END)
-      return false;
-
-   short type;
-
-   do {
-      index++;
-
-      if (oofm) {
-         // Iterating over OOFM.
-         if (index >= textblock->outOfFlowMgr->getNumWidgets()) {
-            // End of OOFM list reached.
-            content.type = core::Content::END;
-            return false;
-         }
-         type = core::Content::WIDGET_OOF_CONT;
-      } else {
-         // Iterating over words list.
-         if (index < textblock->words->size ())
-            // Still words left.
-            type = textblock->words->getRef(index)->content.type;
-         else {
-            // End of words list reached.
-            if (textblock->outOfFlowMgr) {
-               oofm = true;
-               index = 0;
-               if (textblock->outOfFlowMgr->getNumWidgets() > 0)
-                  // Start with OOFM widgets.
-                  type = core::Content::WIDGET_OOF_CONT;
-               else {
-                  // No OOFM widgets (number is 0).
-                  content.type = core::Content::END;
-                  return false;
-               }
-            } else {
-               // No OOFM widgets (no OOFM agt all).
-               content.type = core::Content::END;
-               return false;
-            }
-         }
-      }
-   } while ((type & getMask()) == 0);
-
-   if (oofm) {
-      content.type = core::Content::WIDGET_OOF_CONT;
-      content.widget = textblock->outOfFlowMgr->getWidget (index);
-   } else
-      content = textblock->words->getRef(index)->content;
-
-   return true;
-}
-
-bool Textblock::TextblockIterator::prev ()
-{
-   Textblock *textblock = (Textblock*)getWidget();
-
-   if (content.type == core::Content::START)
-      return false;
-
-   short type;
-
-   do {
-      index--;
-
-      if (oofm) {
-         // Iterating over OOFM.
-         if (index >= 0)
-            // Still widgets left.
-            type = core::Content::WIDGET_OOF_CONT;
-         else {
-            // Beginning of OOFM list reached. Continue with words.
-            oofm = false;
-            index = textblock->words->size() - 1;
-            if (index < 0) {
-               // There are no words. (Actually, this case should not
-               // happen: When there are OOF widgets, ther must be OOF
-               // references, or widgets in flow, which contain
-               // references.
-               content.type = core::Content::END;
-               return false;
-            }
-            type = textblock->words->getRef(index)->content.type;
-         }
-      } else {
-         // Iterating over words list.
-         if (index < 0) {
-            // Beginning of words list reached.
-            content.type = core::Content::START;
-            return false;
-         }
-         type = textblock->words->getRef(index)->content.type;
-      }
-   } while ((type & getMask()) == 0);
-
-   if (oofm) {
-      content.type = core::Content::WIDGET_OOF_CONT;
-      content.type = false;
-      content.widget = textblock->outOfFlowMgr->getWidget (index);
-   } else
-      content = textblock->words->getRef(index)->content;
-
-   return true;
+   TextblockIterator *tbIt =
+      new TextblockIterator ((Textblock*)getWidget(), getMask(), false);
+   cloneValues (tbIt);
+   return tbIt;
 }
 
 void Textblock::TextblockIterator::highlight (int start, int end,
                                               core::HighlightLayer layer)
 {
-   if (!oofm) {
+   DBG_OBJ_ENTER_O ("iterator", 0, getWidget (), "TextblockIterator/highlight",
+                    "..., %d, %d, %d", start, end, layer);
+
+   DBG_IF_RTFL {
+      misc::StringBuffer sb;
+      intoStringBuffer (&sb);
+      DBG_OBJ_MSGF_O ("iterator", 1, getWidget (), "iterator: %s",
+                      sb.getChars ());
+   }
+
+   if (inFlow ()) {
+      DBG_OBJ_MSGF_O ("iterator", 1, getWidget (), "in-flow index: %d",
+                      getInFlowIndex ());
+
       Textblock *textblock = (Textblock*)getWidget();
-      int index1 = index, index2 = index;
+      int index = getInFlowIndex (), index1 = index, index2 = index;
 
       int oldStartIndex = textblock->hlStart[layer].index;
       int oldStartChar = textblock->hlStart[layer].nChar;
@@ -224,22 +99,46 @@ void Textblock::TextblockIterator::highlight (int start, int end,
          textblock->hlEnd[layer].nChar = end;
       }
 
+      DBG_OBJ_ARRATTRSET_NUM_O (textblock, "hlStart", layer, "index",
+                                textblock->hlStart[layer].index);
+      DBG_OBJ_ARRATTRSET_NUM_O (textblock, "hlStart", layer, "nChar",
+                                textblock->hlStart[layer].nChar);
+      DBG_OBJ_ARRATTRSET_NUM_O (textblock, "hlEnd", layer, "index",
+                                textblock->hlEnd[layer].index);
+      DBG_OBJ_ARRATTRSET_NUM_O (textblock, "hlEnd", layer, "nChar",
+                                textblock->hlEnd[layer].nChar);
+
       if (oldStartIndex != textblock->hlStart[layer].index ||
           oldStartChar != textblock->hlStart[layer].nChar ||
           oldEndIndex != textblock->hlEnd[layer].index ||
           oldEndChar != textblock->hlEnd[layer].nChar)
          textblock->queueDrawRange (index1, index2);
-   }
+   } else
+      highlightOOF (start, end, layer);
 
-   // TODO What about OOF widgets?
+      DBG_OBJ_LEAVE_O (getWidget ());
 }
 
 void Textblock::TextblockIterator::unhighlight (int direction,
                                                 core::HighlightLayer layer)
 {
-   if (!oofm) {
+   DBG_OBJ_ENTER_O ("iterator", 0, getWidget (),
+                    "TextblockIterator/unhighlight", "..., %d, %d",
+                    direction, layer);
+
+   DBG_IF_RTFL {
+      misc::StringBuffer sb;
+      intoStringBuffer (&sb);
+      DBG_OBJ_MSGF_O ("iterator", 1, getWidget (), "iterator: %s",
+                      sb.getChars ());
+   }
+
+   if (inFlow ()) {
+      DBG_OBJ_MSGF_O ("iterator", 1, getWidget (), "in-flow index: %d",
+                      getInFlowIndex ());
+
       Textblock *textblock = (Textblock*)getWidget();
-      int index1 = index, index2 = index;
+      int index = getInFlowIndex (), index1 = index, index2 = index;
 
       if (textblock->hlStart[layer].index > textblock->hlEnd[layer].index)
          return;
@@ -264,26 +163,33 @@ void Textblock::TextblockIterator::unhighlight (int direction,
          textblock->hlEnd[layer].nChar = INT_MAX;
       }
 
+      DBG_OBJ_ARRATTRSET_NUM_O (textblock, "hlStart", layer, "index",
+                                textblock->hlStart[layer].index);
+      DBG_OBJ_ARRATTRSET_NUM_O (textblock, "hlStart", layer, "nChar",
+                                textblock->hlStart[layer].nChar);
+      DBG_OBJ_ARRATTRSET_NUM_O (textblock, "hlEnd", layer, "index",
+                                textblock->hlEnd[layer].index);
+      DBG_OBJ_ARRATTRSET_NUM_O (textblock, "hlEnd", layer, "nChar",
+                                textblock->hlEnd[layer].nChar);
+
       if (oldStartIndex != textblock->hlStart[layer].index ||
           oldStartChar != textblock->hlStart[layer].nChar ||
           oldEndIndex != textblock->hlEnd[layer].index ||
           oldEndChar != textblock->hlEnd[layer].nChar)
          textblock->queueDrawRange (index1, index2);
-   }
+   } else
+      unhighlightOOF (direction, layer);
 
-   // TODO What about OOF widgets?
+   DBG_OBJ_LEAVE_O (getWidget ());
 }
 
 void Textblock::TextblockIterator::getAllocation (int start, int end,
                                                   core::Allocation *allocation)
 {
-   Textblock *textblock = (Textblock*)getWidget();
+   if (inFlow ()) {
+      Textblock *textblock = (Textblock*)getWidget();
 
-   if (oofm) {
-      // TODO Consider start and end?
-      *allocation =
-         *(textblock->outOfFlowMgr->getWidget(index)->getAllocation());
-   } else {
+      int index = getInFlowIndex ();
       Word *word = textblock->words->getRef (index);
       int firstWordOfLine, textOffset, lineYOffsetCanvas, lineBorderAscent;
 
@@ -360,14 +266,19 @@ void Textblock::TextblockIterator::getAllocation (int start, int end,
       }
       allocation->ascent = word->size.ascent;
       allocation->descent = word->size.descent;
-   }
+   } else
+      getAllocationOOF (start, end, allocation);
 }
 
-void Textblock::TextblockIterator::print ()
+int Textblock::TextblockIterator::numContentsInFlow ()
 {
-   Iterator::print ();
-   printf (", oofm = %s, index = %d", oofm ? "true" : "false", index);
+   return ((Textblock*)getWidget())->words->size ();
+}
 
+void Textblock::TextblockIterator::getContentInFlow (int index,
+                                                     core::Content *content)
+{
+   *content = ((Textblock*)getWidget())->words->getRef(index)->content;
 }
 
 } // namespace dw
