@@ -204,14 +204,6 @@ void Iterator::scrollTo (Iterator *it1, Iterator *it2, int start, int end,
    }
 }
 
-
-void Iterator::print ()
-{
-   misc::StringBuffer sb;
-   intoStringBuffer (&sb);
-   printf ("%s", sb.getChars ());
-}
-
 // -------------------
 //    EmptyIterator
 // -------------------
@@ -904,6 +896,69 @@ void CharIterator::unhighlight (CharIterator *it1, CharIterator *it2,
          it->unhighlight (-1, layer);
       delete it;
    }
+}
+
+// ---------------------------
+//    StackingIteratorStack
+// ---------------------------
+
+StackingIteratorStack::StackingIteratorStack ()
+{
+   vector = new lout::container::untyped::Vector (1, true);
+   topPos = -1;
+}
+
+StackingIteratorStack::~StackingIteratorStack ()
+{
+   delete vector;
+}
+
+void StackingIteratorStack::intoStringBuffer(lout::misc::StringBuffer *sb)
+{
+   sb->append ("[ ");
+
+   for (int i = 0; i < vector->size (); i++) {
+      if (i != 0)
+         sb->append (" ");
+      if (i == topPos)
+         sb->append ("<b>");
+      vector->get(i)->intoStringBuffer (sb);
+      if (i == topPos)
+         sb->append ("</b>");
+   }
+
+   sb->append (" ]");
+}
+
+void StackingIteratorStack::push (lout::object::Object *object)
+{
+   assert (atRealTop ());
+   vector->put (object);
+   topPos++;
+}
+
+void StackingIteratorStack::pop ()
+{
+   assert (atRealTop ());
+   vector->remove (vector->size () - 1);
+   topPos--;
+}
+
+void StackingIteratorStack::forward ()
+{
+   assert (!atRealTop ());
+   topPos++;
+}
+
+void StackingIteratorStack::backward ()
+{
+   topPos--;
+}
+
+void StackingIteratorStack::cleanup ()
+{
+   while (!atRealTop ())
+      vector->remove (vector->size () - 1);
 }
 
 } // namespace core
