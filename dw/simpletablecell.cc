@@ -126,4 +126,9 @@ int SimpleTableCell::applyPerHeight (int containerHeight,
    return tablecell::applyPerHeight (this, containerHeight, perHeight);
 }
 
+bool SimpleTableCell::adjustExtraSpaceWhenCorrectingRequisitionByOOF ()
+{
+   return tablecell::adjustExtraSpaceWhenCorrectingRequisitionByOOF ();
+}
+
 } // namespace dw

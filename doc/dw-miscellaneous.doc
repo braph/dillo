@@ -1,0 +1,36 @@
+/** \page dw-miscellaneous Miscellaneous Notes on Dw
+
+This is a barely sorted list of issues which I consider noteworthy,
+but have yet to be moved to other parts of the documentation (which is
+partly to be created).
+
+General
+=======
+
+A **widget allocation outside of the allocation of the parent** is
+allowed, but the part outside is not visible.
+
+**Interrupted drawing:** \ref dw-interrupted-drawing.
+
+
+Floats
+======
+
+**Handling collisions:** The CSS specification allows two strategies
+to deal with colliding floats: placing the second float beside or
+below the first one. Many other browsers implement the first approach,
+while dillo implements the second one, which may cause problems when
+the author assumes the first. Example: the "tabs" at the top of every
+page at Wikipedia ("Article", "Talk", ...).
+
+
+Positioned elements
+===================
+
+**Positioned elements outside of the container:** ...
+
+**Relative positions:** ...
+
+**Fixed positions:** ...
+
+*/

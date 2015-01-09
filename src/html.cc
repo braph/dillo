@@ -382,7 +382,7 @@ static void Html_add_textblock(DilloHtml *html, bool addBreaks, int breakSpace,
 
 static bool Html_will_textblock_be_out_of_flow(DilloHtml *html)
 {
-   return HT2TB(html)->isStyleOutOfFlow (html->style ());
+   return HT2TB(html)->testStyleOutOfFlow (html->style ());
 }
 
 /*

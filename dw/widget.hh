@@ -180,18 +180,35 @@ protected:
    Allocation allocation;
 
    inline int getHeight () { return allocation.ascent + allocation.descent; }
-   inline int getContentWidth() { return allocation.width
-                                     - style->boxDiffWidth (); }
-   inline int getContentHeight() { return getHeight ()
-                                      - style->boxDiffHeight (); }
+   inline int getContentWidth() { return allocation.width - boxDiffWidth (); }
+   inline int getContentHeight() { return getHeight () - boxDiffHeight (); }
 
    Layout *layout;
 
    /**
     * \brief Space around the margin box. Allocation is extraSpace +
-    *    margin + border + padding + contents;
+    *    margin + border + padding + contents.
+    *
+    * See also dw::core::Widget::calcExtraSpace and
+    * dw::core::Widget::calcExtraSpaceImpl. Also, it is feasible to
+    * correct this value within dw::core::Widget::sizeRequestImpl.
     */
    style::Box extraSpace;
+
+   /**
+    * \brief Set iff this widget constitutes a stacking context, as defined by
+    *    CSS.
+    */
+   StackingContextMgr *stackingContextMgr;
+
+   /**
+    * \brief The bottom-most ancestor (or this) for which stackingContextMgr is
+    *    set.
+    */
+   Widget *stackingContextWidget;
+
+   inline StackingContextMgr *getNextStackingContextMgr ()
+   { return stackingContextWidget->stackingContextMgr; }
 
    /*inline void printFlags () {
       DBG_IF_RTFL {
@@ -254,7 +271,6 @@ protected:
    inline void unsetFlags (Flags f)
    { flags = (Flags)(flags & ~f); printFlag (f); }
 
-
    inline void queueDraw ()
    { queueDrawArea (0, 0, allocation.width, getHeight()); }
    void queueDrawArea (int x, int y, int width, int height);
@@ -270,6 +286,8 @@ protected:
     * \brief See \ref dw-widget-sizes.
     */
    virtual void getExtremesImpl (Extremes *extremes) = 0;
+
+   virtual void calcExtraSpaceImpl ();
 
    /**
     * \brief See \ref dw-widget-sizes.
@@ -291,8 +309,6 @@ protected:
     * \brief See \ref dw-widget-sizes.
     */
    virtual void markExtremesChange (int ref);
-
-   int getMinWidth (Extremes *extremes, bool forceValue);
 
    virtual int getAvailWidthOfChild (Widget *child, bool forceValue);
    virtual int getAvailHeightOfChild (Widget *child, bool forceValue);
@@ -426,6 +442,8 @@ public:
    void getExtremes (Extremes *extremes);
    void sizeAllocate (Allocation *allocation);
 
+   void calcExtraSpace ();
+
    int getAvailWidth (bool forceValue);
    int getAvailHeight (bool forceValue);
    virtual bool getAdjustMinWidth () { return Widget::adjustMinWidth; }
@@ -442,6 +460,8 @@ public:
    virtual int applyPerWidth (int containerWidth, style::Length perWidth);
    virtual int applyPerHeight (int containerHeight, style::Length perHeight);
 
+   int getMinWidth (Extremes *extremes, bool forceValue);
+
    virtual bool isBlockLevel ();
    virtual bool isPossibleContainer ();
 
@@ -450,7 +470,21 @@ public:
    bool intersects (Rectangle *area, Rectangle *intersection);
 
    /** Area is given in widget coordinates. */
-   virtual void draw (View *view, Rectangle *area) = 0;
+   virtual void draw (View *view, Rectangle *area,
+                      StackingIteratorStack *iteratorStack,
+                      Widget **interruptedWidget) = 0;
+   void drawTotal (View *view, Rectangle *area,
+                   StackingIteratorStack *iteratorStack,
+                   Widget **interruptedWidget);
+   void drawToplevel (View *view, Rectangle *area);
+
+   virtual Widget *getWidgetAtPoint (int x, int y,
+                                     StackingIteratorStack *iteratorStack,
+                                     Widget **interruptedWidget);
+   Widget *getWidgetAtPointTotal (int x, int y,
+                                  StackingIteratorStack *iteratorStack,
+                                  Widget **interruptedWidget);
+   Widget *getWidgetAtPointToplevel (int x, int y);
 
    bool buttonPress (EventButton *event);
    bool buttonRelease (EventButton *event);
@@ -481,11 +515,11 @@ public:
 
    inline Layout *getLayout () { return layout; }
 
-   virtual Widget *getWidgetAtPoint (int x, int y, int level);
-
    void scrollTo (HPosition hpos, VPosition vpos,
                   int x, int y, int width, int height);
 
+   void getMarginArea (int *xMar, int *yMar, int *widthMar, int *heightMar);
+   void getBorderArea (int *xBor, int *yBor, int *widthBor, int *heightBor);
    void getPaddingArea (int *xPad, int *yPad, int *widthPad, int *heightPad);
 
    /**
@@ -502,6 +536,14 @@ public:
     * dw::core::Iterator::prev in this case.
     */
    virtual Iterator *iterator (Content::Type mask, bool atEnd) = 0;
+
+   /**
+    * \brief ...
+    *
+    * May return NULL.
+    */
+   virtual lout::object::Object *stackingIterator (bool atEnd);
+
    virtual void removeChild (Widget *child);
 };
 
