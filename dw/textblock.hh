@@ -4,7 +4,6 @@
 #include <limits.h>
 
 #include "regardingborder.hh"
-#include "outofflowmgr.hh"
 #include "../lout/misc.hh"
 
 // These were used when improved line breaking and hyphenation were implemented.
@@ -24,10 +23,9 @@ namespace dw {
  *
  * <div style="border: 2px solid #ffff00; margin-top: 0.5em;
  * margin-bottom: 0.5em; padding: 0.5em 1em; background-color:
- * #ffffe0"><b>Info:</b> The recent changes (line breaking and
- * hyphenation on one hand, floats on the other hand) have not yet
- * been incorporated into this documentation. See \ref
- * dw-line-breaking and \ref dw-out-of-flow.</div>
+ * #ffffe0"><b>Info:</b> Some (not so) recent changes, line breaking
+ * and hyphenation, have not yet been incorporated into this
+ * documentation. See \ref dw-line-breaking.</div>
  *
  * <h3>Signals</h3>
  *
@@ -164,11 +162,11 @@ namespace dw {
  * Anchors associate the anchor name with the index of the next word at
  * the point of the anchor.
  *
- * <h4>Incremental Resizing</h4>
+ * <h3>Incremental Resizing</h3>
  *
  * dw::Textblock makes use of incremental resizing as described in \ref
  * dw-widget-sizes. The parentRef is, for children of a dw::Textblock, simply
- * the number of the line.
+ * the number of the line. [<b>Update:</b> Incorrect; see \ref dw-out-of-flow.]
  *
  * Generally, there are three cases which may change the size of the
  * widget:
@@ -195,6 +193,12 @@ namespace dw {
  * dw::Textblock, which has the value -1 if no rewrapping of lines
  * necessary, or otherwise the line from which a rewrap is necessary.
  *
+ * <h3>Widgets Ouf Of Flow</h3>
+ *
+ * See
+ *
+ * - dw::oof::OOFAwareWidget (base class) and
+ * - \ref dw-out-of-flow.
  */
 class Textblock: public RegardingBorder
 {
@@ -290,10 +294,8 @@ private:
 
    static const char *hyphenDrawChar;
 
-   Textblock *containingBlock;
-   OutOfFlowMgr *outOfFlowMgr;
-
 protected:
+
    /**
     * \brief Implementation used for words.
     */
@@ -507,27 +509,24 @@ protected:
       int wordIndex;
    };
 
-   class TextblockIterator: public core::Iterator
+   class TextblockIterator: public OOFAwareWidgetIterator
    {
-   private:
-      bool oofm;
-      int index;
+   protected:
+      int numContentsInFlow ();
+      void getContentInFlow (int index, core::Content *content);
 
    public:
       TextblockIterator (Textblock *textblock, core::Content::Type mask,
                          bool atEnd);
-      TextblockIterator (Textblock *textblock, core::Content::Type mask,
-                         bool oofm, int index);
+
+      static TextblockIterator *createWordIndexIterator
+        (Textblock *textblock, core::Content::Type mask, int wordIndex);
 
       lout::object::Object *clone();
-      int compareTo(lout::object::Comparable *other);
 
-      bool next ();
-      bool prev ();
       void highlight (int start, int end, core::HighlightLayer layer);
       void unhighlight (int direction, core::HighlightLayer layer);
       void getAllocation (int start, int end, core::Allocation *allocation);
-      void print ();
    };
 
    friend class TextblockIterator;
@@ -585,9 +584,6 @@ protected:
    /* This value is (currently) set by setAscent(). */
    int lineBreakWidth;
 
-   // Additional vertical offset, used for the "clear" attribute.
-   int verticalOffset;
-
    int wrapRefLines, wrapRefParagraphs;  /* 0-based. Important: Both
                                             are the line numbers, not
                                             the value stored in
@@ -637,7 +633,6 @@ protected:
    void calcBorders (int lastOofRef, int height);
    void showMissingLines ();
    void removeTemporaryLines ();
-   void setVerticalOffset (int verticalOffset);
 
    void decorateText (core::View *view, core::style::Style *style,
                       core::style::Color::Shading shading,
@@ -654,7 +649,9 @@ protected:
                    core::Rectangle *area, int xWidget, int yWidgetBase);
    void drawSpace (int wordIndex, core::View *view, core::Rectangle *area,
                    int xWidget, int yWidgetBase);
-   void drawLine (Line *line, core::View *view, core::Rectangle *area);
+   void drawLine (Line *line, core::View *view, core::Rectangle *area,
+                  core::DrawingContext *context);
+
    int findLineIndex (int y);
    int findLineIndexWhenNotAllocated (int y);
    int findLineIndexWhenAllocated (int y);
@@ -768,6 +765,7 @@ protected:
    void printBorderChangedErrorAndAbort (int y, Widget *vloat,
                                          int wrapLineIndex);
    int yOffsetOfLineToBeCreated ();
+   int yOffsetOfLineCreated (Line *line);
 
    bool sendSelectionEvent (core::SelectionState::EventType eventType,
                             core::MousePositionEvent *event);
@@ -775,6 +773,7 @@ protected:
    void processWord (int wordIndex);
    virtual int wordWrap (int wordIndex, bool wrapAll);
    int wrapWordInFlow (int wordIndex, bool wrapAll);
+   int wrapWordOofRef (int wordIndex, bool wrapAll);
    void balanceBreakPosAndHeight (int wordIndex, int firstIndex,
                                   int *searchUntil, bool tempNewLine,
                                   int penaltyIndex, bool borderIsCalculated,
@@ -809,10 +808,21 @@ protected:
    void alignLine (int lineIndex);
    void calcTextOffset (int lineIndex, int totalWidth);
 
+   void drawLevel (core::View *view, core::Rectangle *area, int level,
+                   core::DrawingContext *context);
+
+   Widget *getWidgetAtPointLevel (int x, int y, int level,
+                                  core::GettingWidgetAtPointContext *context);
+
    void sizeRequestImpl (core::Requisition *requisition);
    void getExtremesImpl (core::Extremes *extremes);
    void sizeAllocateImpl (core::Allocation *allocation);
-   int getAvailWidthOfChild (Widget *child, bool forceValue);
+
+   void calcExtraSpaceImpl ();
+
+   int getAvailWidthOfChild (core::Widget *child, bool forceValue);
+   int getAvailHeightOfChild (core::Widget *child, bool forceValue);
+
    void containerSizeChangedForChildren ();
    bool affectsSizeChangeContainerChild (Widget *child);
    bool usesAvailWidth ();
@@ -821,12 +831,7 @@ protected:
    void markSizeChange (int ref);
    void markExtremesChange (int ref);
 
-   void notifySetAsTopLevel();
-   void notifySetParent();
-
    bool isBlockLevel ();
-
-   void draw (core::View *view, core::Rectangle *area);
 
    bool buttonPressImpl (core::EventButton *event);
    bool buttonReleaseImpl (core::EventButton *event);
@@ -842,7 +847,6 @@ protected:
                        core::style::Style *style,
                        int numBreaks, int *breakPos,
                        core::Requisition *wordSize);
-   static bool isContainingBlock (Widget *widget);
 
 public:
    static int CLASS_ID;
@@ -854,8 +858,12 @@ public:
    static void setPenaltyEmDashRight2 (int penaltyRightEmDash2);
    static void setStretchabilityFactor (int stretchabilityFactor);
 
-   Textblock(bool limitTextWidth);
-   ~Textblock();
+   static inline bool mustAddBreaks (core::style::Style *style)
+   { return !testStyleOutOfFlow (style) ||
+         testStyleRelativelyPositioned (style); }
+
+   Textblock (bool limitTextWidth);
+   ~Textblock ();
 
    core::Iterator *iterator (core::Content::Type mask, bool atEnd);
 
@@ -864,8 +872,6 @@ public:
    void addText (const char *text, size_t len, core::style::Style *style);
    inline void addText (const char *text, core::style::Style *style)
    { addText (text, strlen(text), style); }
-   static bool isStyleOutOfFlow (core::style::Style *style)
-   {  return OutOfFlowMgr::isStyleOutOfFlow (style); }
    void addWidget (core::Widget *widget, core::style::Style *style);
    bool addAnchor (const char *name, core::style::Style *style);
    void addSpace (core::style::Style *style);
@@ -873,21 +879,22 @@ public:
    void addParbreak (int space, core::style::Style *style);
    void addLinebreak (core::style::Style *style);
 
-   core::Widget *getWidgetAtPoint (int x, int y, int level);
    void handOverBreak (core::style::Style *style);
    void changeLinkColor (int link, int newColor);
    void changeWordStyle (int from, int to, core::style::Style *style,
                          bool includeFirstSpace, bool includeLastSpace);
 
-   virtual bool mustBeWidenedToAvailWidth ();
-
+   bool mustBeWidenedToAvailWidth ();
    void borderChanged (int y, core::Widget *vloat);
+   void widgetRefSizeChanged (int externalIndex);
    void clearPositionChanged ();
    void oofSizeChanged (bool extremesChanged);
-   inline int getLineBreakWidth () { return lineBreakWidth; }
+   int getLineBreakWidth ();
+   bool isPossibleContainer (int oofmIndex);
+   bool isPossibleContainerParent (int oofmIndex);
 };
 
-#define DBG_SET_WORD_PENALTY(n, i, is)             \
+#define DBG_SET_WORD_PENALTY(n, i, is) \
    D_STMT_START { \
       if (words->getRef(n)->badnessAndPenalty.getPenalty (i) == INT_MIN) \
          DBG_OBJ_ARRATTRSET_SYM ("words", n, "penalty." is, "-inf"); \
@@ -896,7 +903,7 @@ public:
       else \
          DBG_OBJ_ARRATTRSET_NUM ("words", n, "penalty." is, \
                                  words->getRef(n)->badnessAndPenalty \
-                                 .getPenalty (i));                   \
+                                 .getPenalty (i)); \
    } D_STMT_END
 
 #define DBG_SET_WORD(n) \
@@ -928,6 +935,16 @@ public:
       } \
       DBG_SET_WORD_PENALTY (n, 0, "0"); \
       DBG_SET_WORD_PENALTY (n, 1, "1"); \
+   } D_STMT_END
+
+#define DBG_SET_WORD_SIZE(n) \
+   D_STMT_START { \
+      DBG_OBJ_ARRATTRSET_NUM ("words", n, "size.width", \
+                              words->getRef(n)->size.width); \
+      DBG_OBJ_ARRATTRSET_NUM ("words", n, "size.ascent", \
+                              words->getRef(n)->size.ascent); \
+      DBG_OBJ_ARRATTRSET_NUM ("words", n, "size.descent", \
+                              words->getRef(n)->size.descent); \
    } D_STMT_END
 
 #define DBG_MSG_WORD(aspect, prio, prefix, n, suffix) \

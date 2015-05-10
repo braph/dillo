@@ -17,8 +17,6 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-
-
 #include "alignedtablecell.hh"
 #include "table.hh"
 #include "tablecell.hh"
@@ -65,7 +63,7 @@ bool AlignedTableCell::mustBeWidenedToAvailWidth ()
 
 int AlignedTableCell::getAvailWidthOfChild (Widget *child, bool forceValue)
 {
-   DBG_OBJ_ENTER ("resize", 0, "AlignedTableCell/getAvailWidthOfChild",
+   DBG_OBJ_ENTER ("resize", 0, "AlignedTableCell::getAvailWidthOfChild",
                   "%p, %s", child, forceValue ? "true" : "false");
 
    int width = tablecell::correctAvailWidthOfChild
@@ -78,7 +76,7 @@ int AlignedTableCell::getAvailWidthOfChild (Widget *child, bool forceValue)
 
 int AlignedTableCell::getAvailHeightOfChild (Widget *child, bool forceValue)
 {
-   DBG_OBJ_ENTER ("resize", 0, "AlignedTableCell/getAvailHeightOfChild",
+   DBG_OBJ_ENTER ("resize", 0, "AlignedTableCell::getAvailHeightOfChild",
                   "%p, %s", child, forceValue ? "true" : "false");
 
    int height = tablecell::correctAvailHeightOfChild
@@ -96,7 +94,7 @@ void AlignedTableCell::correctRequisitionOfChild (Widget *child,
                                                                           int*,
                                                                           int*))
 {
-   DBG_OBJ_ENTER ("resize", 0, "AlignedTableCell/correctRequisitionOfChild",
+   DBG_OBJ_ENTER ("resize", 0, "AlignedTableCell::correctRequisitionOfChild",
                   "%p, %d * (%d + %d), ...", child, requisition->width,
                   requisition->ascent, requisition->descent);
 
@@ -112,7 +110,7 @@ void AlignedTableCell::correctExtremesOfChild (Widget *child,
                                                core::Extremes *extremes,
                                                bool useAdjustmentWidth)
 {
-   DBG_OBJ_ENTER ("resize", 0, "AlignedTableCell/correctExtremesOfChild",
+   DBG_OBJ_ENTER ("resize", 0, "AlignedTableCell::correctExtremesOfChild",
                   "%p, %d (%d) / %d (%d)",
                   child, extremes->minWidth, extremes->minWidthIntrinsic,
                   extremes->maxWidth, extremes->maxWidthIntrinsic);
@@ -135,6 +133,11 @@ int AlignedTableCell::applyPerHeight (int containerHeight,
                                       core::style::Length perHeight)
 {
    return tablecell::applyPerHeight (this, containerHeight, perHeight);
+}
+
+bool AlignedTableCell::adjustExtraSpaceWhenCorrectingRequisitionByOOF ()
+{
+   return tablecell::adjustExtraSpaceWhenCorrectingRequisitionByOOF ();
 }
 
 int AlignedTableCell::wordWrap(int wordIndex, bool wrapAll)
@@ -199,7 +202,7 @@ int AlignedTableCell::getValue ()
 void AlignedTableCell::setMaxValue (int maxValue, int value)
 {
    line1Offset = maxValue - value;
-   queueResize (OutOfFlowMgr::createRefNormalFlow (0), true);
+   queueResize (makeParentRefInFlow (0), true);
 }
 
 } // namespace dw

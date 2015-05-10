@@ -254,7 +254,7 @@ public:
 
    void setDisplayed (bool displayed);
    void setEnabled (bool enabled);
-   void draw (View *view, Rectangle *area);
+   void draw (View *view, Rectangle *area, DrawingContext *context);
    Iterator *iterator (Content::Type mask, bool atEnd);
    void setStyle (style::Style *style);
 
@@ -369,7 +369,7 @@ public:
    virtual void containerSizeChangedForChildren ();
 
    virtual void setDisplayed (bool displayed);
-   virtual void draw (View *view, Rectangle *area);
+   virtual void draw (View *view, Rectangle *area, DrawingContext *context);
    virtual Iterator *iterator (Content::Type mask, bool atEnd) = 0;
    virtual void setStyle (style::Style *style);
 

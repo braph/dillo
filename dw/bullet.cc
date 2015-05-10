@@ -56,7 +56,8 @@ void Bullet::containerSizeChangedForChildren ()
    DBG_OBJ_LEAVE ();
 }
 
-void Bullet::draw (core::View *view, core::Rectangle *area)
+void Bullet::draw (core::View *view, core::Rectangle *area,
+                   core::DrawingContext *context)
 {
    int x, y, l;
    bool filled = true;
