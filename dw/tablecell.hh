@@ -31,6 +31,8 @@ int applyPerWidth (core::Widget *widget, int containerWidth,
 int applyPerHeight (core::Widget *widget, int containerHeight,
                     core::style::Length perHeight);
 
+inline bool adjustExtraSpaceWhenCorrectingRequisitionByOOF () { return false; }
+
 } // namespace dw
 
 } // namespace dw

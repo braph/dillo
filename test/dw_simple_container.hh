@@ -34,7 +34,8 @@ private:
    Widget *child;
 
 protected:
-   void sizeRequestImpl (core::Requisition *requisition);
+   void sizeRequestImpl (core::Requisition *requisition, bool posDefined, int x,
+                         int y);
    void getExtremesImpl (core::Extremes *extremes);
    void sizeAllocateImpl (core::Allocation *allocation);
 
@@ -44,7 +45,8 @@ public:
    SimpleContainer ();
    ~SimpleContainer ();
 
-   void draw (core::View *view, core::Rectangle *area);
+   void draw (core::View *view, core::Rectangle *area,
+              core::DrawingContext *context);
    core::Iterator *iterator (core::Content::Type mask, bool atEnd);
    void removeChild (Widget *child);
 

@@ -35,7 +35,8 @@ Bullet::~Bullet ()
    DBG_OBJ_DELETE ();
 }
 
-void Bullet::sizeRequestImpl (core::Requisition *requisition)
+void Bullet::sizeRequestImpl (core::Requisition *requisition, bool posDefined,
+                              int x, int y)
 {
    requisition->width = lout::misc::max (getStyle()->font->xHeight * 4 / 5, 1);
    requisition->ascent = lout::misc::max (getStyle()->font->xHeight, 1);
@@ -56,7 +57,8 @@ void Bullet::containerSizeChangedForChildren ()
    DBG_OBJ_LEAVE ();
 }
 
-void Bullet::draw (core::View *view, core::Rectangle *area)
+void Bullet::draw (core::View *view, core::Rectangle *area,
+                   core::DrawingContext *context)
 {
    int x, y, l;
    bool filled = true;

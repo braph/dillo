@@ -130,12 +130,14 @@ private:
    bool isMap;
 
 protected:
-   void sizeRequestImpl (core::Requisition *requisition);
+   void sizeRequestImpl (core::Requisition *requisition, bool posDefined, int x,
+                         int y);
    void getExtremesImpl (core::Extremes *extremes);
    void sizeAllocateImpl (core::Allocation *allocation);
    void containerSizeChangedForChildren ();
-
-   void draw (core::View *view, core::Rectangle *area);
+   
+   void draw (core::View *view, core::Rectangle *area,
+              core::DrawingContext *context);
 
    bool buttonPressImpl (core::EventButton *event);
    bool buttonReleaseImpl (core::EventButton *event);

@@ -208,6 +208,10 @@ struct Content
       WIDGET_OOF_REF    = 1 << 5,
       BREAK             = 1 << 6,
 
+      /** \brief can be used internally, but should never be exposed,
+          e. g. by iterators */
+      INVALID            = 1 << 7,
+
       ALL               = 0xff,
       REAL_CONTENT      = 0xff ^ (START | END),
       SELECTION_CONTENT = TEXT | BREAK, // WIDGET_* must be set additionally
@@ -231,6 +235,67 @@ struct Content
    static void maskIntoStringBuffer(Type mask, lout::misc::StringBuffer *sb);
    static void print (Content *content);
    static void printMask (Type mask);
+};
+
+/**
+ * \brief Base class for dw::core::DrawingContext and
+ *    dw::core::GettingWidgetAtPointContext.
+ *
+ * Not to be confused with the *stacking context* as defined by CSS.
+ */
+class StackingProcessingContext
+{
+private:
+   lout::container::typed::HashSet<lout::object::TypedPointer<Widget> >
+      *widgetsProcessedAsInterruption;
+
+public:
+   inline StackingProcessingContext () {
+      widgetsProcessedAsInterruption =
+         new lout::container::typed::HashSet<lout::object::
+                                             TypedPointer<Widget> > (true);
+   }
+   
+   inline ~StackingProcessingContext ()
+   { delete widgetsProcessedAsInterruption; }
+
+   inline bool hasWidgetBeenProcessedAsInterruption (Widget *widget) {
+      lout::object::TypedPointer<Widget> key (widget);
+      return widgetsProcessedAsInterruption->contains (&key);
+   }
+
+   inline void addWidgetProcessedAsInterruption (Widget *widget) {
+      lout::object::TypedPointer<Widget> *key =
+         new lout::object::TypedPointer<Widget> (widget);
+      return widgetsProcessedAsInterruption->put (key);
+   }
+};
+
+/**
+ * \brief Set at the top when drawing.
+ *
+ * See \ref dw-interrupted-drawing for details.
+ */
+class DrawingContext: public StackingProcessingContext
+{
+private:
+   Rectangle toplevelArea;
+
+public:
+   inline DrawingContext (Rectangle *toplevelArea) {
+      this->toplevelArea = *toplevelArea;
+   }
+   
+   inline Rectangle *getToplevelArea () { return &toplevelArea; }
+};
+
+/**
+ * \brief Set at the top when getting the widget at the point.
+ *
+ * Similar to dw::core::DrawingContext.
+ */
+class GettingWidgetAtPointContext: public StackingProcessingContext
+{
 };
 
 } // namespace core

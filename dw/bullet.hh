@@ -14,10 +14,12 @@ namespace dw {
 class Bullet: public core::Widget
 {
 protected:
-   void sizeRequestImpl (core::Requisition *requisition);
+   void sizeRequestImpl (core::Requisition *requisition, bool posDefined, int x,
+                         int y);
    void getExtremesImpl (core::Extremes *extremes);
    void containerSizeChangedForChildren ();
-   void draw (core::View *view, core::Rectangle *area);
+   void draw (core::View *view, core::Rectangle *area,
+              core::DrawingContext *context);
    core::Iterator *iterator (core::Content::Type mask, bool atEnd);
 
 public:

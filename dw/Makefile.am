@@ -23,6 +23,8 @@ libDw_core_a_SOURCES = \
 	platform.hh \
 	selection.hh \
 	selection.cc \
+	stackingcontextmgr.hh \
+	stackingcontextmgr.cc \
 	style.cc \
 	style.hh \
 	types.cc \
@@ -69,6 +71,21 @@ libDw_widgets_a_SOURCES = \
 	image.hh \
 	listitem.cc \
 	listitem.hh \
+	oofawarewidget.cc \
+	oofawarewidget_iterator.cc \
+	oofawarewidget.hh \
+	ooffloatsmgr.cc \
+	ooffloatsmgr.hh \
+	oofposabslikemgr.cc \
+	oofposabslikemgr.hh \
+	oofposabsmgr.cc \
+	oofposabsmgr.hh \
+	oofposfixedmgr.cc \
+	oofposfixedmgr.hh \
+	oofpositionedmgr.cc \
+	oofpositionedmgr.hh \
+	oofposrelmgr.cc \
+	oofposrelmgr.hh \
 	outofflowmgr.cc \
 	outofflowmgr.hh \
 	regardingborder.cc \

@@ -1,9 +1,34 @@
 /** \page dw-out-of-flow Handling Elements Out Of Flow
 
+<div style="border: 2px solid #ff4040; margin-bottom: 0.5em;
+padding: 0.5em 1em; background-color: #fff0f0"><b>Info:</b>
+Not up to date; incorporate these two changes: (i) there are different
+containing blocks for floats and absolutely (furthermore also fixedly)
+positioned elements; (ii) dw::OutOfFlowMgr is now only the base class;
+floats and absolutely positioned elements are seperated:
+\dot
+digraph G {
+   node [shape=record, fontname=Helvetica, fontsize=10];
+   edge [arrowhead="none", arrowtail="empty", dir="both"];
+   fontname=Helvetica; fontsize=8;
 
-<div style="border: 2px solid #ffff00; margin-bottom: 0.5em;
-padding: 0.5em 1em; background-color: #ffffe0"><b>Info:</b>
-Should be incorporated into dw::Textblock.</div>
+   OutOfFlowMgr [URL="\ref dw::oof::OutOfFlowMgr"];
+   OOFFloatsMgr [URL="\ref dw::oof::OOFFloatsMgr"];
+   OOFPositionedMgr [URL="\ref dw::oof::OOFPositionedMgr"];
+   OOFPosAbsLikeMgr [URL="\ref dw::oof::OOFPosAbsLikeMgr"];
+   OOFPosAbsMgr [URL="\ref dw::oof::OOFPosAbsMgr"];
+   OOFPosFixedMgr [URL="\ref dw::oof::OOFPosFixedMgr"];
+   OOFPosRelMgr [URL="\ref dw::oof::OOFPosRelMgr"];
+
+   OutOfFlowMgr -> OOFFloatsMgr;
+   OutOfFlowMgr -> OOFPositionedMgr;
+   OOFPositionedMgr -> OOFPosAbsLikeMgr;
+   OOFPosAbsLikeMgr -> OOFPosAbsMgr;
+   OOFPosAbsLikeMgr -> OOFPosFixedMgr;  
+   OOFPositionedMgr -> OOFPosRelMgr;
+}
+\enddot
+</div>
 
 Introduction
 ============
@@ -116,7 +141,7 @@ Details are hidden by static inline methods of dw::OutOfFlowMgr.
 
 
 The sizeRequest/sizeAllocate problem
-========================================
+====================================
 
 *See also:* \ref dw-widget-sizes, especially the section *Rules for
 Methods Related to Resizing*.
@@ -209,6 +234,12 @@ Integration of line breaking and floats
 Absolute and fixed positiones
 =============================
 
-See <http://flpsed.org/hgweb/dillo_grows>.
+To be documented.
+
+
+See also
+========
+
+→ \ref dw-miscellaneous.
 
 */

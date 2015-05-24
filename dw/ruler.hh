@@ -14,18 +14,19 @@ namespace dw {
  * Ruler implements RegardingBorder; this way, it is simpler to fit
  * the ruler exactly within the space between floats. Currently, the
  * drawn area of the ruler is too large (but most of the superfluous
- * part is hidden by the floats); this problem will not solved but in
- * "dillo_grows", where RegardingBorder is a sub class of
- * OOFAwareWidget.
+ * part is hidden by the floats); this problem will soon solved here
+ * in the "dillo_grows" repository.
  */
 class Ruler: public RegardingBorder
 {
 protected:
-   void sizeRequestImpl (core::Requisition *requisition);
+   void sizeRequestImpl (core::Requisition *requisition, bool posDefined, int x,
+                         int y);
    void getExtremesImpl (core::Extremes *extremes);
    void containerSizeChangedForChildren ();
    bool usesAvailWidth ();
-   void draw (core::View *view, core::Rectangle *area);
+   void draw (core::View *view, core::Rectangle *area,
+              core::DrawingContext *context);
 
 public:
    static int CLASS_ID;
