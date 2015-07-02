@@ -26,6 +26,7 @@
 #include "dicache.h"
 #include "nav.h"
 #include "cookies.h"
+#include "hsts.h"
 #include "misc.h"
 #include "capi.h"
 #include "decode.h"
@@ -55,7 +56,7 @@ typedef struct {
    Dstr *Data;               /* Pointer to raw data */
    Dstr *UTF8Data;           /* Data after charset translation */
    int DataRefcount;         /* Reference count */
-   Decode *TransferDecoder;  /* Transfer decoder (e.g., chunked) */
+   DecodeTransfer *TransferDecoder;  /* Transfer decoder (e.g., chunked) */
    Decode *ContentDecoder;   /* Data decoder (e.g., gzip) */
    Decode *CharsetDecoder;   /* Translates text to UTF-8 encoding */
    int ExpectedSize;         /* Goal size of the HTTP transfer (0 if unknown)*/
@@ -205,7 +206,7 @@ static void Cache_entry_init(CacheEntry_t *NewEntry, const DilloUrl *Url)
    NewEntry->CharsetDecoder = NULL;
    NewEntry->ExpectedSize = 0;
    NewEntry->TransferSize = 0;
-   NewEntry->Flags = CA_IsEmpty;
+   NewEntry->Flags = CA_IsEmpty | CA_KeepAlive;
 }
 
 /*
@@ -308,7 +309,7 @@ static void Cache_entry_free(CacheEntry_t *entry)
    if (entry->CharsetDecoder)
       a_Decode_free(entry->CharsetDecoder);
    if (entry->TransferDecoder)
-      a_Decode_free(entry->TransferDecoder);
+      a_Decode_transfer_free(entry->TransferDecoder);
    if (entry->ContentDecoder)
       a_Decode_free(entry->ContentDecoder);
    dFree(entry);
@@ -498,7 +499,7 @@ const char *a_Cache_set_content_type(const DilloUrl *url, const char *ctype,
    _MSG("a_Cache_set_content_type {%s} {%s}\n", ctype, URL_STR(url));
 
    curr = Cache_current_content_type(entry);
-   if  (entry->TypeMeta || (*from == 'h' && entry->TypeHdr) ) {
+   if (entry->TypeMeta || (*from == 'h' && entry->TypeHdr) ) {
       /* Type is already been set. Do nothing.
        * BTW, META overrides TypeHdr */
    } else {
@@ -652,7 +653,8 @@ static Dlist *Cache_parse_multiple_fields(const char *header,
 static void Cache_parse_header(CacheEntry_t *entry)
 {
    char *header = entry->Header->str;
-   char *Length, *Type, *location_str, *encoding;
+   bool_t server1point0 = !strncmp(entry->Header->str, "HTTP/1.0", 8);
+   char *Length, *Type, *location_str, *encoding, *connection, *hsts;
 #ifndef DISABLE_COOKIES
    Dlist *Cookies;
 #endif
@@ -707,6 +709,25 @@ static void Cache_parse_header(CacheEntry_t *entry)
          dFree(data);
       }
       dList_free(warnings);
+   }
+
+   if (server1point0)
+      entry->Flags &= ~CA_KeepAlive;
+
+   if ((connection = Cache_parse_field(header, "Connection"))) {
+      if (!dStrAsciiCasecmp(connection, "close"))
+         entry->Flags &= ~CA_KeepAlive;
+      else if (server1point0 && !dStrAsciiCasecmp(connection, "keep-alive"))
+         entry->Flags |= CA_KeepAlive;
+      dFree(connection);
+   }
+
+   if (prefs.http_strict_transport_security &&
+       !dStrAsciiCasecmp(URL_SCHEME(entry->Url), "https") &&
+       !a_Url_host_is_ip(URL_HOST(entry->Url)) &&
+       (hsts = Cache_parse_field(header, "Strict-Transport-Security"))) {
+      a_Hsts_set(hsts, entry->Url);
+      dFree(hsts);
    }
 
    /*
@@ -824,6 +845,43 @@ static int Cache_get_header(CacheEntry_t *entry,
    return 0;
 }
 
+static void Cache_finish_msg(CacheEntry_t *entry)
+{
+   if (entry->Flags & CA_GotData) {
+      /* already finished */
+      return;
+   }
+
+   if ((entry->ExpectedSize || entry->TransferSize) &&
+       entry->TypeHdr == NULL) {
+      MSG_HTTP("Message with a body lacked Content-Type header.\n");
+   }
+   if ((entry->Flags & CA_GotLength) &&
+       (entry->ExpectedSize != entry->TransferSize)) {
+      MSG_HTTP("Content-Length does NOT match message body at\n"
+               "%s\n", URL_STR_(entry->Url));
+      MSG("Expected size: %d, Transfer size: %d\n",
+          entry->ExpectedSize, entry->TransferSize);
+   }
+   entry->Flags |= CA_GotData;
+   entry->Flags &= ~CA_Stopped;          /* it may catch up! */
+   if (entry->TransferDecoder) {
+      a_Decode_transfer_free(entry->TransferDecoder);
+      entry->TransferDecoder = NULL;
+   }
+   if (entry->ContentDecoder) {
+      a_Decode_free(entry->ContentDecoder);
+      entry->ContentDecoder = NULL;
+   }
+   dStr_fit(entry->Data);                /* fit buffer size! */
+
+   if ((entry = Cache_process_queue(entry))) {
+      if (entry->Flags & CA_GotHeader) {
+         Cache_unref_data(entry);
+      }
+   }
+}
+
 /*
  * Receive new data, update the reception buffer (for next read), update the
  * cache, and service the client queue.
@@ -832,16 +890,17 @@ static int Cache_get_header(CacheEntry_t *entry,
  *  'Op' is the operation to perform
  *  'VPtr' is a (void) pointer to the IO control structure
  */
-void a_Cache_process_dbuf(int Op, const char *buf, size_t buf_size,
-                          const DilloUrl *Url)
+bool_t a_Cache_process_dbuf(int Op, const char *buf, size_t buf_size,
+                            const DilloUrl *Url)
 {
    int offset, len;
    const char *str;
    Dstr *dstr1, *dstr2, *dstr3;
+   bool_t done = FALSE;
    CacheEntry_t *entry = Cache_entry_search(Url);
 
    /* Assert a valid entry (not aborted) */
-   dReturn_if_fail (entry != NULL);
+   dReturn_val_if_fail (entry != NULL, FALSE);
 
    _MSG("__a_Cache_process_dbuf__\n");
 
@@ -865,7 +924,8 @@ void a_Cache_process_dbuf(int Op, const char *buf, size_t buf_size,
 
          /* Decode arrived data (<= 3 stages) */
          if (entry->TransferDecoder) {
-            dstr1 = a_Decode_process(entry->TransferDecoder, str, len);
+            dstr1 = a_Decode_transfer_process(entry->TransferDecoder, str,len);
+            done = a_Decode_transfer_finished(entry->TransferDecoder);
             str = dstr1->str;
             len = dstr1->len;
          }
@@ -886,51 +946,37 @@ void a_Cache_process_dbuf(int Op, const char *buf, size_t buf_size,
          if (entry->Data->len)
             entry->Flags &= ~CA_IsEmpty;
 
+         if ((entry->Flags & CA_GotLength) &&
+             (entry->TransferSize >= entry->ExpectedSize)) {
+            done = TRUE;
+         }
+         if (!(entry->Flags & CA_KeepAlive)) {
+            /* Let IOClose finish it later */
+            done = FALSE;
+         }
+
          entry = Cache_process_queue(entry);
+
+         if (entry && done)
+            Cache_finish_msg(entry);
       }
    } else if (Op == IOClose) {
-      if ((entry->ExpectedSize || entry->TransferSize) &&
-          entry->TypeHdr == NULL) {
-         MSG_HTTP("Message with a body lacked Content-Type header.\n");
-      }
-      if ((entry->Flags & CA_GotLength) &&
-          (entry->ExpectedSize != entry->TransferSize)) {
-         MSG_HTTP("Content-Length does NOT match message body at\n"
-                  "%s\n", URL_STR_(entry->Url));
-         MSG("Expected size: %d, Transfer size: %d\n",
-             entry->ExpectedSize, entry->TransferSize);
-      }
-      if (!entry->TransferSize && !(entry->Flags & CA_Redirect) &&
-          (entry->Flags & WEB_RootUrl)) {
-         char *eol = strchr(entry->Header->str, '\n');
-         if (eol) {
-            char *status_line = dStrndup(entry->Header->str,
-                                         eol - entry->Header->str);
-            MSG_HTTP("Body was empty. Server sent status: %s\n", status_line);
-            dFree(status_line);
-         }
-      }
-      entry->Flags |= CA_GotData;
-      entry->Flags &= ~CA_Stopped;          /* it may catch up! */
-      if (entry->TransferDecoder) {
-         a_Decode_free(entry->TransferDecoder);
-         entry->TransferDecoder = NULL;
-      }
-      if (entry->ContentDecoder) {
-         a_Decode_free(entry->ContentDecoder);
-         entry->ContentDecoder = NULL;
-      }
-      dStr_fit(entry->Data);                /* fit buffer size! */
-
-      if ((entry = Cache_process_queue(entry))) {
-         if (entry->Flags & CA_GotHeader) {
-            Cache_unref_data(entry);
-         }
-      }
+      Cache_finish_msg(entry);
    } else if (Op == IOAbort) {
-      /* unused */
-      MSG("a_Cache_process_dbuf Op = IOAbort; not implemented!\n");
+      int i;
+      CacheClient_t *Client;
+
+      for (i = 0; (Client = dList_nth_data(ClientQueue, i)); ++i) {
+         if (Client->Url == entry->Url) {
+            DilloWeb *web = (DilloWeb *)Client->Web;
+
+            a_Bw_remove_client(web->bw, Client->Key);
+            Cache_client_dequeue(Client);
+            --i; /* Keep the index value in the next iteration */
+         }
+      }
    }
+   return done;
 }
 
 /*

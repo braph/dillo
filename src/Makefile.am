@@ -2,7 +2,9 @@ AM_CPPFLAGS= \
 	-I$(top_srcdir) \
 	-DDILLO_SYSCONF='"$(sysconfdir)/"' \
 	-DDILLO_DOCDIR='"$(docdir)/"' \
+	-DCUR_WORKING_DIR='"@BASE_CUR_WORKING_DIR@/src"' \
 	@LIBJPEG_CPPFLAGS@
+
 AM_CFLAGS = @LIBPNG_CFLAGS@
 AM_CXXFLAGS = @LIBPNG_CFLAGS@ @LIBFLTK_CXXFLAGS@
 
@@ -19,7 +21,7 @@ dillo_LDADD = \
 	$(top_builddir)/dw/libDw-core.a \
 	$(top_builddir)/lout/liblout.a \
 	@LIBJPEG_LIBS@ @LIBPNG_LIBS@ @LIBFLTK_LIBS@ @LIBZ_LIBS@ \
-	@LIBICONV_LIBS@ @LIBPTHREAD_LIBS@ @LIBX11_LIBS@
+	@LIBICONV_LIBS@ @LIBPTHREAD_LIBS@ @LIBX11_LIBS@ @LIBSSL_LIBS@
 
 dillo_SOURCES = \
 	dillo.cc \
@@ -35,6 +37,8 @@ dillo_SOURCES = \
 	bw.c \
 	cookies.c \
 	cookies.h \
+        hsts.c \
+        hsts.h \
 	auth.c \
 	auth.h \
 	md5.c \
@@ -96,6 +100,7 @@ dillo_SOURCES = \
 	plain.cc \
 	html.cc \
 	html.hh \
+	html_charrefs.h \
 	html_common.hh \
 	form.cc \
 	form.hh \
@@ -125,5 +130,5 @@ dillo_SOURCES = \
 	xembed.cc \
 	xembed.hh
 
-dist_sysconf_DATA = domainrc keysrc
+dist_sysconf_DATA = domainrc keysrc hsts_preload
 EXTRA_DIST = chg srch

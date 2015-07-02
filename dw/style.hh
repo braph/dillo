@@ -296,7 +296,6 @@ enum ListStylePosition {
    LIST_STYLE_POSITION_INSIDE,
    LIST_STYLE_POSITION_OUTSIDE
 };
-
 enum ListStyleType {
    LIST_STYLE_TYPE_DISC,
    LIST_STYLE_TYPE_CIRCLE,
@@ -332,6 +331,20 @@ enum FontVariant {
    FONT_VARIANT_SMALL_CAPS
 };
 
+enum Overflow {
+   OVERFLOW_VISIBLE,
+   OVERFLOW_HIDDEN,
+   OVERFLOW_SCROLL,
+   OVERFLOW_AUTO
+};
+
+enum Position {
+   POSITION_STATIC,
+   POSITION_RELATIVE,
+   POSITION_ABSOLUTE,
+   POSITION_FIXED,
+};
+
 enum TextDecoration {
    TEXT_DECORATION_NONE         = 0,
    TEXT_DECORATION_UNDERLINE    = 1 << 0,
@@ -346,6 +359,19 @@ enum WhiteSpace {
    WHITE_SPACE_NOWRAP,
    WHITE_SPACE_PRE_WRAP,
    WHITE_SPACE_PRE_LINE,
+};
+
+enum FloatType {
+   FLOAT_NONE,
+   FLOAT_LEFT,
+   FLOAT_RIGHT
+};
+
+enum ClearType {
+   CLEAR_LEFT,
+   CLEAR_RIGHT,
+   CLEAR_BOTH,
+   CLEAR_NONE
 };
 
 /**
@@ -416,7 +442,8 @@ inline int absLengthVal(Length l) { return l >> 2; }
  * When possible, do not use this function directly; it may be removed
  * soon. Instead, use multiplyWithPerLength or multiplyWithPerLengthRounded.
  */
-inline double perLengthVal(Length l) { return (double)(l & ~3) / (1 << 18); }
+inline double perLengthVal_useThisOnlyForDebugging(Length l)
+{ return (double)(l & ~3) / (1 << 18); }
 
 /** \brief Returns the value of a relative length, as a float.
  *
@@ -431,7 +458,7 @@ inline double relLengthVal(Length l) { return (double)(l & ~3) / (1 << 18); }
  * Use this instead of perLengthVal, when possible.
  */
 inline int multiplyWithPerLength(int x, Length l) {
-   return x * perLengthVal(l);
+   return x * perLengthVal_useThisOnlyForDebugging (l);
 }
 
 /**
@@ -440,8 +467,8 @@ inline int multiplyWithPerLength(int x, Length l) {
  *
  * (This function exists for backward compatibility.)
  */
-inline int multiplyWithPerLengthRounded (int x, Length l) {
-   return lout::misc::roundInt (x * perLengthVal(l));
+inline int multiplyWithPerLengthRounded(int x, Length l) {
+   return lout::misc::roundInt (x * perLengthVal_useThisOnlyForDebugging (l));
 }
 
 inline int multiplyWithRelLength(int x, Length l) {
@@ -504,8 +531,17 @@ public:
    char textAlignChar; /* In future, strings will be supported. */
    TextTransform textTransform;
 
+   FloatType vloat; /* "float" is a keyword. */
+   ClearType clear;
+
+   Overflow overflow;
+
+   Position position;
+   Length top, bottom, left, right;
+
    int hBorderSpacing, vBorderSpacing, wordSpacing;
    Length width, height, lineHeight, textIndent;
+   Length minWidth, maxWidth, minHeight, maxHeight;
 
    Box margin, borderWidth, padding;
    BorderCollapse borderCollapse;
@@ -539,22 +575,14 @@ public:
          = borderStyle.left = val; }
 
    inline int boxOffsetX ()
-   {
-      return margin.left + borderWidth.left + padding.left;
-   }
+   { return margin.left + borderWidth.left + padding.left; }
    inline int boxRestWidth ()
-   {
-      return margin.right + borderWidth.right + padding.right;
-   }
+   { return margin.right + borderWidth.right + padding.right; }
    inline int boxDiffWidth () { return boxOffsetX () + boxRestWidth (); }
    inline int boxOffsetY ()
-   {
-      return margin.top + borderWidth.top + padding.top;
-   }
+   { return margin.top + borderWidth.top + padding.top; }
    inline int boxRestHeight ()
-   {
-      return margin.bottom + borderWidth.bottom + padding.bottom;
-   }
+   { return margin.bottom + borderWidth.bottom + padding.bottom; }
    inline int boxDiffHeight () { return boxOffsetY () + boxRestHeight (); }
 
    inline bool hasBackground ()
@@ -861,7 +889,7 @@ void drawBorder (View *view, Layout *layout, Rectangle *area,
 void drawBackground (View *view, Layout *layout, Rectangle *area,
                      int x, int y, int width, int height,
                      int xRef, int yRef, int widthRef, int heightRef,
-                     Style *style, bool inverse, bool atTop);
+                     Style *style, Color *bgColor, bool inverse, bool atTop);
 void drawBackgroundImage (View *view, StyleImage *backgroundImage,
                           BackgroundRepeat backgroundRepeat,
                           BackgroundAttachment backgroundAttachment,

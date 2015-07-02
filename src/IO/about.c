@@ -305,6 +305,8 @@ const char *const AboutSplash=
 "</table>\n"
 "</table>\n"
 "\n"
+"<table border='0' width='100%' cellpadding='0' cellspacing='0'><tr><td height='10'></table>\n"
+"\n"
 "\n"
 "<!-- the main layout table, a small vertical spacer -->\n"
 "\n"

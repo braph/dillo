@@ -1,7 +1,7 @@
 AM_CPPFLAGS = \
 	-I$(top_srcdir) \
-	-DDILLO_LIBDIR='"$(pkglibdir)/"'
-
+	-DDILLO_LIBDIR='"$(pkglibdir)/"' \
+	-DCUR_WORKING_DIR='"@BASE_CUR_WORKING_DIR@/dw"'
 
 noinst_LIBRARIES = \
 	libDw-core.a \
@@ -57,6 +57,8 @@ libDw_fltk_a_SOURCES = \
 libDw_fltk_a_CXXFLAGS = @LIBFLTK_CXXFLAGS@
 
 libDw_widgets_a_SOURCES = \
+	alignedtablecell.cc \
+	alignedtablecell.hh \
 	alignedtextblock.cc \
 	alignedtextblock.hh \
 	bullet.cc \
@@ -67,9 +69,16 @@ libDw_widgets_a_SOURCES = \
 	image.hh \
 	listitem.cc \
 	listitem.hh \
+	outofflowmgr.cc \
+	outofflowmgr.hh \
+	regardingborder.cc \
+	regardingborder.hh \
 	ruler.cc \
 	ruler.hh \
+	simpletablecell.cc \
+	simpletablecell.hh \
 	table.cc \
+	table_iterator.cc \
 	table.hh \
 	tablecell.cc \
 	tablecell.hh \

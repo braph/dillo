@@ -658,7 +658,7 @@ void Html_tag_content_textarea(DilloHtml *html, const char *tag, int tagsize)
    } else {
       if (html->DocType != DT_HTML || html->DocTypeVersion <= 4.01f)
          BUG_MSG("<textarea> requires rows attribute.");
-      rows = 10;
+      rows = 2;
    }
    if (rows < 1 || rows > MAX_ROWS) {
       int badRows = rows;
@@ -951,9 +951,7 @@ void Html_tag_open_button(DilloHtml *html, const char *tag, int tagsize)
       embed = new Embed(resource);
 // a_Dw_button_set_sensitive (DW_BUTTON (button), FALSE);
 
-      HT2TB(html)->addParbreak (5, html->wordStyle ());
       HT2TB(html)->addWidget (embed, html->backgroundStyle ());
-      HT2TB(html)->addParbreak (5, html->wordStyle ());
 
       S_TOP(html)->textblock = html->dw = page;
 

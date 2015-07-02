@@ -27,6 +27,7 @@
 ^test/dw-border-test$
 ^test/dw-example$
 ^test/dw-find-test$
+^test/dw-float-test$
 ^test/dw-image-background$
 ^test/dw-images-scaled$
 ^test/dw-images-scaled2$
@@ -36,6 +37,7 @@
 ^test/dw-links2$
 ^test/dw-lists$
 ^test/dw-resource-test$
+^test/dw-simple-container-test$
 ^test/dw-table$
 ^test/dw-table-aligned$
 ^test/dw-ui-test$

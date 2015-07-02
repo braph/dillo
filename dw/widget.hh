@@ -27,51 +27,53 @@ class Widget: public lout::identity::IdentifiableObject
 protected:
    enum Flags {
       /**
+       * \todo Comment this.
+       */
+      RESIZE_QUEUED    = 1 << 0,
+
+      /**
+       * \todo Comment this.
+       */
+      EXTREMES_QUEUED  = 1 << 1,
+
+      /**
        * \brief Set, when dw::core::Widget::requisition is not up to date
        *    anymore.
+       *
+       * \todo Update, see RESIZE_QUEUED.
        */
-      NEEDS_RESIZE     = 1 << 0,
+      NEEDS_RESIZE     = 1 << 2,
 
       /**
        * \brief Only used internally, set to enforce size allocation.
        *
-       * (I've forgotten the case, for which this is necessary.)
+       * In some cases, the size of a widget remains the same, but the
+       * children are allocated at different positions and in
+       * different sizes, so that a simple comparison of old and new
+       * allocation is insufficient. Therefore, this flag is set
+       * (indirectly, as ALLOCATE_QUEUED) in queueResize.
        */
-      NEEDS_ALLOCATE   = 1 << 1,
+      NEEDS_ALLOCATE   = 1 << 3,
+
+      /**
+       * \todo Comment this.
+       */
+      ALLOCATE_QUEUED  = 1 << 4,
 
       /**
        * \brief Set, when dw::core::Widget::extremes is not up to date
        *    anymore.
-       */
-      EXTREMES_CHANGED = 1 << 2,
-
-      /**
-       * \brief Set by the widget itself (in the constructor), when set...
-       *    methods are implemented.
        *
-       * Will hopefully be removed, after redesigning the size model.
+       * \todo Update, see RESIZE_QUEUED.
        */
-      USES_HINTS       = 1 << 3,
-
-      /**
-       * \brief Set by the widget itself (in the constructor), when it contains
-       *    some contents, e.g. an image, as opposed to a horizontal ruler.
-       *
-       * Will hopefully be removed, after redesigning the size model.
-       */
-      HAS_CONTENTS     = 1 << 4,
+      EXTREMES_CHANGED = 1 << 5,
 
       /**
        * \brief Set, when a widget was already once allocated,
        *
        * The dw::Image widget uses this flag, see dw::Image::setBuffer.
        */
-      WAS_ALLOCATED    = 1 << 5,
-
-      /**
-       * \brief Set for block-level widgets (as opposed to inline widgets)
-       */
-      BLOCK_LEVEL      = 1 << 6,
+      WAS_ALLOCATED    = 1 << 6,
    };
 
    /**
@@ -97,10 +99,32 @@ protected:
    WidgetImgRenderer *widgetImgRenderer;
 
 private:
+   static bool adjustMinWidth;
+
    /**
     * \brief The parent widget, NULL for top-level widgets.
     */
    Widget *parent;
+
+   /**
+    * \brief ...
+    */
+   Widget *quasiParent;
+
+   /**
+    * \brief The generating widget, NULL for top-level widgets, or if
+    *    not set; in the latter case, the effective generator (see
+    *    getGenerator) is the parent.
+    */
+   Widget *generator;
+
+   /**
+    * \brief The containing widget, equivalent to the "containing
+    *    block" defined by CSS. May be NULL, in this case the viewport
+    *    is used.
+    */
+   Widget *container;
+
    style::Style *style;
 
    Flags flags;
@@ -133,6 +157,11 @@ private:
     */
    bool buttonSensitiveSet;
 
+   void queueResize (int ref, bool extremesChanged, bool fast);
+   inline void queueResizeFast (int ref, bool extremesChanged)
+   { queueResize (ref, extremesChanged, true); }
+   void actualQueueResize (int ref, bool extremesChanged, bool fast);
+
 public:
    /**
     * \brief This value is defined by the parent widget, and used for
@@ -158,16 +187,79 @@ protected:
 
    Layout *layout;
 
-   inline void setFlags (Flags f)   { flags = (Flags)(flags | f); }
-   inline void unsetFlags (Flags f) { flags = (Flags)(flags & ~f); }
+   /**
+    * \brief Space around the margin box. Allocation is extraSpace +
+    *    margin + border + padding + contents;
+    */
+   style::Box extraSpace;
+
+   /*inline void printFlags () {
+      DBG_IF_RTFL {
+         char buf[10 * 3 - 1 + 1];
+         snprintf (buf, sizeof (buf), "%s:%s:%s:%s:%s:%s:%s",
+                   (flags & RESIZE_QUEUED)    ? "Rq" : "--",
+                   (flags & EXTREMES_QUEUED)  ? "Eq" : "--",
+                   (flags & NEEDS_RESIZE)     ? "nR" : "--",
+                   (flags & NEEDS_ALLOCATE)   ? "nA" : "--",
+                   (flags & ALLOCATE_QUEUED)  ? "Aq" : "--",
+                   (flags & EXTREMES_CHANGED) ? "Ec" : "--",
+                   (flags & WAS_ALLOCATED)    ? "wA" : "--");
+         DBG_OBJ_SET_SYM ("flags", buf);
+      }
+   }*/
+
+   inline void printFlag (Flags f) {
+      DBG_IF_RTFL {
+         switch (f) {
+         case RESIZE_QUEUED:
+               DBG_OBJ_SET_SYM ("flags.RESIZE_QUEUED",
+                                (flags & RESIZE_QUEUED) ? "true" : "false");
+               break;
+
+         case EXTREMES_QUEUED:
+            DBG_OBJ_SET_SYM ("flags.EXTREMES_QUEUED",
+                             (flags & EXTREMES_QUEUED) ? "true" : "false");
+            break;
+
+         case NEEDS_RESIZE:
+            DBG_OBJ_SET_SYM ("flags.NEEDS_RESIZE",
+                             (flags & NEEDS_RESIZE) ? "true" : "false");
+            break;
+
+         case NEEDS_ALLOCATE:
+            DBG_OBJ_SET_SYM ("flags.NEEDS_ALLOCATE",
+                             (flags & NEEDS_ALLOCATE) ? "true" : "false");
+            break;
+
+         case ALLOCATE_QUEUED:
+            DBG_OBJ_SET_SYM ("flags.ALLOCATE_QUEUED",
+                             (flags & ALLOCATE_QUEUED) ? "true" : "false");
+            break;
+
+         case EXTREMES_CHANGED:
+            DBG_OBJ_SET_SYM ("flags.EXTREMES_CHANGED",
+                             (flags & EXTREMES_CHANGED) ? "true" : "false");
+            break;
+
+         case WAS_ALLOCATED:
+            DBG_OBJ_SET_SYM ("flags.WAS_ALLOCATED",
+                             (flags & WAS_ALLOCATED) ? "true" : "false");
+            break;
+         }
+      }
+   }
+
+   inline void setFlags (Flags f)
+   { flags = (Flags)(flags | f); printFlag (f); }
+   inline void unsetFlags (Flags f)
+   { flags = (Flags)(flags & ~f); printFlag (f); }
 
 
    inline void queueDraw ()
-   {
-      queueDrawArea (0, 0, allocation.width, getHeight());
-   }
+   { queueDrawArea (0, 0, allocation.width, getHeight()); }
    void queueDrawArea (int x, int y, int width, int height);
-   void queueResize (int ref, bool extremesChanged);
+   inline void queueResize (int ref, bool extremesChanged)
+   { queueResize (ref, extremesChanged, false); }
 
    /**
     * \brief See \ref dw-widget-sizes.
@@ -177,7 +269,7 @@ protected:
    /**
     * \brief See \ref dw-widget-sizes.
     */
-   virtual void getExtremesImpl (Extremes *extremes);
+   virtual void getExtremesImpl (Extremes *extremes) = 0;
 
    /**
     * \brief See \ref dw-widget-sizes.
@@ -200,6 +292,30 @@ protected:
     */
    virtual void markExtremesChange (int ref);
 
+   int getMinWidth (Extremes *extremes, bool forceValue);
+
+   virtual int getAvailWidthOfChild (Widget *child, bool forceValue);
+   virtual int getAvailHeightOfChild (Widget *child, bool forceValue);
+   virtual void correctRequisitionOfChild (Widget *child,
+                                           Requisition *requisition,
+                                           void (*splitHeightFun) (int, int*,
+                                                                   int*));
+   void correctReqWidthOfChild (Widget *child, Requisition *requisition);
+   void correctReqHeightOfChild (Widget *child, Requisition *requisition,
+                                 void (*splitHeightFun) (int, int*, int*));
+   virtual void correctExtremesOfChild (Widget *child, Extremes *extremes,
+                                        bool useAdjustmentWidth);
+
+   virtual void containerSizeChangedForChildren ();
+
+   virtual bool affectedByContainerSizeChange ();
+   virtual bool affectsSizeChangeContainerChild (Widget *child);
+   virtual bool usesAvailWidth ();
+   virtual bool usesAvailHeight ();
+
+   virtual void notifySetAsTopLevel();
+   virtual void notifySetParent();
+
    virtual bool buttonPressImpl (EventButton *event);
    virtual bool buttonReleaseImpl (EventButton *event);
    virtual bool motionNotifyImpl (EventMotion *event);
@@ -216,7 +332,7 @@ protected:
    { layout->changeAnchor (this, name, y); }
 
    inline void removeAnchor (char* name)
-   { layout->removeAnchor (this, name); }
+   { if (layout) layout->removeAnchor (this, name); }
 
    //inline void updateBgColor () { layout->updateBgColor (); }
 
@@ -249,32 +365,87 @@ public:
    inline void setDeleteCallback(DW_Callback_t func, void *data)
    { deleteCallbackFunc = func; deleteCallbackData = data; }
 
+private:
+   bool resizeIdleEntered () { return layout && layout->resizeIdleCounter; }
+
+   void enterQueueResize () { if (layout) layout->queueResizeCounter++; }
+   void leaveQueueResize () { if (layout) layout->queueResizeCounter--; }
+   bool queueResizeEntered () { return layout && layout->queueResizeCounter; }
+
+   void enterSizeAllocate () { if (layout) layout->sizeAllocateCounter++; }
+   void leaveSizeAllocate () { if (layout) layout->sizeAllocateCounter--; }
+   bool sizeAllocateEntered () { return layout && layout->sizeAllocateCounter; }
+
+   void enterSizeRequest () { if (layout) layout->sizeRequestCounter++; }
+   void leaveSizeRequest () { if (layout) layout->sizeRequestCounter--; }
+   bool sizeRequestEntered () { return layout && layout->sizeRequestCounter; }
+
+   void enterGetExtremes () { if (layout) layout->getExtremesCounter++; }
+   void leaveGetExtremes () { if (layout) layout->getExtremesCounter--; }
+   bool getExtremesEntered () { return layout && layout->getExtremesCounter; }
+
+
 public:
    static int CLASS_ID;
+
+   inline static void setAdjustMinWidth (bool adjustMinWidth)
+   { Widget::adjustMinWidth = adjustMinWidth; }
 
    Widget ();
    ~Widget ();
 
+   inline bool resizeQueued ()    { return flags & RESIZE_QUEUED; }
+   inline bool extremesQueued ()  { return flags & EXTREMES_QUEUED; }
    inline bool needsResize ()     { return flags & NEEDS_RESIZE; }
    inline bool needsAllocate ()   { return flags & NEEDS_ALLOCATE; }
+   inline bool allocateQueued ()  { return flags & ALLOCATE_QUEUED; }
    inline bool extremesChanged () { return flags & EXTREMES_CHANGED; }
    inline bool wasAllocated ()    { return flags & WAS_ALLOCATED; }
-   inline bool usesHints ()       { return flags & USES_HINTS; }
-   inline bool hasContents ()     { return flags & HAS_CONTENTS; }
-   inline bool blockLevel ()      { return flags & BLOCK_LEVEL; }
 
    void setParent (Widget *parent);
+   void setQuasiParent (Widget *quasiParent);
+
+   void setGenerator (Widget *generator) { this->generator = generator; }
 
    inline style::Style *getStyle () { return style; }
    /** \todo I do not like this. */
    inline Allocation *getAllocation () { return &allocation; }
 
+   inline int boxOffsetX ()
+   { return extraSpace.left + getStyle()->boxOffsetX (); }
+   inline int boxRestWidth ()
+   { return extraSpace.right + getStyle()->boxRestWidth (); }
+   inline int boxDiffWidth () { return boxOffsetX () + boxRestWidth (); }
+   inline int boxOffsetY ()
+   { return extraSpace.top + getStyle()->boxOffsetY (); }
+   inline int boxRestHeight ()
+   { return extraSpace.bottom + getStyle()->boxRestHeight (); }
+   inline int boxDiffHeight () { return boxOffsetY () + boxRestHeight (); }
+
    void sizeRequest (Requisition *requisition);
    void getExtremes (Extremes *extremes);
    void sizeAllocate (Allocation *allocation);
-   virtual void setWidth (int width);
-   virtual void setAscent (int ascent);
-   virtual void setDescent (int descent);
+
+   int getAvailWidth (bool forceValue);
+   int getAvailHeight (bool forceValue);
+   virtual bool getAdjustMinWidth () { return Widget::adjustMinWidth; }
+   void correctRequisition (Requisition *requisition,
+                            void (*splitHeightFun) (int, int*, int*));
+   void correctExtremes (Extremes *extremes, bool useAdjustmentWidth);
+   int calcWidth (style::Length cssValue, int refWidth, Widget *refWidget,
+                  int limitMinWidth, bool forceValue);
+   void calcFinalWidth (style::Style *style, int refWidth, Widget *refWidget,
+                        int limitMinWidth, bool forceValue, int *finalWidth);
+   int calcHeight (style::Length cssValue, bool usePercentage, int refHeight,
+                   Widget *refWidget, bool forceValue);
+
+   virtual int applyPerWidth (int containerWidth, style::Length perWidth);
+   virtual int applyPerHeight (int containerHeight, style::Length perHeight);
+
+   virtual bool isBlockLevel ();
+   virtual bool isPossibleContainer ();
+
+   void containerSizeChanged ();
 
    bool intersects (Rectangle *area, Rectangle *intersection);
 
@@ -300,9 +471,13 @@ public:
    inline bool isButtonSensitive () { return buttonSensitive; }
 
    inline Widget *getParent () { return parent; }
+   inline Widget *getContainer () { return container; }
    Widget *getTopLevel ();
    int getLevel ();
+   int getGeneratorLevel ();
    Widget *getNearestCommonAncestor (Widget *otherWidget);
+
+   inline Widget *getGenerator () { return generator ? generator : parent; }
 
    inline Layout *getLayout () { return layout; }
 
@@ -329,6 +504,9 @@ public:
    virtual Iterator *iterator (Content::Type mask, bool atEnd) = 0;
    virtual void removeChild (Widget *child);
 };
+
+void splitHeightPreserveAscent (int height, int *ascent, int *descent);
+void splitHeightPreserveDescent (int height, int *ascent, int *descent);
 
 } // namespace core
 } // namespace dw
