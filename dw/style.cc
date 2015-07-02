@@ -17,8 +17,6 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-
-
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -75,6 +73,12 @@ void StyleAttrs::initValues ()
    backgroundPositionX = createPerLength (0);
    backgroundPositionY = createPerLength (0);
    width = height = lineHeight = LENGTH_AUTO;
+   minWidth = maxWidth = minHeight = maxHeight = LENGTH_AUTO;
+   vloat = FLOAT_NONE;
+   clear = CLEAR_NONE;
+   overflow = OVERFLOW_VISIBLE;
+   position = POSITION_STATIC;
+   top = bottom = left = right = LENGTH_AUTO;
    textIndent = 0;
    margin.setVal (0);
    borderWidth.setVal (0);
@@ -101,6 +105,12 @@ void StyleAttrs::resetValues ()
 
    valign = VALIGN_BASELINE;
    textAlignChar = '.';
+   vloat = FLOAT_NONE; /** \todo Correct? Check specification. */
+   clear = CLEAR_NONE; /** \todo Correct? Check specification. */
+   overflow = OVERFLOW_VISIBLE;
+   position = POSITION_STATIC; /** \todo Correct? Check specification. */
+   top = bottom = left = right = LENGTH_AUTO; /** \todo Correct? Check
+                                                  specification. */
    backgroundColor = NULL;
    backgroundImage = NULL;
    backgroundRepeat = BACKGROUND_REPEAT;
@@ -109,6 +119,7 @@ void StyleAttrs::resetValues ()
    backgroundPositionY = createPerLength (0);
    width = LENGTH_AUTO;
    height = LENGTH_AUTO;
+   minWidth = maxWidth = minHeight = maxHeight = LENGTH_AUTO;
 
    margin.setVal (0);
    borderWidth.setVal (0);
@@ -156,11 +167,23 @@ bool StyleAttrs::equals (object::Object *other) {
        valign == otherAttrs->valign &&
        textAlignChar == otherAttrs->textAlignChar &&
        textTransform == otherAttrs->textTransform &&
+       vloat == otherAttrs->vloat &&
+       clear == otherAttrs->clear &&
+       overflow == otherAttrs->overflow &&
+       position == otherAttrs->position &&
+       top == otherAttrs->top &&
+       bottom == otherAttrs->bottom &&
+       left == otherAttrs->left &&
+       right == otherAttrs->right &&
        hBorderSpacing == otherAttrs->hBorderSpacing &&
        vBorderSpacing == otherAttrs->vBorderSpacing &&
        wordSpacing == otherAttrs->wordSpacing &&
        width == otherAttrs->width &&
        height == otherAttrs->height &&
+       minWidth == otherAttrs->minWidth &&
+       maxWidth == otherAttrs->maxWidth &&
+       minHeight == otherAttrs->minHeight &&
+       maxHeight == otherAttrs->maxHeight &&
        lineHeight == otherAttrs->lineHeight &&
        textIndent == otherAttrs->textIndent &&
        margin.equals (&otherAttrs->margin) &&
@@ -201,11 +224,23 @@ int StyleAttrs::hashValue () {
       valign +
       textAlignChar +
       textTransform +
+      vloat +
+      clear +
+      overflow +
+      position +
+      top +
+      bottom +
+      left +
+      right +
       hBorderSpacing +
       vBorderSpacing +
       wordSpacing +
       width +
       height +
+      minWidth +
+      maxWidth +
+      minHeight +
+      maxHeight +
       lineHeight +
       textIndent +
       margin.hashValue () +
@@ -316,6 +351,14 @@ void Style::copyAttrs (StyleAttrs *attrs)
    valign = attrs->valign;
    textAlignChar = attrs->textAlignChar;
    textTransform = attrs->textTransform;
+   vloat = attrs->vloat;
+   clear = attrs->clear;
+   overflow = attrs->overflow;
+   position = attrs->position;
+   top = attrs->top;
+   bottom = attrs->bottom;
+   left = attrs->left;
+   right = attrs->right;
    hBorderSpacing = attrs->hBorderSpacing;
    vBorderSpacing = attrs->vBorderSpacing;
    wordSpacing = attrs->wordSpacing;
@@ -323,6 +366,10 @@ void Style::copyAttrs (StyleAttrs *attrs)
    height = attrs->height;
    lineHeight = attrs->lineHeight;
    textIndent = attrs->textIndent;
+   minWidth = attrs->minWidth;
+   maxWidth = attrs->maxWidth;
+   minHeight = attrs->minHeight;
+   maxHeight = attrs->maxHeight;
    margin = attrs->margin;
    borderWidth = attrs->borderWidth;
    padding = attrs->padding;
@@ -1157,18 +1204,26 @@ void drawBorder (View *view, Layout *layout, Rectangle *area,
  *
  * Otherwise, the caller should not try to increase the performance by
  * doing some tests before; this is all done in this method.
+ * 
+ * "bgColor" is passes implicitly. For non-inversed drawing,
+ * style->backgroundColor may simply used. However, when drawing is
+ * inversed, and style->backgroundColor is undefined (NULL), a
+ * background color defined higher in the hierarchy (which is not
+ * accessable here) must be used.
+ *
+ * (Background *images* are never drawn inverse.)
  */
 void drawBackground (View *view, Layout *layout, Rectangle *area,
                      int x, int y, int width, int height,
                      int xRef, int yRef, int widthRef, int heightRef,
-                     Style *style, bool inverse, bool atTop)
+                     Style *style, Color *bgColor, bool inverse, bool atTop)
 {
-   bool bgColor = style->backgroundColor != NULL &&
+   bool hasBgColor = bgColor != NULL &&
       // The test for background colors is rather simple, since only the color
       // has to be compared, ...
-      (!atTop || layout->getBgColor () != style->backgroundColor);
-   bool bgImage = (style->backgroundImage != NULL &&
-                   style->backgroundImage->getImgbufSrc() != NULL) &&
+      (!atTop || layout->getBgColor () != bgColor);
+   bool hasBgImage = (style->backgroundImage != NULL &&
+                      style->backgroundImage->getImgbufSrc() != NULL) &&
       // ... but for backgrounds, it would be rather complicated. To handle the
       // two cases (normal HTML in a viewport, where the layout background
       // image is set, and contents of <button> within a flat view, where the
@@ -1182,7 +1237,7 @@ void drawBackground (View *view, Layout *layout, Rectangle *area,
    // necessary to draw the background if background color and image
    // are not set (NULL), i. e. shining through.
 
-   if (bgColor || bgImage) {
+   if (hasBgColor || hasBgImage) {
       Rectangle bgArea, intersection;
       bgArea.x = x;
       bgArea.y = y;
@@ -1190,14 +1245,14 @@ void drawBackground (View *view, Layout *layout, Rectangle *area,
       bgArea.height = height;
 
       if (area->intersectsWith (&bgArea, &intersection)) {
-         if (bgColor)
-            view->drawRectangle (style->backgroundColor,
+         if (hasBgColor)
+            view->drawRectangle (bgColor,
                                  inverse ?
                                  Color::SHADING_INVERSE : Color::SHADING_NORMAL,
                                  true, intersection.x, intersection.y,
                                  intersection.width, intersection.height);
 
-         if (bgImage)
+         if (hasBgImage)
             drawBackgroundImage (view, style->backgroundImage,
                                  style->backgroundRepeat,
                                  style->backgroundAttachment,

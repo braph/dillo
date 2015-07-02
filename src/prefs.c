@@ -63,10 +63,14 @@ void a_Prefs_init(void)
    prefs.http_language = NULL;
    prefs.http_proxy = NULL;
    prefs.http_max_conns = 6;
+   prefs.http_persistent_conns = FALSE;
    prefs.http_proxyuser = NULL;
    prefs.http_referer = dStrdup(PREFS_HTTP_REFERER);
+   prefs.http_strict_transport_security = TRUE;
    prefs.http_user_agent = dStrdup(PREFS_HTTP_USER_AGENT);
    prefs.limit_text_width = FALSE;
+   prefs.adjust_min_width = TRUE;
+   prefs.adjust_table_min_width = TRUE;
    prefs.load_images=TRUE;
    prefs.load_background_images=FALSE;
    prefs.load_stylesheets=TRUE;

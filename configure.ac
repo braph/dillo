@@ -1,6 +1,6 @@
 dnl Process this file with aclocal, autoconf and automake.
 
-AC_INIT([dillo], [3.0.5])
+AC_INIT([dillo], [3.1-dev])
 
 dnl Detect the canonical target build environment
 AC_CANONICAL_TARGET
@@ -22,8 +22,10 @@ AC_ARG_ENABLE(gprof,  [  --enable-gprof          Try to compile and run with pro
                     , enable_gprof=no)
 AC_ARG_ENABLE(insure, [  --enable-insure         Try to compile and run with Insure++],
                     , enable_insure=no)
-AC_ARG_ENABLE(ssl,    [  --enable-ssl            Enable ssl, https (ALPHA CODE)],
+AC_ARG_ENABLE(ssl,    [  --enable-ssl            Enable SSL/HTTPS/TLS (EXPERIMENTAL CODE)],
                     , enable_ssl=no)
+AC_ARG_WITH(ca-certs-file, [  --with-ca-certs-file=FILE  Specify where to find a bundle of trusted CA certificates for TLS], CA_CERTS_FILE=$withval)
+AC_ARG_WITH(ca-certs-dir, [  --with-ca-certs-dir=DIR     Specify where to find a directory containing trusted CA certificates for TLS], CA_CERTS_DIR=$withval)
 AC_ARG_ENABLE(ipv6,   [  --enable-ipv6           Build with support for IPv6], , )
 AC_ARG_ENABLE(cookies,[  --disable-cookies       Don't compile support for cookies],
                     , enable_cookies=yes)
@@ -55,6 +57,14 @@ AC_TYPE_INT16_T
 AC_TYPE_UINT16_T
 AC_TYPE_INT32_T
 AC_TYPE_UINT32_T
+
+dnl -----------------------------------------------------------------
+dnl Check for absolute path of working directory.
+dnl This is needed for RTFL, to get full the full paths of the source
+dnl file names
+dnl -----------------------------------------------------------------
+dnl
+BASE_CUR_WORKING_DIR=`pwd`
 
 dnl --------------------------------------
 dnl Check whether to add /usr/local or not
@@ -278,7 +288,7 @@ if test "x$enable_gif" = "xyes"; then
 fi
 
 dnl --------------------------
-dnl  Test for support for SSL
+dnl  Test for support for SSL/TLS
 dnl --------------------------
 dnl
 if test "x$enable_ssl" = "xyes"; then
@@ -292,14 +302,14 @@ if test "x$enable_ssl" = "xyes"; then
 
   if test "x$ssl_ok" = "xyes"; then
     LIBSSL_LIBS="-lcrypto -lssl"
-    AC_MSG_WARN([*** Enabling ssl support. THIS IS ALPHA CODE!***])
+    AC_MSG_WARN([*** Enabling SSL/HTTPS/TLS support. THIS IS EXPERIMENTAL CODE ***])
   else
-    AC_MSG_WARN([*** No libssl found. Disabling ssl support.***])
+    AC_MSG_WARN([*** No libssl found. Disabling SSL/HTTPS/TLS support. ***])
   fi
 fi
 
 if test "x$ssl_ok" = "xyes"; then
-  AC_DEFINE([ENABLE_SSL], [1], [Enable SSL support])
+  AC_DEFINE([ENABLE_SSL], [1], [Enable SSL/HTTPS/TLS support])
 fi
 
 dnl --------------------------------------------------------------
@@ -486,6 +496,7 @@ if eval "test x$GCC = xyes"; then
   CXXFLAGS="$CXXFLAGS -Wall -W -Wno-unused-parameter -fno-rtti -fno-exceptions"
 fi
 
+AC_SUBST(BASE_CUR_WORKING_DIR)
 AC_SUBST(LIBJPEG_LIBS)
 AC_SUBST(LIBJPEG_LDFLAGS)
 AC_SUBST(LIBJPEG_CPPFLAGS)
@@ -500,6 +511,8 @@ AC_SUBST(LIBFLTK_CFLAGS)
 AC_SUBST(LIBFLTK_LIBS)
 AC_SUBST(LIBICONV_LIBS)
 AC_SUBST(LIBX11_LIBS)
+AC_SUBST(CA_CERTS_FILE)
+AC_SUBST(CA_CERTS_DIR)
 AC_SUBST(datadir)
 
 AC_CONFIG_FILES([

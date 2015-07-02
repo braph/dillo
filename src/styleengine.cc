@@ -71,6 +71,7 @@ StyleEngine::StyleEngine (dw::core::Layout *layout,
    this->pageUrl = pageUrl ? a_Url_dup(pageUrl) : NULL;
    this->baseUrl = baseUrl ? a_Url_dup(baseUrl) : NULL;
    importDepth = 0;
+   dpmm = layout->dpiX () / 25.4; /* assume dpiX == dpiY */
 
    stackPush ();
    Node *n = stack->getLastRef ();
@@ -154,7 +155,7 @@ void StyleEngine::startElement (const char *tagname, BrowserWindow *bw) {
 }
 
 void StyleEngine::setId (const char *id) {
-   DoctreeNode *dn =  doctree->top ();
+   DoctreeNode *dn = doctree->top ();
    assert (dn->id == NULL);
    dn->id = dStrdup (id);
 }
@@ -588,6 +589,12 @@ void StyleEngine::apply (int i, StyleAttrs *attrs, CssPropertyList *props,
             computeValue (&attrs->hBorderSpacing, p->value.intVal,attrs->font);
             computeValue (&attrs->vBorderSpacing, p->value.intVal,attrs->font);
             break;
+         case CSS_PROPERTY_BOTTOM:
+            computeLength (&attrs->bottom, p->value.intVal, attrs->font);
+            break;
+         case CSS_PROPERTY_CLEAR:
+            attrs->clear = (ClearType) p->value.intVal;
+            break;
          case CSS_PROPERTY_COLOR:
             attrs->color = Color::create (layout, p->value.intVal);
             break;
@@ -598,6 +605,12 @@ void StyleEngine::apply (int i, StyleAttrs *attrs, CssPropertyList *props,
             attrs->display = (DisplayType) p->value.intVal;
             if (attrs->display == DISPLAY_NONE)
                stack->getRef (i)->displayNone = true;
+            break;
+         case CSS_PROPERTY_FLOAT:
+            attrs->vloat = (FloatType) p->value.intVal;
+            break;
+         case CSS_PROPERTY_LEFT:
+            computeLength (&attrs->left, p->value.intVal, attrs->font);
             break;
          case CSS_PROPERTY_LINE_HEIGHT:
             if (p->type == CSS_TYPE_ENUM) { //only valid enum value is "normal"
@@ -638,6 +651,9 @@ void StyleEngine::apply (int i, StyleAttrs *attrs, CssPropertyList *props,
             if (attrs->margin.top < 0) // \todo fix negative margins in dw/*
                attrs->margin.top = 0;
             break;
+         case CSS_PROPERTY_OVERFLOW:
+            attrs->overflow = (Overflow) p->value.intVal;
+            break;
          case CSS_PROPERTY_PADDING_TOP:
             computeValue (&attrs->padding.top, p->value.intVal, attrs->font);
             break;
@@ -650,6 +666,12 @@ void StyleEngine::apply (int i, StyleAttrs *attrs, CssPropertyList *props,
          case CSS_PROPERTY_PADDING_RIGHT:
             computeValue (&attrs->padding.right, p->value.intVal, attrs->font);
             break;
+         case CSS_PROPERTY_POSITION:
+            attrs->position = (Position) p->value.intVal;
+            break;
+         case CSS_PROPERTY_RIGHT:
+            computeLength (&attrs->right, p->value.intVal, attrs->font);
+            break;
          case CSS_PROPERTY_TEXT_ALIGN:
             attrs->textAlign = (TextAlignType) p->value.intVal;
             break;
@@ -661,6 +683,9 @@ void StyleEngine::apply (int i, StyleAttrs *attrs, CssPropertyList *props,
             break;
          case CSS_PROPERTY_TEXT_TRANSFORM:
             attrs->textTransform = (TextTransform) p->value.intVal;
+            break;
+         case CSS_PROPERTY_TOP:
+            computeLength (&attrs->top, p->value.intVal, attrs->font);
             break;
          case CSS_PROPERTY_VERTICAL_ALIGN:
             attrs->valign = (VAlignType) p->value.intVal;
@@ -688,6 +713,18 @@ void StyleEngine::apply (int i, StyleAttrs *attrs, CssPropertyList *props,
                attrs->wordSpacing = 1000;
             else if (attrs->wordSpacing < -1000)
                attrs->wordSpacing = -1000;
+            break;
+         case CSS_PROPERTY_MIN_WIDTH:
+            computeLength (&attrs->minWidth, p->value.intVal, attrs->font);
+            break;
+         case CSS_PROPERTY_MAX_WIDTH:
+            computeLength (&attrs->maxWidth, p->value.intVal, attrs->font);
+            break;
+         case CSS_PROPERTY_MIN_HEIGHT:
+            computeLength (&attrs->minHeight, p->value.intVal, attrs->font);
+            break;
+         case CSS_PROPERTY_MAX_HEIGHT:
+            computeLength (&attrs->maxHeight, p->value.intVal, attrs->font);
             break;
          case PROPERTY_X_LINK:
             attrs->x_link = p->value.intVal;
@@ -743,11 +780,6 @@ void StyleEngine::apply (int i, StyleAttrs *attrs, CssPropertyList *props,
  * \brief Resolve relative lengths to absolute values.
  */
 bool StyleEngine::computeValue (int *dest, CssLength value, Font *font) {
-   static float dpmm;
-
-   if (dpmm == 0.0)
-      dpmm = layout->dpiX () / 25.4; /* assume dpiX == dpiY */
-
    switch (CSS_LENGTH_TYPE (value)) {
       case CSS_LENGTH_TYPE_PX:
          *dest = (int) CSS_LENGTH_VALUE (value);
@@ -1000,7 +1032,7 @@ void StyleEngine::init () {
       "code, tt, pre, samp, kbd {font-family: monospace}"
       /* WORKAROUND: Reset font properties in tables as some
        * pages rely on it (e.g. gmail).
-       * http://developer.mozilla.org/En/Fixing_Table_Inheritance_in_Quirks_Mode
+       * http://developer.mozilla.org/en-US/Fixing_Table_Inheritance_in_Quirks_Mode
        * has a detailed description of the issue.
        */
       "table, caption {font-size: medium; font-weight: normal}";

@@ -12,7 +12,7 @@ namespace lout {
 /**
  * \brief Miscellaneous stuff, which does not fit anywhere else.
  *
- * Actually, the other parts, beginning with ::object, depend on this.
+ * Actually, the other parts, beginning with \ref object, depend on this.
  */
 namespace misc {
 
@@ -223,6 +223,30 @@ public:
       assert (i >= 0 && this->num - i > 0);
       this->array[i] = t;
    }
+
+   /**
+    * \brief Store an object at the end of the vector.
+    */
+   inline void setLast (T t) {
+      assert (this->num > 0);
+      this->array[this->num - 1] = t;
+   }
+
+   /**
+    * \brief Copies some elements into another vector of the same
+    *    type.
+    *
+    * Cannot be used to copy elements within one vector. (For this,
+    * it would have to be extended to copy backwards in some cases.)
+    */
+   inline void copyTo(SimpleVector<T> *dest, int thisStart = 0,
+                      int thisLast = -1, int destStart = 0) {
+      assert (dest != this);
+      if (thisLast == -1)
+         thisLast = this->size () - 1;
+      for (int i = thisStart; i <= thisLast; i++)
+         dest->set (i - thisStart + destStart, get (i));
+   }
 };
 
 /**
@@ -379,7 +403,7 @@ public:
          this->startExtra = index;
          resizeExtra ();
       } else {
-         if (index < startExtra)  {
+         if (index < startExtra) {
             consolidate ();
             insert (index, numInsert);
          } else if (index < startExtra + numExtra) {
@@ -421,14 +445,29 @@ public:
     */
    inline T* getRef (int i) const
    {
-      if (this->startExtra == -1)
+      if (this->startExtra == -1) {
+         assert (i >= 0 && i < this->numMain);
          return this->arrayMain + i;
-      else {
-         if (i < this->startExtra)
+      } else {
+         if (i < this->startExtra) {
+            assert (i >= 0);
             return this->arrayMain + i;
-         else if (i >= this->startExtra + this->numExtra)
+         } else if (i >= this->startExtra + this->numExtra) {
+            // The original assertion
+            ///
+            //    "assert (i < this->numMain + this->numExtra)"
+            //
+            // causes this warnung in dw::Textblock::breakAdded:
+            //
+            //    "assuming signed overflow does not occur when assuming that
+            //     (X - c) > X is always false [-Wstrict-overflow]"
+            //
+            // Subtracting numExtra from both sides solves this,
+            // interrestingly.
+
+            assert (i - this->numExtra < this->numMain);
             return this->arrayMain + i - this->numExtra;
-         else
+         } else
             return this->arrayExtra1 + i - this->startExtra;
       }
    }
@@ -485,6 +524,13 @@ public:
    inline void set (int i, T t) {
       *(this->getRef(i)) = t;
    }
+
+   /**
+    * \brief Store an object at the end of the vector.
+    */
+   inline void setLast (T t) {
+      *(this->getLastRef()) = t;
+   }
 };
 
 /**
@@ -515,6 +561,11 @@ public:
     * about memory management.
     */
    inline void append(const char *str) { appendNoCopy(strdup(str)); }
+   inline void appendInt(int n)
+   { char buf[32]; sprintf (buf, "%d", n); append (buf); }
+   inline void appendPointer(void *p)
+   { char buf[32]; sprintf (buf, "%p", p); append (buf); }
+   inline void appendBool(bool b) { append (b ? "true" : "false"); }
    void appendNoCopy(char *str);
    const char *getChars();
    void clear ();
@@ -528,7 +579,7 @@ class BitSet
 {
 private:
    unsigned char *bits;
-   int numBytes;
+   int numBits, numBytes;
 
    inline int bytesForBits(int bits) { return bits == 0 ? 1 : (bits + 7) / 8; }
 

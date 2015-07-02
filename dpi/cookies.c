@@ -45,6 +45,7 @@ int main(void)
 #include <stdio.h>
 #include <time.h>       /* for time() and time_t */
 #include <ctype.h>
+#include <limits.h>
 #include <netdb.h>
 #include <signal.h>
 #include "dpiutil.h"
@@ -607,7 +608,7 @@ static void Cookies_too_many(DomainNode *node)
 {
    CookieData_t *lru = Cookies_get_LRU(node ? node->cookies : all_cookies);
 
-   MSG("Too many cookies!\n"
+   MSG("Too many cookies! "
        "Removing LRU cookie for \'%s\': \'%s=%s\'\n", lru->domain,
        lru->name, lru->value);
    if (!node)
@@ -835,11 +836,20 @@ static CookieData_t *Cookies_parse(char *cookie_str, const char *server_date)
       } else if (dStrAsciiCasecmp(attr, "Max-Age") == 0) {
          value = Cookies_parse_value(&str);
          if (isdigit(*value) || *value == '-') {
+            long age;
             time_t now = time(NULL);
-            long age = strtol(value, NULL, 10);
             struct tm *tm = gmtime(&now);
 
-            tm->tm_sec += age;
+            errno = 0;
+            age = (*value == '-') ? 0 : strtol(value, NULL, 10);
+
+            if (errno == ERANGE ||
+                (age > 0 && (age > INT_MAX - tm->tm_sec))) {
+               /* let's not overflow */
+               tm->tm_sec = INT_MAX;
+            } else {
+               tm->tm_sec += age;
+            }
             cookie->expires_at = mktime(tm);
             if (age > 0 && cookie->expires_at == (time_t) -1) {
                cookie->expires_at = cookies_future_time;
@@ -1142,14 +1152,14 @@ static int Cookies_set(char *cookie_string, char *url_host,
  * Compare the cookie with the supplied data to see whether it matches
  */
 static bool_t Cookies_match(CookieData_t *cookie, const char *url_path,
-                            bool_t host_only_val, bool_t is_ssl)
+                            bool_t host_only_val, bool_t is_tls)
 {
    if (cookie->host_only != host_only_val)
       return FALSE;
 
    /* Insecure cookies match both secure and insecure urls, secure
       cookies match only secure urls */
-   if (cookie->secure && !is_ssl)
+   if (cookie->secure && !is_tls)
       return FALSE;
 
    if (!Cookies_path_matches(url_path, cookie->path))
@@ -1163,7 +1173,7 @@ static void Cookies_add_matching_cookies(const char *domain,
                                          const char *url_path,
                                          bool_t host_only_val,
                                          Dlist *matching_cookies,
-                                         bool_t is_ssl)
+                                         bool_t is_tls)
 {
    DomainNode *node = dList_find_sorted(domains, domain,
                                         Domain_node_by_domain_cmp);
@@ -1183,7 +1193,7 @@ static void Cookies_add_matching_cookies(const char *domain,
             --i; continue;
          }
          /* Check if the cookie matches the requesting URL */
-         if (Cookies_match(cookie, url_path, host_only_val, is_ssl)) {
+         if (Cookies_match(cookie, url_path, host_only_val, is_tls)) {
             int j;
             CookieData_t *curr;
             uint_t path_length = strlen(cookie->path);
@@ -1213,7 +1223,7 @@ static char *Cookies_get(char *url_host, char *url_path,
    char *domain_str, *str;
    CookieData_t *cookie;
    Dlist *matching_cookies;
-   bool_t is_ssl, is_ip_addr, host_only_val;
+   bool_t is_tls, is_ip_addr, host_only_val;
 
    Dstr *cookie_dstring;
    int i;
@@ -1224,7 +1234,7 @@ static char *Cookies_get(char *url_host, char *url_path,
    matching_cookies = dList_new(8);
 
    /* Check if the protocol is secure or not */
-   is_ssl = (!dStrAsciiCasecmp(url_scheme, "https"));
+   is_tls = (!dStrAsciiCasecmp(url_scheme, "https"));
 
    is_ip_addr = Cookies_domain_is_ip(url_host);
 
@@ -1240,17 +1250,17 @@ static char *Cookies_get(char *url_host, char *url_path,
       /* e.g., sub.example.com set a cookie with domain ".sub.example.com". */
       domain_str = dStrconcat(".", url_host, NULL);
       Cookies_add_matching_cookies(domain_str, url_path, host_only_val,
-                                   matching_cookies, is_ssl);
+                                   matching_cookies, is_tls);
       dFree(domain_str);
    }
    host_only_val = TRUE;
    /* e.g., sub.example.com set a cookie with no domain attribute. */
    Cookies_add_matching_cookies(url_host, url_path, host_only_val,
-                                matching_cookies, is_ssl);
+                                matching_cookies, is_tls);
    host_only_val = FALSE;
    /* e.g., sub.example.com set a cookie with domain "sub.example.com". */
    Cookies_add_matching_cookies(url_host, url_path, host_only_val,
-                                matching_cookies, is_ssl);
+                                matching_cookies, is_tls);
 
    if (!is_ip_addr) {
       for (domain_str = strchr(url_host+1, '.');
@@ -1258,12 +1268,12 @@ static char *Cookies_get(char *url_host, char *url_path,
            domain_str = strchr(domain_str+1, '.')) {
          /* e.g., sub.example.com set a cookie with domain ".example.com". */
          Cookies_add_matching_cookies(domain_str, url_path, host_only_val,
-                                      matching_cookies, is_ssl);
+                                      matching_cookies, is_tls);
          if (domain_str[1]) {
             domain_str++;
             /* e.g., sub.example.com set a cookie with domain "example.com".*/
             Cookies_add_matching_cookies(domain_str, url_path, host_only_val,
-                                         matching_cookies, is_ssl);
+                                         matching_cookies, is_tls);
          }
       }
    }
