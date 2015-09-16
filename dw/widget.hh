@@ -180,18 +180,35 @@ protected:
    Allocation allocation;
 
    inline int getHeight () { return allocation.ascent + allocation.descent; }
-   inline int getContentWidth() { return allocation.width
-                                     - style->boxDiffWidth (); }
-   inline int getContentHeight() { return getHeight ()
-                                      - style->boxDiffHeight (); }
+   inline int getContentWidth() { return allocation.width - boxDiffWidth (); }
+   inline int getContentHeight() { return getHeight () - boxDiffHeight (); }
 
    Layout *layout;
 
    /**
     * \brief Space around the margin box. Allocation is extraSpace +
-    *    margin + border + padding + contents;
+    *    margin + border + padding + contents.
+    *
+    * See also dw::core::Widget::calcExtraSpace and
+    * dw::core::Widget::calcExtraSpaceImpl. Also, it is feasible to
+    * correct this value within dw::core::Widget::sizeRequestImpl.
     */
    style::Box extraSpace;
+
+   /**
+    * \brief Set iff this widget constitutes a stacking context, as defined by
+    *    CSS.
+    */
+   StackingContextMgr *stackingContextMgr;
+
+   /**
+    * \brief The bottom-most ancestor (or this) for which stackingContextMgr is
+    *    set.
+    */
+   Widget *stackingContextWidget;
+
+   inline StackingContextMgr *getNextStackingContextMgr ()
+   { return stackingContextWidget->stackingContextMgr; }
 
    /*inline void printFlags () {
       DBG_IF_RTFL {
@@ -254,7 +271,6 @@ protected:
    inline void unsetFlags (Flags f)
    { flags = (Flags)(flags & ~f); printFlag (f); }
 
-
    inline void queueDraw ()
    { queueDrawArea (0, 0, allocation.width, getHeight()); }
    void queueDrawArea (int x, int y, int width, int height);
@@ -264,12 +280,28 @@ protected:
    /**
     * \brief See \ref dw-widget-sizes.
     */
-   virtual void sizeRequestImpl (Requisition *requisition) = 0;
+   virtual void sizeRequestImpl (Requisition *requisition, int numPos,
+                                 Widget **references, int *x, int *y);
+
+   /**
+    * \brief Simple variant, to be implemented by widgets with sizes
+    *    not depending on positions.
+    */
+   virtual void sizeRequestSimpl (Requisition *requisition);
 
    /**
     * \brief See \ref dw-widget-sizes.
     */
-   virtual void getExtremesImpl (Extremes *extremes) = 0;
+   virtual void getExtremesImpl (Extremes *extremes, int numPos,
+                                 Widget **references, int *x, int *y);
+
+   /**
+    * \brief Simple variant, to be implemented by widgets with
+    *    extremes not depending on positions.
+    */
+   virtual void getExtremesSimpl (Extremes *extremes);
+
+   virtual void calcExtraSpaceImpl ();
 
    /**
     * \brief See \ref dw-widget-sizes.
@@ -291,8 +323,6 @@ protected:
     * \brief See \ref dw-widget-sizes.
     */
    virtual void markExtremesChange (int ref);
-
-   int getMinWidth (Extremes *extremes, bool forceValue);
 
    virtual int getAvailWidthOfChild (Widget *child, bool forceValue);
    virtual int getAvailHeightOfChild (Widget *child, bool forceValue);
@@ -410,6 +440,11 @@ public:
    inline style::Style *getStyle () { return style; }
    /** \todo I do not like this. */
    inline Allocation *getAllocation () { return &allocation; }
+   inline bool inAllocation (int x, int y) {
+      return wasAllocated () && x >= allocation.x && y >= allocation.y &&
+         x <= allocation.x + allocation.width &&
+         y <= allocation.y + getHeight ();
+   }
 
    inline int boxOffsetX ()
    { return extraSpace.left + getStyle()->boxOffsetX (); }
@@ -421,10 +456,34 @@ public:
    inline int boxRestHeight ()
    { return extraSpace.bottom + getStyle()->boxRestHeight (); }
    inline int boxDiffHeight () { return boxOffsetY () + boxRestHeight (); }
+   
+   /**
+    * \brief See \ref dw-widget-sizes (or \ref dw-size-request-pos).
+    */
+   virtual int numSizeRequestReferences ();
 
-   void sizeRequest (Requisition *requisition);
-   void getExtremes (Extremes *extremes);
+   /**
+    * \brief See \ref dw-widget-sizes (or \ref dw-size-request-pos).
+    */
+   virtual Widget *sizeRequestReference (int index);
+
+   /**
+    * \brief See \ref dw-widget-sizes (or \ref dw-size-request-pos).
+    */
+   virtual int numGetExtremesReferences ();
+
+   /**
+    * \brief See \ref dw-widget-sizes (or \ref dw-size-request-pos).
+    */
+   virtual Widget *getExtremesReference (int index);
+
+   void sizeRequest (Requisition *requisition, int numPos = 0,
+                     Widget **references = NULL, int *x = NULL, int *y = NULL);
+   void getExtremes (Extremes *extremes, int numPos = 0,
+                     Widget **references = NULL, int *x = NULL, int *y = NULL);
    void sizeAllocate (Allocation *allocation);
+
+   void calcExtraSpace ();
 
    int getAvailWidth (bool forceValue);
    int getAvailHeight (bool forceValue);
@@ -442,15 +501,24 @@ public:
    virtual int applyPerWidth (int containerWidth, style::Length perWidth);
    virtual int applyPerHeight (int containerHeight, style::Length perHeight);
 
+   int getMinWidth (Extremes *extremes, bool forceValue);
+
    virtual bool isBlockLevel ();
    virtual bool isPossibleContainer ();
 
    void containerSizeChanged ();
 
-   bool intersects (Rectangle *area, Rectangle *intersection);
+   bool intersects (Widget *refWidget, Rectangle *area,
+                    Rectangle *intersection);
 
    /** Area is given in widget coordinates. */
-   virtual void draw (View *view, Rectangle *area) = 0;
+   virtual void draw (View *view, Rectangle *area, DrawingContext *context) = 0;
+   void drawInterruption (View *view, Rectangle *area, DrawingContext *context);
+
+   virtual Widget *getWidgetAtPoint (int x, int y,
+                                     GettingWidgetAtPointContext *context);
+   Widget *getWidgetAtPointInterrupted (int x, int y,
+                                        GettingWidgetAtPointContext *context);
 
    bool buttonPress (EventButton *event);
    bool buttonRelease (EventButton *event);
@@ -481,11 +549,11 @@ public:
 
    inline Layout *getLayout () { return layout; }
 
-   virtual Widget *getWidgetAtPoint (int x, int y, int level);
-
    void scrollTo (HPosition hpos, VPosition vpos,
                   int x, int y, int width, int height);
 
+   void getMarginArea (int *xMar, int *yMar, int *widthMar, int *heightMar);
+   void getBorderArea (int *xBor, int *yBor, int *widthBor, int *heightBor);
    void getPaddingArea (int *xPad, int *yPad, int *widthPad, int *heightPad);
 
    /**
@@ -502,6 +570,7 @@ public:
     * dw::core::Iterator::prev in this case.
     */
    virtual Iterator *iterator (Content::Type mask, bool atEnd) = 0;
+
    virtual void removeChild (Widget *child);
 };
 

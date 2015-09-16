@@ -64,6 +64,8 @@ inline int AsciiStrcasecmp(const char *s1, const char *s2)
    return ret;
 }
 
+inline const char *boolToStr (bool b) { return b ? "true" : "false"; }
+
 /**
  * \brief Simple (simpler than container::untyped::Vector and
  *    container::typed::Vector) template based vector.
@@ -117,6 +119,8 @@ public:
     * \brief Return the number of elements put into this vector.
     */
    inline int size() const { return this->num; }
+
+   inline bool empty() const { return size() == 0; }
 
    inline T* getArray() const { return array; }
 
@@ -377,6 +381,8 @@ public:
    }
 
    inline int size() const { return this->numMain + this->numExtra; }
+
+   inline bool empty() const { return size() == 0; }
 
    inline void increase() { setSize(size() + 1); }
 
