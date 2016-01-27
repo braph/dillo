@@ -374,6 +374,14 @@ void Layout::addWidget (Widget *widget)
       return;
    }
 
+   // The toplevel widget always establishes a stacking context. It could
+   // already be set in Widget::setStyle().
+   if (widget->stackingContextMgr == NULL && IMPL_POS) {
+      widget->stackingContextMgr = new StackingContextMgr (widget);
+      DBG_OBJ_ASSOC (widget, widget->stackingContextMgr);
+      widget->stackingContextWidget = widget;
+   }
+
    topLevel = widget;
    widget->layout = this;
    widget->container = NULL;
@@ -654,6 +662,9 @@ bool Layout::calcScrollInto (int requestedValue, int requestedSize,
 
 void Layout::draw (View *view, Rectangle *area)
 {
+   DBG_OBJ_ENTER ("draw", 0, "draw", "%d, %d, %d * %d",
+                  area->x, area->y, area->width, area->height);
+
    Rectangle widgetArea, intersection, widgetDrawArea;
 
    // First of all, draw background image. (Unlike background *color*,
@@ -693,11 +704,14 @@ void Layout::draw (View *view, Rectangle *area)
          widgetDrawArea.width = intersection.width;
          widgetDrawArea.height = intersection.height;
 
-         topLevel->draw (view, &widgetDrawArea);
+         DrawingContext context (&widgetArea);
+         topLevel->draw (view, &widgetDrawArea, &context);
 
          view->finishDrawing (&intersection);
       }
    }
+
+   DBG_OBJ_LEAVE ();
 }
 
 int Layout::currHScrollbarThickness()
@@ -1093,12 +1107,18 @@ void Layout::leaveNotify (View *view, ButtonState state)
  */
 Widget *Layout::getWidgetAtPoint (int x, int y)
 {
-   _MSG ("------------------------------------------------------------\n");
-   _MSG ("widget at (%d, %d)\n", x, y);
-   if (topLevel && topLevel->wasAllocated ())
-      return topLevel->getWidgetAtPoint (x, y, 0);
-   else
-      return NULL;
+   DBG_OBJ_ENTER ("events", 0, "getWidgetAtPoint", "%d, %d", x, y);
+   Widget *widget;
+
+   if (topLevel && topLevel->wasAllocated ()) {
+      GettingWidgetAtPointContext context;
+      widget = topLevel->getWidgetAtPoint (x, y, &context);
+   } else
+      widget = NULL;
+
+   DBG_OBJ_MSGF ("events", 0, "=> %p", widget);
+   DBG_OBJ_LEAVE ();
+   return widget;
 }
 
 
@@ -1108,12 +1128,16 @@ Widget *Layout::getWidgetAtPoint (int x, int y)
  */
 void Layout::moveToWidget (Widget *newWidgetAtPoint, ButtonState state)
 {
+   DBG_OBJ_ENTER ("events", 0, "moveToWidget", "%p, %d",
+                  newWidgetAtPoint, state);
+
    Widget *ancestor, *w;
    Widget **track;
    int trackLen, i, i_a;
    EventCrossing crossingEvent;
 
-   _MSG("moveToWidget: wap=%p nwap=%p\n",widgetAtPoint,newWidgetAtPoint);
+   DBG_OBJ_MSGF ("events", 1, "(old) widgetAtPoint = %p", widgetAtPoint);
+
    if (newWidgetAtPoint != widgetAtPoint) {
       // The mouse pointer has been moved into another widget.
       if (newWidgetAtPoint && widgetAtPoint)
@@ -1183,6 +1207,8 @@ void Layout::moveToWidget (Widget *newWidgetAtPoint, ButtonState state)
       widgetAtPoint = newWidgetAtPoint;
       updateCursor ();
    }
+
+   DBG_OBJ_LEAVE ();
 }
 
 /**

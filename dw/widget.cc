@@ -68,6 +68,9 @@ Widget::Widget ()
    DBG_OBJ_CREATE ("dw::core::Widget");
    registerName ("dw::core::Widget", &CLASS_ID);
 
+   DBG_OBJ_ASSOC_CHILD (&requisitionParams);
+   DBG_OBJ_ASSOC_CHILD (&extremesParams);
+
    flags = (Flags)(NEEDS_RESIZE | EXTREMES_CHANGED);
    parent = quasiParent = generator = container = NULL;
    DBG_OBJ_SET_PTR ("container", container);
@@ -91,6 +94,8 @@ Widget::Widget ()
    deleteCallbackFunc = NULL;
 
    widgetImgRenderer = NULL;
+
+   stackingContextMgr = NULL;
 }
 
 Widget::~Widget ()
@@ -103,6 +108,9 @@ Widget::~Widget ()
          style->backgroundImage->removeExternalImgRenderer (widgetImgRenderer);
       delete widgetImgRenderer;
    }
+
+   if (stackingContextMgr)
+      delete stackingContextMgr;
 
    if (style)
       style->unref ();
@@ -117,35 +125,111 @@ Widget::~Widget ()
 
 
 /**
- * \brief Calculates the intersection of widget->allocation and area, returned
- *    in intersection (in widget coordinates!).
+ * \brief Calculates the intersection of the visible allocation
+ *    (i. e. the intersection with the visible parent allocation) and
+ *    "area" (in widget coordinates referring to "refWidget"),
+ *    returned in intersection (in widget coordinates).
  *
- * Typically used by containers when
- * drawing their children. Returns whether intersection is not empty.
+ * Typically used by containers when drawing their children (passing
+ * "this" as "refWidget"). Returns whether intersection is not empty.
  */
-bool Widget::intersects (Rectangle *area, Rectangle *intersection)
+bool Widget::intersects (Widget *refWidget, Rectangle *area,
+                         Rectangle *intersection)
 {
-   Rectangle parentArea, childArea;
+   DBG_OBJ_ENTER ("draw", 0, "intersects", "%p, [%d, %d, %d * %d]",
+                  refWidget, area->x, area->y, area->width, area->height);
+   bool r;
 
-   parentArea = *area;
-   parentArea.x += parent->allocation.x;
-   parentArea.y += parent->allocation.y;
+   if (wasAllocated ()) {
+      *intersection = *area;
+      intersection->x += refWidget->allocation.x;
+      intersection->y += refWidget->allocation.y;
+      
+      r = true;
+      // "RefWidget" is excluded; it is assumed that "area" its already within
+      // its allocation.
+      for (Widget *widget = this; r && widget != refWidget;
+           widget = widget->parent) {
+         assert (widget != NULL); // refWidget must be ancestor.
 
-   childArea.x = allocation.x;
-   childArea.y = allocation.y;
-   childArea.width = allocation.width;
-   childArea.height = getHeight ();
+         Rectangle widgetArea, newIntersection;
+         widgetArea.x = widget->allocation.x;
+         widgetArea.y = widget->allocation.y;
+         widgetArea.width = widget->allocation.width;
+         widgetArea.height = widget->getHeight ();
 
-   if (parentArea.intersectsWith (&childArea, intersection)) {
-      intersection->x -= allocation.x;
-      intersection->y -= allocation.y;
-      return true;
-   } else
-      return false;
+         if (intersection->intersectsWith (&widgetArea, &newIntersection)) {
+            DBG_OBJ_MSGF ("draw", 1, "new intersection: %d, %d, %d * %d",
+                          newIntersection.x, newIntersection.y,
+                          newIntersection.width, newIntersection.height);
+            *intersection = newIntersection;
+         } else {
+            DBG_OBJ_MSG ("draw", 1, "no new intersection");
+            r = false;
+         }
+      }
+
+      if (r) {
+         intersection->x -= allocation.x;
+         intersection->y -= allocation.y;
+
+         DBG_OBJ_MSGF ("draw", 1, "final intersection: %d, %d, %d * %d",
+                       intersection->x, intersection->y,
+                       intersection->width, intersection->height);
+      }
+   } else {
+      r = false;
+      DBG_OBJ_MSG ("draw", 1, "not allocated");
+   }
+
+   if (r)
+      DBG_OBJ_MSGF ("draw", 1, "=> true: %d, %d, %d * %d",
+                    intersection->x, intersection->y,
+                    intersection->width, intersection->height);
+   else
+      DBG_OBJ_MSG ("draw", 1, "=> false");
+
+   DBG_OBJ_LEAVE ();
+   return r;
+}
+
+/**
+ * See \ref dw-interrupted-drawing for details.
+ */
+void Widget::drawInterruption (View *view, Rectangle *area,
+                               DrawingContext *context)
+{
+   Rectangle thisArea;
+   if (intersects (layout->topLevel, context->getToplevelArea (), &thisArea))
+      draw (view, &thisArea, context);
+
+   context->addWidgetProcessedAsInterruption (this);
+}
+
+Widget *Widget::getWidgetAtPoint (int x, int y,
+                                  GettingWidgetAtPointContext *context)
+{
+   // Suitable for simple widgets, without children.
+
+   if (inAllocation (x, y))
+      return this;
+   else
+      return NULL;
+}
+
+Widget *Widget::getWidgetAtPointInterrupted (int x, int y,
+                                             GettingWidgetAtPointContext
+                                             *context)
+{
+   Widget *widgetAtPoint = getWidgetAtPoint (x, y, context);
+   context->addWidgetProcessedAsInterruption (this);
+   return widgetAtPoint;
 }
 
 void Widget::setParent (Widget *parent)
 {
+   DBG_OBJ_ENTER ("construct", 0, "setParent", "%p", parent);
+
    this->parent = parent;
    layout = parent->layout;
 
@@ -170,7 +254,21 @@ void Widget::setParent (Widget *parent)
    // Textblock.
    DBG_OBJ_SET_PTR ("container", container);
 
+   // If at all, stackingContextMgr should have set *before*, see also
+   // Widget::setStyle() and Layout::addWidget().
+   if (stackingContextMgr) {
+      Widget *stackingContextWidget = parent;
+      while (stackingContextWidget &&
+             stackingContextWidget->stackingContextMgr == NULL)
+         stackingContextWidget = stackingContextWidget->parent;
+      assert (stackingContextWidget);
+      stackingContextWidget->stackingContextMgr->addChildSCWidget (this);
+   } else
+      stackingContextWidget = parent->stackingContextWidget;
+
    notifySetParent();
+
+   DBG_OBJ_LEAVE ();
 }
 
 void Widget::setQuasiParent (Widget *quasiParent)
@@ -472,11 +570,12 @@ bool Widget::usesAvailHeight ()
  *  \brief This method is a wrapper for Widget::sizeRequestImpl(); it calls
  *     the latter only when needed.
  */
-void Widget::sizeRequest (Requisition *requisition)
+void Widget::sizeRequest (Requisition *requisition, int numPos,
+                          Widget **references, int *x, int *y)
 {
    assert (!queueResizeEntered ());
 
-   DBG_OBJ_ENTER0 ("resize", 0, "sizeRequest");
+   DBG_OBJ_ENTER ("resize", 0, "sizeRequest", "%d, ...", numPos);
 
    enterSizeRequest ();
 
@@ -489,9 +588,27 @@ void Widget::sizeRequest (Requisition *requisition)
       // Layout::resizeIdle.
    }
 
-   if (needsResize ()) {
+   bool callImpl;
+   if (needsResize ())
+      callImpl = true;
+   else {
+      // Even if RESIZE_QUEUED / NEEDS_RESIZE is not set, calling
+      // sizeRequestImpl is necessary when the relavive positions passed here
+      // have changed.
+      SizeParams newParams (numPos, references, x, y);
+      DBG_OBJ_ASSOC_CHILD (&newParams);
+      if (newParams.isEquivalent (&requisitionParams))
+         callImpl = false;
+      else {
+         callImpl = true;
+         requisitionParams = newParams;
+      }
+   }
+   
+   if (callImpl) {
+      calcExtraSpace (numPos, references, x, y);
       /** \todo Check requisition == &(this->requisition) and do what? */
-      sizeRequestImpl (requisition);
+      sizeRequestImpl (requisition, numPos, references, x, y);
       this->requisition = *requisition;
       unsetFlags (NEEDS_RESIZE);
 
@@ -519,7 +636,7 @@ int Widget::getMinWidth (Extremes *extremes, bool forceValue)
 {
    DBG_IF_RTFL {
       if (extremes)
-         DBG_OBJ_ENTER ("resize", 0, "getMinWidth", "[%d (%d) / %d (%d), %s",
+         DBG_OBJ_ENTER ("resize", 0, "getMinWidth", "[%d (%d) / %d (%d)], %s",
                         extremes->minWidth, extremes->minWidthIntrinsic,
                         extremes->maxWidth, extremes->maxWidthIntrinsic,
                         forceValue ? "true" : "false");
@@ -627,7 +744,7 @@ int Widget::getAvailHeight (bool forceValue)
       } else if (style::isPerLength (getStyle()->height)) {
          DBG_OBJ_MSGF ("resize", 1, "percentage height: %g%%",
                        100 * style::perLengthVal_useThisOnlyForDebugging
-                       (getStyle()->height));
+                                (getStyle()->height));
          // Notice that here -- unlike getAvailWidth() --
          // layout->hScrollbarThickness is not considered here;
          // something like canvasWidthGreater (analogue to
@@ -891,11 +1008,12 @@ int Widget::calcHeight (style::Length cssValue, bool usePercentage,
 /**
  * \brief Wrapper for Widget::getExtremesImpl().
  */
-void Widget::getExtremes (Extremes *extremes)
+void Widget::getExtremes (Extremes *extremes, int numPos, Widget **references,
+                          int *x, int *y)
 {
    assert (!queueResizeEntered ());
 
-   DBG_OBJ_ENTER0 ("resize", 0, "getExtremes");
+   DBG_OBJ_ENTER ("resize", 0, "getExtremes", "%d, ...", numPos);
 
    enterGetExtremes ();
 
@@ -908,11 +1026,28 @@ void Widget::getExtremes (Extremes *extremes)
       // Layout::resizeIdle.
    }
 
-   if (extremesChanged ()) {
+   bool callImpl;
+   if (extremesChanged ())
+      callImpl = true;
+   else {
+      // Even if EXTREMES_QUEUED / EXTREMES_CHANGED is not set, calling
+      // getExtremesImpl is necessary when the relavive positions passed here
+      // have changed.
+      SizeParams newParams (numPos, references, x, y);
+      DBG_OBJ_ASSOC_CHILD (&newParams);
+      if (newParams.isEquivalent (&extremesParams))
+         callImpl = false;
+      else {
+         callImpl = true;
+         extremesParams = newParams;
+      }
+   }
+   
+   if (callImpl) {
       // For backward compatibility (part 1/2):
       extremes->minWidthIntrinsic = extremes->maxWidthIntrinsic = -1;
 
-      getExtremesImpl (extremes);
+      getExtremesImpl (extremes, numPos, references, x, y);
 
       // For backward compatibility (part 2/2):
       if (extremes->minWidthIntrinsic == -1)
@@ -936,6 +1071,49 @@ void Widget::getExtremes (Extremes *extremes)
    leaveGetExtremes ();
 
    DBG_OBJ_LEAVE ();
+}
+
+/**
+ * \brief Calculates dw::core::Widget::extraSpace.
+ *
+ * Delegated to dw::core::Widget::calcExtraSpaceImpl. Called both from
+ * dw::core::Widget::sizeRequest and dw::core::Widget::getExtremes.
+ */
+void Widget::calcExtraSpace (int numPos, Widget **references, int *x, int *y)
+{
+   DBG_OBJ_ENTER0 ("resize", 0, "calcExtraSpace");
+
+   extraSpace.top = extraSpace.right = extraSpace.bottom = extraSpace.left = 0;
+   calcExtraSpaceImpl (numPos, references, x, y);
+
+   DBG_OBJ_SET_NUM ("extraSpace.top", extraSpace.top);
+   DBG_OBJ_SET_NUM ("extraSpace.bottom", extraSpace.bottom);
+   DBG_OBJ_SET_NUM ("extraSpace.left", extraSpace.left);
+   DBG_OBJ_SET_NUM ("extraSpace.right", extraSpace.right);
+
+   DBG_OBJ_LEAVE ();
+}
+
+int Widget::numSizeRequestReferences ()
+{
+   return 0;
+}
+
+Widget *Widget::sizeRequestReference (int index)
+{
+   misc::notImplemented ("Widget::sizeRequestReference");
+   return NULL;
+}
+
+int Widget::numGetExtremesReferences ()
+{
+   return 0;
+}
+
+Widget *Widget::getExtremesReference (int index)
+{
+   misc::notImplemented ("Widget::getExtremesReference");
+   return NULL;
 }
 
 /**
@@ -1082,6 +1260,16 @@ void Widget::setStyle (style::Style *style)
       layout->updateCursor ();
    }
 
+   // After Layout::addWidget() (as toplevel widget) or Widget::setParent()
+   // (which also sets layout), changes of the style cannot be considered
+   // anymore. (Should print a warning?)
+   if (layout == NULL &&
+       StackingContextMgr::isEstablishingStackingContext (this)) {
+      stackingContextMgr = new StackingContextMgr (this);
+      DBG_OBJ_ASSOC_CHILD (stackingContextMgr);
+      stackingContextWidget = this;
+   }
+
    if (sizeChanged)
       queueResize (0, true);
    else
@@ -1196,7 +1384,7 @@ void Widget::drawBox (View *view, style::Style *style, Rectangle *area,
 
    // TODO Handle inverse drawing the same way as in drawWidgetBox?
    // Maybe this method (drawBox) is anyway obsolete when extraSpace
-   // is fully supported (as in the "dillo_grows" repository).
+   // is fully supported (as here, in the "dillo_grows" repository).
 
    int xPad, yPad, widthPad, heightPad;
    getPaddingArea (&xPad, &yPad, &widthPad, &heightPad);
@@ -1226,8 +1414,10 @@ void Widget::drawWidgetBox (View *view, Rectangle *area, bool inverse)
    canvasArea.width = area->width;
    canvasArea.height = area->height;
 
-   style::drawBorder (view, layout, &canvasArea, allocation.x, allocation.y,
-                      allocation.width, getHeight (), style, inverse);
+   int xMar, yMar, widthMar, heightMar;
+   getMarginArea (&xMar, &yMar, &widthMar, &heightMar);
+   style::drawBorder (view, layout, &canvasArea, xMar, yMar, widthMar,
+                      heightMar, style, inverse);
 
    int xPad, yPad, widthPad, heightPad;
    getPaddingArea (&xPad, &yPad, &widthPad, &heightPad);
@@ -1363,58 +1553,29 @@ Widget *Widget::getNearestCommonAncestor (Widget *otherWidget)
    return widget1;
 }
 
-
-/**
- * \brief Search recursively through widget.
- *
- * Used by dw::core::Layout:getWidgetAtPoint.
- */
-Widget *Widget::getWidgetAtPoint (int x, int y, int level)
-{
-   Iterator *it;
-   Widget *childAtPoint;
-
-   //printf ("%*s-> examining the %s %p (%d, %d, %d x (%d + %d))\n",
-   //        3 * level, "", getClassName (), this, allocation.x, allocation.y,
-   //        allocation.width, allocation.ascent, allocation.descent);
-
-   if (x >= allocation.x &&
-       y >= allocation.y &&
-       x <= allocation.x + allocation.width &&
-       y <= allocation.y + getHeight ()) {
-      //_MSG ("%*s   -> inside\n", 3 * level, "");
-      /*
-       * Iterate over the children of this widget. Test recursively, whether
-       * the point is within the child (or one of its children...). If there
-       * is such a child, it is returned. Otherwise, this widget is returned.
-       */
-      childAtPoint = NULL;
-      it = iterator ((Content::Type)
-                     (Content::WIDGET_IN_FLOW | Content::WIDGET_OOF_CONT),
-                     false);
-
-      while (childAtPoint == NULL && it->next ()) {
-         Widget *child = it->getContent()->widget;
-         if (child->wasAllocated ())
-            childAtPoint = child->getWidgetAtPoint (x, y, level + 1);
-      }
-
-      it->unref ();
-
-      if (childAtPoint)
-         return childAtPoint;
-      else
-         return this;
-   } else
-      return NULL;
-}
-
-
 void Widget::scrollTo (HPosition hpos, VPosition vpos,
                int x, int y, int width, int height)
 {
    layout->scrollTo (hpos, vpos,
                      x + allocation.x, y + allocation.y, width, height);
+}
+
+void Widget::getMarginArea (int *xMar, int *yMar, int *widthMar, int *heightMar)
+{
+   *xMar = allocation.x + extraSpace.left;
+   *yMar = allocation.y + extraSpace.top;
+   *widthMar = allocation.width - (extraSpace.left + extraSpace.right);
+   *heightMar = getHeight () - (extraSpace.top + extraSpace.bottom);
+}
+
+void Widget::getBorderArea (int *xBor, int *yBor, int *widthBor, int *heightBor)
+{
+   getMarginArea (xBor, yBor, widthBor, heightBor);
+
+   *xBor += style->margin.left;
+   *yBor += style->margin.top;
+   *widthBor -= style->margin.left + style->margin.right;
+   *heightBor -= style->margin.top + style->margin.bottom;
 }
 
 /**
@@ -1426,15 +1587,59 @@ void Widget::scrollTo (HPosition hpos, VPosition vpos,
 void Widget::getPaddingArea (int *xPad, int *yPad, int *widthPad,
                              int *heightPad)
 {
-   *xPad = allocation.x + style->margin.left + style->borderWidth.left;
-   *yPad = allocation.y + style->margin.top + style->borderWidth.top;
-   *widthPad = allocation.width - style->margin.left - style->borderWidth.left
-      - style->margin.right - style->borderWidth.right;
-   *heightPad = getHeight () - style->margin.top - style->borderWidth.top
-      - style->margin.bottom - style->borderWidth.bottom;
+   getBorderArea (xPad, yPad, widthPad, heightPad);
+
+   *xPad += style->borderWidth.left;
+   *yPad += style->borderWidth.top;
+   *widthPad -= style->borderWidth.left + style->borderWidth.right;
+   *heightPad -= style->borderWidth.top + style->borderWidth.bottom;
+}
+
+void Widget::sizeRequestImpl (Requisition *requisition, int numPos,
+                              Widget **references, int *x, int *y)
+{
+   // Use the simple variant.
+   DBG_OBJ_ENTER0 ("resize", 0, "Widget::sizeRequestImpl");
+   sizeRequestSimpl (requisition);
+   DBG_OBJ_LEAVE ();
+}
+
+void Widget::sizeRequestSimpl (Requisition *requisition)
+{
+   // Either variant should be implemented.
+   misc::notImplemented ("Widget::sizeRequestSimpl");
+}
+
+void Widget::getExtremesImpl (Extremes *extremes, int numPos,
+                              Widget **references, int *x, int *y)
+{
+   // Use the simple variant.
+   DBG_OBJ_ENTER0 ("resize", 0, "Widget::getExtremesImpl");
+   getExtremesSimpl (extremes);
+   DBG_OBJ_LEAVE ();
+}
+
+void Widget::getExtremesSimpl (Extremes *extremes)
+{
+    // Either variant should be implemented.
+   misc::notImplemented ("Widget::getExtremesSimpl");
 }
 
 void Widget::sizeAllocateImpl (Allocation *allocation)
+{
+}
+
+/**
+ * \brief The actual implementation for calculating
+ *    dw::core::Widget::extraSpace.
+ *
+ * The implementation gets a clean value of
+ * dw::core::Widget::extraSpace, which is only corrected. To make sure
+ * all possible influences are considered, the implementation of the
+ * base class should be called, too.
+ */
+void Widget::calcExtraSpaceImpl (int numPos, Widget **references, int *x,
+                                 int *y)
 {
 }
 
@@ -1753,10 +1958,11 @@ void Widget::leaveNotifyImpl (EventCrossing *)
       tooltip->onLeave();
 }
 
+
 void Widget::removeChild (Widget *child)
 {
    // Should be implemented.
-   misc::assertNotReached ();
+   misc::notImplemented ("Widget::removeChild");
 }
 
 // ----------------------------------------------------------------------

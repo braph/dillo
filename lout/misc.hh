@@ -38,6 +38,26 @@ inline void assertNotReached ()
    abort ();
 }
 
+inline void assertNotReached (const char *fmt, ...)
+{
+   va_list argp;
+   va_start(argp, fmt);
+
+   fprintf (stderr, "*** [%s] This should not happen: ", prgName);
+   vfprintf(stderr, fmt, argp);
+   fprintf (stderr, "! ***\n");
+
+   va_end(argp);
+
+   abort ();
+}
+
+inline void notImplemented (const char *name)
+{
+   fprintf (stderr, "*** [%s] Not implemented: %s ***\n", prgName, name);
+   abort ();
+}
+
 inline int roundInt(double d)
 {
    return (int) ((d > 0) ? (d + 0.5) : (d - 0.5));
@@ -63,6 +83,8 @@ inline int AsciiStrcasecmp(const char *s1, const char *s2)
    }
    return ret;
 }
+
+inline const char *boolToStr (bool b) { return b ? "true" : "false"; }
 
 /**
  * \brief Simple (simpler than container::untyped::Vector and
@@ -117,6 +139,8 @@ public:
     * \brief Return the number of elements put into this vector.
     */
    inline int size() const { return this->num; }
+
+   inline bool empty() const { return size() == 0; }
 
    inline T* getArray() const { return array; }
 
@@ -377,6 +401,8 @@ public:
    }
 
    inline int size() const { return this->numMain + this->numExtra; }
+
+   inline bool empty() const { return size() == 0; }
 
    inline void increase() { setSize(size() + 1); }
 

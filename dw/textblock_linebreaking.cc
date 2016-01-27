@@ -30,6 +30,7 @@
 #include <math.h>
 
 using namespace lout;
+using namespace lout::misc;
 
 namespace dw {
 
@@ -50,7 +51,7 @@ int Textblock::BadnessAndPenalty::badnessValue (int infLevel)
    }
 
    // compiler happiness
-   lout::misc::assertNotReached ();
+   assertNotReached ();
    return 0;
 }
 
@@ -75,7 +76,7 @@ void Textblock::BadnessAndPenalty::calcBadness (int totalWidth, int idealWidth,
    this->totalShrinkability = totalShrinkability;
 #endif
 
-   ratio = 0; // because this is used in print()
+   ratio = 0;
 
    if (totalWidth == idealWidth) {
       badnessState = BADNESS_VALUE;
@@ -191,14 +192,7 @@ int Textblock::BadnessAndPenalty::compareTo (int penaltyIndex,
    return 0;
 }
 
-void Textblock::BadnessAndPenalty::print ()
-{
-   misc::StringBuffer sb;
-   intoStringBuffer(&sb);
-   printf ("%s", sb.getChars ());
-}
-
-void Textblock::BadnessAndPenalty::intoStringBuffer(misc::StringBuffer *sb)
+void Textblock::BadnessAndPenalty::intoStringBuffer(StringBuffer *sb)
 {
    switch (badnessState) {
    case NOT_STRETCHABLE:
@@ -245,42 +239,6 @@ void Textblock::BadnessAndPenalty::intoStringBuffer(misc::StringBuffer *sb)
          sb->append (", ");
    }
    sb->append (")");
-}
-
-void Textblock::printWordShort (Word *word)
-{
-   core::Content::print (&(word->content));
-}
-
-void Textblock::printWordFlags (short flags)
-{
-   printf ("%s:%s:%s:%s:%s:%s:%s",
-           (flags & Word::CAN_BE_HYPHENATED) ? "h?" : "--",
-           (flags & Word::DIV_CHAR_AT_EOL) ? "de" : "--",
-           (flags & Word::PERM_DIV_CHAR) ? "dp" : "--",
-           (flags & Word::DRAW_AS_ONE_TEXT) ? "t1" : "--",
-           (flags & Word::UNBREAKABLE_FOR_MIN_WIDTH) ? "um" : "--",
-           (flags & Word::WORD_START) ? "st" : "--",
-           (flags & Word::WORD_END) ? "en" : "--");
-}
-
-void Textblock::printWordWithFlags (Word *word)
-{
-   printWordShort (word);
-   printf (" (flags = ");
-   printWordFlags (word->flags);
-   printf (")");
-}
-
-void Textblock::printWord (Word *word)
-{
-   printWordWithFlags (word);
-
-   printf (" [%d / %d + %d - %d => %d + %d - %d] => ",
-           word->size.width, word->origSpace, getSpaceStretchability(word),
-           getSpaceShrinkability(word), word->totalWidth,
-           word->totalSpaceStretchability, word->totalSpaceShrinkability);
-   word->badnessAndPenalty.print ();
 }
 
 /*
@@ -408,11 +366,11 @@ Textblock::Line *Textblock::addLine (int firstWord, int lastWord,
    line->breakSpace = 0;
 
    bool regardBorder = mustBorderBeRegarded (line);
-   line->leftOffset = misc::max (regardBorder ? newLineLeftBorder : 0,
-                                 boxOffsetX () + leftInnerPadding
-                                 + (lineIndex == 0 ? line1OffsetEff : 0));
-   line->rightOffset = misc::max (regardBorder ? newLineRightBorder : 0,
-                                  boxRestWidth ());
+   line->leftOffset = max (regardBorder ? newLineLeftBorder : 0,
+                           boxOffsetX () + leftInnerPadding
+                           + (lineIndex == 0 ? line1OffsetEff : 0));
+   line->rightOffset = max (regardBorder ? newLineRightBorder : 0,
+                            boxRestWidth ());
 
    DBG_OBJ_MSGF ("construct.line", 1,
                  "regardBorder = %s, newLineLeftBorder = %d, "
@@ -450,7 +408,7 @@ Textblock::Line *Textblock::addLine (int firstWord, int lastWord,
       line->lastOofRefPositionedBeforeThisLine = -1;
    } else {
       Line *prevLine = lines->getRef (lines->size () - 2);
-      line->maxLineWidth = misc::max (lineWidth, prevLine->maxLineWidth);
+      line->maxLineWidth = max (lineWidth, prevLine->maxLineWidth);
       line->lastOofRefPositionedBeforeThisLine =
          prevLine->lastOofRefPositionedBeforeThisLine;
    }
@@ -477,8 +435,8 @@ Textblock::Line *Textblock::addLine (int firstWord, int lastWord,
    // zero height, which may cause endless loops. For this reasons,
    // the height should be positive (assuming the caller passed
    // minHeight > 0).
-   line->borderAscent = misc::max (line->borderAscent, minHeight);
-   line->marginAscent = misc::max (line->marginAscent, minHeight);
+   line->borderAscent = max (line->borderAscent, minHeight);
+   line->marginAscent = max (line->marginAscent, minHeight);
 
    DBG_OBJ_ARRATTRSET_NUM ("lines", lineIndex, "borderAscent",
                            line->borderAscent);
@@ -495,25 +453,38 @@ Textblock::Line *Textblock::addLine (int firstWord, int lastWord,
 
    mustQueueResize = true;
 
-   //printWordShort (words->getRef (line->firstWord));
-   //printf (" ... ");
-   //printWordShort (words->getRef (line->lastWord));
-   //printf (": ");
-   //words->getRef(line->lastWord)->badnessAndPenalty.print ();
-   //printf ("\n");
-
    int xWidget = line->textOffset;
+   int yLine = yOffsetOfLineCreated (line);
    for (int i = firstWord; i <= lastWord; i++) {
       Word *word = words->getRef (i);
       if (word->wordImgRenderer)
          word->wordImgRenderer->setData (xWidget, lines->size () - 1);
       if (word->spaceImgRenderer)
          word->spaceImgRenderer->setData (xWidget, lines->size () - 1);
+
+      if (word->content.type == core::Content::WIDGET_OOF_REF) {
+         Widget *widget = word->content.widget;
+         int oofmIndex = getWidgetOOFIndex (widget);
+         oof::OutOfFlowMgr *oofm = searchOutOfFlowMgr (oofmIndex);
+         // See also Textblock::sizeAllocate, and notes there about
+         // vertical alignment. Calculating the vertical position
+         // should probably be centralized.
+         if (oofm) {
+            int xRel = xWidget;
+            int yRel = yLine + (line->borderAscent - word->size.ascent);
+            int xRef, yRef;
+            if (findSizeRequestReference (oofmIndex, &xRef, &yRef))
+               oofm->tellPosition2 (widget, xRef + xRel, yRef + yRel);
+            else
+               oofm->tellIncompletePosition2 (widget, this, xRel, yRel);
+         }
+      }
+
       xWidget += word->size.width + word->effSpace;
    }
 
    line->lastOofRefPositionedBeforeThisLine =
-      misc::max (line->lastOofRefPositionedBeforeThisLine, newLastOofPos);
+      max (line->lastOofRefPositionedBeforeThisLine, newLastOofPos);
    DBG_OBJ_SET_NUM ("lastLine.lastOofRefPositionedBeforeThisLine",
                     line->lastOofRefPositionedBeforeThisLine);
 
@@ -601,7 +572,7 @@ int Textblock::wordWrap (int wordIndex, bool wrapAll)
 
    int n;
    if (word->content.type == core::Content::WIDGET_OOF_REF)
-      n = 0;
+      n = wrapWordOofRef (wordIndex, wrapAll);
    else
       n = wrapWordInFlow (wordIndex, wrapAll);
 
@@ -756,7 +727,7 @@ int Textblock::wrapWordInFlow (int wordIndex, bool wrapAll)
                           "breakPos = %d, height = %d, lastFloatPos = %d",
                           breakPos, height, lastFloatPos);
 
-            int startSearch = misc::max (firstIndex, lastFloatPos + 1);
+            int startSearch = max (firstIndex, lastFloatPos + 1);
             int newFloatPos = -1;
 
             // Step 1: search for the next float.
@@ -764,14 +735,15 @@ int Textblock::wrapWordInFlow (int wordIndex, bool wrapAll)
                           startSearch, breakPos);
             for (int i = startSearch; newFloatPos == -1 && i <= breakPos; i++) {
                core::Content *content = &(words->getRef(i)->content);
-               if (content->type == core::Content::WIDGET_OOF_REF &&
-                   // Later, absolutepositioned elements (which do not affect
-                   // borders) can be ignored at this point.
-                   (containingBlock->outOfFlowMgr->affectsLeftBorder
-                    (content->widget) ||
-                    containingBlock->outOfFlowMgr->affectsRightBorder
-                    (content->widget)))
-                  newFloatPos = i;
+               if (content->type == core::Content::WIDGET_OOF_REF) {
+                  for (int j = 0; newFloatPos == -1 && j < NUM_OOFM; j++) {
+                     if ((searchOutOfFlowMgr(j)->affectsLeftBorder(content
+                                                                   ->widget) ||
+                          searchOutOfFlowMgr(j)->affectsRightBorder (content
+                                                                     ->widget)))
+                        newFloatPos = i;
+                  }
+               }
             }
 
             DBG_OBJ_MSGF ("construct.word", 2, "newFloatPos = %d", newFloatPos);
@@ -782,10 +754,22 @@ int Textblock::wrapWordInFlow (int wordIndex, bool wrapAll)
                floatHandled = true;
 
                // Step 2: position the float and re-calculate the line.
-               lastFloatPos = newFloatPos;
 
-               containingBlock->outOfFlowMgr->tellPosition
-                  (words->getRef(lastFloatPos)->content.widget, yNewLine);
+               // TODO "x" is not quite correct, but this does not matter
+               // (currently?).
+
+               lastFloatPos = newFloatPos;
+               
+               Widget *widget = words->getRef(lastFloatPos)->content.widget;
+               int oofmIndex = getWidgetOOFIndex (widget);
+               oof::OutOfFlowMgr *oofm = searchOutOfFlowMgr (oofmIndex);
+               if (oofm && oofm->mayAffectBordersAtAll ()) {
+                  int xRel = boxOffsetX (), yRel = yNewLine, xRef, yRef;
+                  if (findSizeRequestReference (oofmIndex, &xRef, &yRef))
+                     oofm->tellPosition1 (widget, xRef + xRel, yRef + yRel);
+                  else
+                     oofm->tellIncompletePosition1 (widget, this, xRel, yRel);
+               }
 
                balanceBreakPosAndHeight (wordIndex, firstIndex, &searchUntil,
                                          tempNewLine, penaltyIndex, false,
@@ -799,29 +783,39 @@ int Textblock::wrapWordInFlow (int wordIndex, bool wrapAll)
          } while (floatHandled);
 
          int minHeight;
-         if (firstIndex <= breakPos)
+         if (firstIndex <= breakPos) {
             // Not an empty line: calculate line height from contents.
             minHeight = 1;
-         else {
+            DBG_OBJ_MSGF ("construct.word", 1, "%d <= %d => minHeight = %d",
+                          firstIndex, breakPos, minHeight);
+         } else {
             // Empty line. Too avoid too many lines one pixel high, we
             // use the float heights.
             if (newLineHasFloatLeft && newLineHasFloatRight)
-               minHeight = misc::max (misc::min (newLineLeftFloatHeight,
-                                                 newLineRightFloatHeight),
-                                      1);
+               minHeight = max (min (newLineLeftFloatHeight,
+                                     newLineRightFloatHeight),
+                                1);
             else if (newLineHasFloatLeft && !newLineHasFloatRight)
-               minHeight = misc::max (newLineLeftFloatHeight, 1);
+               minHeight = max (newLineLeftFloatHeight, 1);
             else if (!newLineHasFloatLeft && newLineHasFloatRight)
-               minHeight = misc::max (newLineRightFloatHeight, 1);
+               minHeight = max (newLineRightFloatHeight, 1);
             else
                // May this happen?
                minHeight = 1;
+
+            DBG_OBJ_MSGF ("construct.word", 1,
+                          "%d < %d => minHeight = %d (l: %s (%d), r: %s (%d))",
+                          firstIndex, breakPos, minHeight,
+                          boolToStr (newLineHasFloatLeft),
+                          newLineHasFloatLeft ? newLineLeftFloatHeight : 0,
+                          boolToStr (newLineHasFloatRight),
+                          newLineHasFloatRight ? newLineRightFloatHeight : 0);
          }
 
          addLine (firstIndex, breakPos, lastFloatPos, tempNewLine, minHeight);
 
          DBG_OBJ_MSGF ("construct.word", 1,
-                       "accumulating again from %d to %d\n",
+                       "accumulating again from %d to %d",
                        breakPos + 1, wordIndexEnd);
          for(int i = breakPos + 1; i <= wordIndexEnd; i++)
             accumulateWordData (i);
@@ -851,8 +845,7 @@ int Textblock::wrapWordInFlow (int wordIndex, bool wrapAll)
          firstWordWithoutLine = lines->getLastRef()->lastWord + 1;
 
       if (wordIndex >= firstWordWithoutLine) {
-         word->content.widget->parentRef =
-            OutOfFlowMgr::createRefNormalFlow (lines->size ());
+         word->content.widget->parentRef = makeParentRefInFlow (lines->size ());
          DBG_OBJ_SET_NUM_O (word->content.widget, "parentRef",
                             word->content.widget->parentRef);
       }
@@ -861,6 +854,36 @@ int Textblock::wrapWordInFlow (int wordIndex, bool wrapAll)
    DBG_OBJ_LEAVE ();
 
    return diffWords;
+}
+
+int Textblock::wrapWordOofRef (int wordIndex, bool wrapAll)
+{
+   DBG_OBJ_ENTER ("construct.word", 0, "wrapWordOofRef", "%d, %s",
+                  wordIndex, wrapAll ? "true" : "false");
+
+   Word *word = words->getRef (wordIndex);
+   Widget *widget = word->content.widget;
+   int yNewLine = yOffsetOfLineToBeCreated ();
+
+   // Floats, which affect either border, are handled in wrapWordInFlow; this
+   // is rather for positioned elements (but only for completeness:
+   // tellPosition1 is not implemented for positioned elements).
+   int oofmIndex = getWidgetOOFIndex (widget);
+   oof::OutOfFlowMgr *oofm = searchOutOfFlowMgr (oofmIndex);
+   DBG_OBJ_MSGF ("construct.word", 1, "parentRef = %d, oofm = %p",
+                 widget->parentRef, oofm);
+   if (oofm && !oofm->mayAffectBordersAtAll ()) {
+      // TODO Again, "x" is not correct (see above).
+      int xRel = boxOffsetX (), yRel = yNewLine, xRef, yRef;
+      if (findSizeRequestReference (oofmIndex, &xRef, &yRef))
+         oofm->tellPosition1 (widget, xRef + xRel, yRef + yRel);
+      else
+         oofm->tellIncompletePosition1 (widget, this, xRel, yRel);
+   }
+
+   DBG_OBJ_LEAVE ();
+
+   return 0; // Words list not changed.
 }
 
 // *height must be initialized, but not *breakPos.
@@ -957,7 +980,8 @@ void Textblock::balanceBreakPosAndHeight (int wordIndex, int firstIndex,
       runNo++;
    }
 
-   DBG_OBJ_LEAVE ();
+   DBG_OBJ_LEAVE_VAL ("%d, %d, %d, %d",
+                      *searchUntil, *lastFloatPos, *height, *breakPos);
 }
 
 // *wordIndexEnd must be initialized (initially to wordIndex)
@@ -973,7 +997,8 @@ int Textblock::searchBreakPos (int wordIndex, int firstIndex, int *searchUntil,
                   tempNewLine ? "true" : "false", penaltyIndex,
                   thereWillBeMoreSpace ? "true" : "false",
                   wrapAll ? "true" : "false");
-   DBG_MSG_WORD ("construct.word", 0, "<i>first word:</i> ", firstIndex, "");
+
+   DBG_MSG_WORD ("construct.word", 1, "<i>first word:</i> ", firstIndex, "");
 
    int result;
    bool lineAdded;
@@ -991,8 +1016,14 @@ int Textblock::searchBreakPos (int wordIndex, int firstIndex, int *searchUntil,
       } else if (thereWillBeMoreSpace &&
                  words->getRef(firstIndex)->badnessAndPenalty.lineTooTight ()) {
          int hyphenatedWord = considerHyphenation (firstIndex, firstIndex);
-         DBG_OBJ_MSGF ("construct.word", 1, "too tight ... hyphenatedWord = %d",
-                       hyphenatedWord);
+
+         DBG_IF_RTFL {
+            StringBuffer sb;
+            words->getRef(firstIndex)->badnessAndPenalty.intoStringBuffer (&sb);
+            DBG_OBJ_MSGF ("construct.word", 1,
+                          "too tight: %s ... hyphenatedWord = %d",
+                          sb.getChars (), hyphenatedWord);
+         }
 
          if (hyphenatedWord == -1) {
             DBG_OBJ_MSG ("construct.word", 1, "... => empty line");
@@ -1051,7 +1082,7 @@ int Textblock::searchBreakPos (int wordIndex, int firstIndex, int *searchUntil,
                *diffWords += n;
 
             DBG_OBJ_MSGF ("construct.word", 1,
-                          "accumulating again from %d to %d\n",
+                          "accumulating again from %d to %d",
                           breakPos + 1, *wordIndexEnd);
             for(int i = breakPos + 1; i <= *wordIndexEnd; i++)
                accumulateWordData (i);
@@ -1061,8 +1092,7 @@ int Textblock::searchBreakPos (int wordIndex, int firstIndex, int *searchUntil,
       DBG_OBJ_MSG_END ();
    } while(!lineAdded);
 
-   DBG_OBJ_MSGF ("construct.word", 1, "=> %d", result);
-   DBG_OBJ_LEAVE ();
+   DBG_OBJ_LEAVE_VAL ("%d", result);
 
    return result;
 }
@@ -1082,7 +1112,7 @@ int Textblock::searchMinBap (int firstWord, int lastWord, int penaltyIndex,
       Word *w = words->getRef(i);
 
       DBG_IF_RTFL {
-         misc::StringBuffer sb;
+         StringBuffer sb;
          w->badnessAndPenalty.intoStringBuffer (&sb);
          DBG_OBJ_MSGF ("construct.word", 2, "%d (of %d): b+p: %s",
                        i, words->size (), sb.getChars ());
@@ -1101,7 +1131,7 @@ int Textblock::searchMinBap (int firstWord, int lastWord, int penaltyIndex,
    }
    DBG_OBJ_MSG_END ();
 
-   DBG_OBJ_MSGF ("construct.word", 1, "found at %d\n", pos);
+   DBG_OBJ_MSGF ("construct.word", 1, "found at %d", pos);
 
    if (correctAtEnd && lastWord == words->size () - 1) {
       // Since no break and no space is added, the last word will have
@@ -1117,7 +1147,7 @@ int Textblock::searchMinBap (int firstWord, int lastWord, int penaltyIndex,
       correctedBap.setPenalty (0);
 
       DBG_IF_RTFL {
-         misc::StringBuffer sb;
+         StringBuffer sb;
          correctedBap.intoStringBuffer (&sb);
          DBG_OBJ_MSGF ("construct.word", 1, "corrected b+p: %s",
                        sb.getChars ());
@@ -1126,7 +1156,7 @@ int Textblock::searchMinBap (int firstWord, int lastWord, int penaltyIndex,
       if (correctedBap.compareTo(penaltyIndex,
                                  &words->getRef(pos)->badnessAndPenalty) <= 0) {
          pos = lastWord;
-         DBG_OBJ_MSGF ("construct.word", 1, "corrected: %d\n", pos);
+         DBG_OBJ_MSGF ("construct.word", 1, "corrected: %d", pos);
       }
    }
 
@@ -1190,11 +1220,11 @@ int Textblock::calcLinePartHeight (int firstWord, int lastWord)
 
    for (int i = firstWord; i <= lastWord; i++) {
       Word *word = words->getRef (i);
-      ascent = misc::max (ascent, word->size.ascent);
-      descent = misc::max (descent, word->size.descent);
+      ascent = max (ascent, word->size.ascent);
+      descent = max (descent, word->size.descent);
    }
 
-   return misc::max (ascent + descent, 1);
+   return max (ascent + descent, 1);
 }
 
 /**
@@ -1283,11 +1313,11 @@ void Textblock::handleWordExtremes (int wordIndex)
       wordExtremes.minWidthIntrinsic + word->hyphenWidth + corrDiffMin;
    lastPar->parAdjustmentWidth +=
       wordExtremes.adjustmentWidth + word->hyphenWidth + corrDiffMin;
-   lastPar->maxParMin = misc::max (lastPar->maxParMin, lastPar->parMin);
+   lastPar->maxParMin = max (lastPar->maxParMin, lastPar->parMin);
    lastPar->maxParMinIntrinsic =
-      misc::max (lastPar->maxParMinIntrinsic, lastPar->parMinIntrinsic);
+      max (lastPar->maxParMinIntrinsic, lastPar->parMinIntrinsic);
    lastPar->maxParAdjustmentWidth =
-      misc::max (lastPar->maxParAdjustmentWidth, lastPar->parAdjustmentWidth);
+      max (lastPar->maxParAdjustmentWidth, lastPar->parAdjustmentWidth);
 
    DBG_OBJ_ARRATTRSET_NUM ("paragraphs", paragraphs->size() - 1, "parMin",
                            lastPar->parMin);
@@ -1321,9 +1351,9 @@ void Textblock::handleWordExtremes (int wordIndex)
    lastPar->parMax += wordExtremes.maxWidth + word->hyphenWidth + corrDiffMax;
    lastPar->parMaxIntrinsic +=
       wordExtremes.maxWidthIntrinsic + word->hyphenWidth + corrDiffMax;
-   lastPar->maxParMax = misc::max (lastPar->maxParMax, lastPar->parMax);
+   lastPar->maxParMax = max (lastPar->maxParMax, lastPar->parMax);
    lastPar->maxParMaxIntrinsic =
-      misc::max (lastPar->maxParMaxIntrinsic, lastPar->parMaxIntrinsic);
+      max (lastPar->maxParMaxIntrinsic, lastPar->parMaxIntrinsic);
 
    DBG_OBJ_ARRATTRSET_NUM ("paragraphs", paragraphs->size() - 1, "parMax",
                            lastPar->parMax);
@@ -1469,8 +1499,9 @@ void Textblock::moveWordIndices (int wordIndex, int num, int *addIndex1)
    DBG_OBJ_ENTER ("construct.word", 0, "moveWordIndices", "%d, %d",
                  wordIndex, num);
 
-   if (containingBlock->outOfFlowMgr)
-      containingBlock->outOfFlowMgr->moveExternalIndices (this, wordIndex, num);
+   for (int i = 0; i < NUM_OOFM; i++)
+      if (searchOutOfFlowMgr(i))
+         searchOutOfFlowMgr(i)->moveExternalIndices (this, wordIndex, num);
 
    for (int i = lines->size () - 1; i >= 0; i--) {
       Line *line = lines->getRef (i);
@@ -1521,12 +1552,12 @@ void Textblock::accumulateWordForLine (int lineIndex, int wordIndex)
    int len = word->style->font->ascent;
    if (word->style->valign == core::style::VALIGN_SUPER)
       len += len / 2;
-   line->contentAscent = misc::max (line->contentAscent, len);
+   line->contentAscent = max (line->contentAscent, len);
 
    len = word->style->font->descent;
    if (word->style->valign == core::style::VALIGN_SUB)
       len += word->style->font->ascent / 3;
-   line->contentDescent = misc::max (line->contentDescent, len);
+   line->contentDescent = max (line->contentDescent, len);
 
    int borderAscent, borderDescent, marginAscent, marginDescent;
 
@@ -1542,8 +1573,7 @@ void Textblock::accumulateWordForLine (int lineIndex, int wordIndex)
       borderDescent =
          marginDescent - word->content.widget->getStyle()->margin.bottom;
 
-      word->content.widget->parentRef =
-         OutOfFlowMgr::createRefNormalFlow (lineIndex);
+      word->content.widget->parentRef = makeParentRefInFlow (lineIndex);
       DBG_OBJ_SET_NUM_O (word->content.widget, "parentRef",
                          word->content.widget->parentRef);
    } else {
@@ -1551,8 +1581,7 @@ void Textblock::accumulateWordForLine (int lineIndex, int wordIndex)
       borderDescent = marginDescent = word->size.descent;
 
       if (word->content.type == core::Content::BREAK)
-         line->breakSpace =
-            misc::max (word->content.breakSpace, line->breakSpace);
+         line->breakSpace = max (word->content.breakSpace, line->breakSpace);
    }
 
    DBG_OBJ_MSGF ("construct.line", 2,
@@ -1560,10 +1589,10 @@ void Textblock::accumulateWordForLine (int lineIndex, int wordIndex)
                  "marginDescent = %d",
                  borderAscent, borderDescent, marginAscent, marginDescent);
 
-   line->borderAscent = misc::max (line->borderAscent, borderAscent);
-   line->borderDescent = misc::max (line->borderDescent, borderDescent);
-   line->marginAscent = misc::max (line->marginAscent, marginAscent);
-   line->marginDescent = misc::max (line->marginDescent, marginDescent);
+   line->borderAscent = max (line->borderAscent, borderAscent);
+   line->borderDescent = max (line->borderDescent, borderDescent);
+   line->marginAscent = max (line->marginAscent, marginAscent);
+   line->marginDescent = max (line->marginDescent, marginDescent);
 
    DBG_OBJ_LEAVE ();
 }
@@ -1617,8 +1646,8 @@ void Textblock::accumulateWordData (int wordIndex)
       word->totalWidth = prevWord->totalWidth
          + prevWord->origSpace - prevWord->hyphenWidth
          + word->size.width + word->hyphenWidth;
-      word->maxAscent = misc::max (prevWord->maxAscent, word->size.ascent);
-      word->maxDescent = misc::max (prevWord->maxDescent, word->size.descent);
+      word->maxAscent = max (prevWord->maxAscent, word->size.ascent);
+      word->maxDescent = max (prevWord->maxDescent, word->size.descent);
       word->totalSpaceStretchability =
          prevWord->totalSpaceStretchability + getSpaceStretchability(prevWord);
       word->totalSpaceShrinkability =
@@ -1652,9 +1681,10 @@ void Textblock::accumulateWordData (int wordIndex)
                                         totalShrinkability);
 
    DBG_IF_RTFL {
-      misc::StringBuffer sb;
+      StringBuffer sb;
       word->badnessAndPenalty.intoStringBuffer (&sb);
-      DBG_OBJ_MSGF ("construct.word.accum", 1, "b+p: %s", sb.getChars ());
+      DBG_OBJ_ARRATTRSET_SYM ("words", wordIndex, "badnessAndPenalty",
+                              sb.getChars ());
    }
 
    DBG_OBJ_LEAVE ();
@@ -1669,8 +1699,7 @@ int Textblock::calcLineBreakWidth (int lineIndex)
    if (limitTextWidth &&
        layout->getUsesViewport () &&
        // margin/border/padding will be subtracted later,  via OOFM.
-       lineBreakWidth - getStyle()->boxDiffWidth()
-       > layout->getWidthViewport () - 10)
+       lineBreakWidth - boxDiffWidth() > layout->getWidthViewport () - 10)
       lineBreakWidth = layout->getWidthViewport () - 10;
    if (lineIndex == 0)
       lineBreakWidth -= line1OffsetEff;
@@ -1682,16 +1711,14 @@ int Textblock::calcLineBreakWidth (int lineIndex)
    } else
       leftBorder = rightBorder = 0;
 
-   leftBorder = misc::max (leftBorder, getStyle()->boxOffsetX());
-   rightBorder = misc::max (rightBorder, getStyle()->boxRestWidth());
+   leftBorder = max (leftBorder, boxOffsetX());
+   rightBorder = max (rightBorder, boxRestWidth());
 
    lineBreakWidth -= (leftBorder + rightBorder);
 
-   DBG_OBJ_MSGF ("construct.word.width", 2, "=> %d - %d - (%d + %d) = %d\n",
-                 this->lineBreakWidth, leftInnerPadding, leftBorder,
-                 rightBorder, lineBreakWidth);
-
-   DBG_OBJ_LEAVE ();
+   DBG_OBJ_LEAVE_VAL ("%d - %d - (%d + %d) = %d",
+                      this->lineBreakWidth, leftInnerPadding, leftBorder,
+                      rightBorder, lineBreakWidth);
    return lineBreakWidth;
 }
 
@@ -1837,7 +1864,7 @@ void Textblock::calcTextOffset (int lineIndex, int totalWidth)
       break;
 
    default:
-      misc::assertNotReached ();
+      assertNotReached ();
       break;
    }
 
@@ -1866,7 +1893,7 @@ void Textblock::rewrap ()
       // the line list up from this position is rebuild.
       lines->setSize (wrapRefLines);
       DBG_OBJ_SET_NUM ("lines.size", lines->size ());
-      nonTemporaryLines = misc::min (nonTemporaryLines, wrapRefLines);
+      nonTemporaryLines = min (nonTemporaryLines, wrapRefLines);
 
       initNewLine ();
 
@@ -1879,14 +1906,30 @@ void Textblock::rewrap ()
 
       DBG_OBJ_MSGF ("construct.line", 0, "starting with word %d", firstWord);
 
-      lastWordDrawn = misc::min (lastWordDrawn, firstWord - 1);
+      lastWordDrawn = min (lastWordDrawn, firstWord - 1);
       DBG_OBJ_SET_NUM ("lastWordDrawn", lastWordDrawn);
 
       for (int i = firstWord; i < words->size (); i++) {
          Word *word = words->getRef (i);
 
-         if (word->content.type == core::Content::WIDGET_IN_FLOW)
-            word->content.widget->sizeRequest (&word->size);
+         switch (word->content.type) {
+         case core::Content::WIDGET_IN_FLOW:
+            calcSizeOfWidgetInFlow (i, word->content.widget,  &word->size);
+            DBG_SET_WORD_SIZE (i);
+            break;
+            
+         case core::Content::WIDGET_OOF_REF:
+            {
+               int oofmIndex = getOOFMIndex (word->content.widget);
+               oof::OutOfFlowMgr *oofm = searchOutOfFlowMgr (oofmIndex);
+               oofm->calcWidgetRefSize (word->content.widget, &(word->size));
+               DBG_SET_WORD_SIZE (i);
+            }
+            break;
+            
+         default:
+            break;
+         }
 
          wordWrap (i, false);
 
@@ -1924,7 +1967,7 @@ void Textblock::fillParagraphs ()
       if (lines->size () > 0 && wrapRefParagraphs > 0) {
          // Sometimes, wrapRefParagraphs is larger than lines->size(), due to
          // floats? (Has to be clarified.)
-         int lineNo = misc::min (wrapRefParagraphs, lines->size ()) - 1;
+         int lineNo = min (wrapRefParagraphs, lines->size ()) - 1;
          firstWordOfLine = lines->getRef(lineNo)->lastWord + 1;
       } else
          firstWordOfLine = 0;
@@ -1942,7 +1985,7 @@ void Textblock::fillParagraphs ()
       else
          // If there are no paragraphs yet, findParagraphOfWord will return
          // -1: use 0 then instead.
-         parNo = misc::max (0, findParagraphOfWord (firstWordOfLine));
+         parNo = max (0, findParagraphOfWord (firstWordOfLine));
 
       paragraphs->setSize (parNo);
       DBG_OBJ_SET_NUM ("paragraphs.size", paragraphs->size ());
@@ -1972,17 +2015,6 @@ void Textblock::initNewLine ()
 {
    DBG_OBJ_ENTER0 ("construct.line", 0, "initNewLine");
 
-   // At the very beginning, in Textblock::Textblock, where this
-   // method is called, containingBlock is not yet defined.
-
-   if (containingBlock && containingBlock->outOfFlowMgr) {
-      if (lines->size () == 0) {
-         int clearPosition =
-            containingBlock->outOfFlowMgr->getClearPosition (this);
-         setVerticalOffset (misc::max (clearPosition, 0));
-      }
-   }
-
    calcBorders (lines->size() > 0 ?
                 lines->getLastRef()->lastOofRefPositionedBeforeThisLine : -1,
                 1);
@@ -2000,81 +2032,96 @@ void Textblock::calcBorders (int lastOofRef, int height)
    DBG_OBJ_ENTER ("construct.line", 0, "calcBorders", "%d, %d",
                  lastOofRef, height);
 
-   if (containingBlock && containingBlock->outOfFlowMgr) {
-      // Consider the example:
-      //
-      // <div>
-      //   Some text A ...
-      //   <p> Some text B ... <img style="float:right" ...> </p>
-      //   Some more text C ...
-      // </div>
-      //
-      // If the image is large enough, it should float around the last
-      // paragraph, "Some more text C ...":
-      //
-      //    Some more text A ...
-      //
-      //    Some more  ,---------.
-      //    text B ... |         |
-      //               |  <img>  |
-      //    Some more  |         | <---- Consider this line!
-      //    text C ... '---------'
-      //
-      // Since this float is generated in the <p> element, not in the-
-      // <div> element, and since they are represented by different
-      // instances of dw::Textblock, lastOofRefPositionedBeforeThisLine,
-      // and so lastOofRef, is -1 for the line marked with an arrow;
-      // this would result in ignoring the float, because -1 is
-      // equivalent to the very beginning of the <div> element ("Some
-      // more text A ..."), which is not affected by the float.
-      //
-      // On the other hand, the only relevant values of
-      // Line::lastOofRefPositionedBeforeThisLine are those greater
-      // than the first word of the new line, so a solution is to use
-      // the maximum of both.
+   newLineHasFloatLeft = newLineHasFloatRight = false;
+   newLineLeftBorder = newLineRightBorder = 0;
+   newLineLeftFloatHeight = newLineRightFloatHeight = 0;
 
+   bool oofmDefined = false;
+   for (int i = 0; i < NUM_OOFM && !oofmDefined; i++)
+      if (findSizeRequestReference (i))
+         oofmDefined = true;
 
-      int firstWordOfLine = lines->size() > 0 ?
-         lines->getLastRef()->lastWord + 1 : 0;
-      int effOofRef = misc::max (lastOofRef, firstWordOfLine - 1);
+   if (oofmDefined) {
+      int firstWordOfLine =
+         lines->size() > 0 ? lines->getLastRef()->lastWord + 1 : 0;
+      int effOofRef = max (lastOofRef, firstWordOfLine - 1);
+      int yRel = yOffsetOfLineToBeCreated (), yRef;
+           
+      for (int i = 0; i < NUM_OOFM; i++) {
+         oof::OutOfFlowMgr *oofm;
+         if ((oofm = searchOutOfFlowMgr (i)) &&
+             findSizeRequestReference (i, NULL, &yRef)) {
+            // Consider the example:
+            //
+            // <div>
+            //   Some text A ...
+            //   <p> Some text B ... <img style="float:right" ...> </p>
+            //   Some more text C ...
+            // </div>
+            //
+            // If the image is large enough, it should float around the last
+            // paragraph, "Some more text C ...":
+            //
+            //    Some more text A ...
+            //
+            //    Some more  ,---------.
+            //    text B ... |         |
+            //               |  <img>  |
+            //    Some more  |         | <---- Consider this line!
+            //    text C ... '---------'
+            //
+            // Since this float is generated in the <p> element, not in the-
+            // <div> element, and since they are represented by different
+            // instances of dw::Textblock, lastOofRefPositionedBeforeThisLine,
+            // and so lastOofRef, is -1 for the line marked with an arrow;
+            // this would result in ignoring the float, because -1 is
+            // equivalent to the very beginning of the <div> element ("Some
+            // more text A ..."), which is not affected by the float.
+            //
+            // On the other hand, the only relevant values of
+            // Line::lastOofRefPositionedBeforeThisLine are those greater
+            // than the first word of the new line, so a solution is to use
+            // the maximum of both.
 
-      int y = yOffsetOfLineToBeCreated ();
-
-      newLineHasFloatLeft =
-         containingBlock->outOfFlowMgr->hasFloatLeft (this, y, height, this,
-                                                      effOofRef);
-      newLineHasFloatRight =
-         containingBlock->outOfFlowMgr->hasFloatRight (this, y, height, this,
-                                                       effOofRef);
-      newLineLeftBorder =
-         containingBlock->outOfFlowMgr->getLeftBorder (this, y, height, this,
-                                                       effOofRef);
-      newLineRightBorder =
-         containingBlock->outOfFlowMgr->getRightBorder (this, y, height, this,
-                                                        effOofRef);
-      newLineLeftFloatHeight = newLineHasFloatLeft ?
-         containingBlock->outOfFlowMgr->getLeftFloatHeight (this, y, height,
-                                                            this, effOofRef) :
-         0;
-      newLineRightFloatHeight = newLineHasFloatRight ?
-         containingBlock->outOfFlowMgr->getRightFloatHeight (this, y, height,
-                                                             this, effOofRef) :
-         0;
-
-      DBG_OBJ_MSGF ("construct.line", 1,
-                    "%d * %d (%s) / %d * %d (%s), at %d (%d), until %d = "
-                    "max (%d, %d - 1)",
-                    newLineLeftBorder, newLineLeftFloatHeight,
-                    newLineHasFloatLeft ? "true" : "false",
-                    newLineRightBorder, newLineRightFloatHeight,
-                    newLineHasFloatRight ? "true" : "false",
-                    y, height, effOofRef, lastOofRef, firstWordOfLine);
-   } else {
-      newLineHasFloatLeft = newLineHasFloatRight = false;
-      newLineLeftBorder = newLineRightBorder = 0;
-      newLineLeftFloatHeight = newLineRightFloatHeight = 0;
-
-      DBG_OBJ_MSG ("construct.line", 0, "<i>no CB of OOFM</i>");
+            int y = yRef + yRel;
+            bool thisHasLeft, thisHasRight;
+            
+            thisHasLeft = oofm->hasFloatLeft (y, height, this, effOofRef);
+            newLineHasFloatLeft = newLineHasFloatLeft || thisHasLeft;
+            thisHasRight = oofm->hasFloatRight (y, height, this, effOofRef);
+            newLineHasFloatRight = newLineHasFloatRight || thisHasRight;
+            
+            newLineLeftBorder =
+               max (newLineLeftBorder,
+                    oofm->getLeftBorder (y, height, this, effOofRef)
+                    - getGeneratorX (i));
+            newLineRightBorder =
+               max (newLineRightBorder,
+                    oofm->getRightBorder (y, height, this, effOofRef)
+                    - getGeneratorRest (i));
+            
+            // TODO "max" is not really correct for the heights. (Does
+            // not matter, since only one, the float manager, returns
+            // meaningful values.)
+            if (thisHasLeft)
+               newLineLeftFloatHeight =
+                  max (newLineLeftFloatHeight,
+                       oofm->getLeftFloatHeight (y, height, this, effOofRef));
+            if (thisHasRight)
+               newLineRightFloatHeight = 
+                  max (newLineRightFloatHeight,
+                       oofm->getRightFloatHeight (y, height, this, effOofRef));
+            
+            DBG_OBJ_MSGF ("construct.line", 1,
+                          "OOFM #%d: %d * %d (%s) / %d * %d (%s), at %d (%d), "
+                          "until %d = max (%d, %d - 1)",
+                          i, newLineLeftBorder, newLineLeftFloatHeight,
+                          newLineHasFloatLeft ? "true" : "false",
+                          newLineRightBorder, newLineRightFloatHeight,
+                          newLineHasFloatRight ? "true" : "false",
+                          y, height, effOofRef, lastOofRef, firstWordOfLine);
+         }
+      }
    }
 
    DBG_OBJ_SET_BOOL ("newLineHasFloatLeft", newLineHasFloatLeft);

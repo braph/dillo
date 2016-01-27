@@ -103,7 +103,7 @@ Table::~Table()
    DBG_OBJ_DELETE ();
 }
 
-void Table::sizeRequestImpl (core::Requisition *requisition)
+void Table::sizeRequestSimpl (core::Requisition *requisition)
 {
    DBG_OBJ_ENTER0 ("resize", 0, "sizeRequestImpl");
 
@@ -112,22 +112,24 @@ void Table::sizeRequestImpl (core::Requisition *requisition)
    /**
     * \bug Baselines are not regarded here.
     */
-   requisition->width = getStyle()->boxDiffWidth ()
-      + (numCols + 1) * getStyle()->hBorderSpacing;
+   requisition->width =
+      boxDiffWidth () + (numCols + 1) * getStyle()->hBorderSpacing;
    for (int col = 0; col < numCols; col++)
       requisition->width += colWidths->get (col);
 
    requisition->ascent =
-      getStyle()->boxDiffHeight () + cumHeight->get (numRows)
-      + getStyle()->vBorderSpacing;
+      boxDiffHeight () + cumHeight->get (numRows) + getStyle()->vBorderSpacing;
    requisition->descent = 0;
 
    correctRequisition (requisition, core::splitHeightPreserveDescent);
 
+   // For the order, see similar reasoning for dw::Textblock.
+   correctRequisitionByOOF (requisition, core::splitHeightPreserveDescent);
+
    DBG_OBJ_LEAVE ();
 }
 
-void Table::getExtremesImpl (core::Extremes *extremes)
+void Table::getExtremesSimpl (core::Extremes *extremes)
 {
    DBG_OBJ_ENTER0 ("resize", 0, "getExtremesImpl");
 
@@ -154,6 +156,9 @@ void Table::getExtremesImpl (core::Extremes *extremes)
 
    correctExtremes (extremes, true);
 
+   // For the order, see similar reasoning for dw::Textblock.
+   correctExtremesByOOF (extremes);
+
    DBG_OBJ_LEAVE ();
 }
 
@@ -163,16 +168,16 @@ void Table::sizeAllocateImpl (core::Allocation *allocation)
                   allocation->x, allocation->y, allocation->width,
                   allocation->ascent, allocation->descent);
 
+   sizeAllocateStart (allocation);
+
    calcCellSizes (true);
 
    /**
     * \bug Baselines are not regarded here.
     */
 
-   int offy =
-      allocation->y + getStyle()->boxOffsetY () + getStyle()->vBorderSpacing;
-   int x =
-      allocation->x + getStyle()->boxOffsetX () + getStyle()->hBorderSpacing;
+   int offy = allocation->y + boxOffsetY () + getStyle()->vBorderSpacing;
+   int x = allocation->x + boxOffsetX () + getStyle()->hBorderSpacing;
 
    for (int col = 0; col < numCols; col++) {
       for (int row = 0; row < numRows; row++) {
@@ -203,6 +208,8 @@ void Table::sizeAllocateImpl (core::Allocation *allocation)
       x += colWidths->get (col) + getStyle()->hBorderSpacing;
    }
 
+   sizeAllocateEnd ();
+
    DBG_OBJ_LEAVE ();
 }
 
@@ -220,34 +227,40 @@ int Table::getAvailWidthOfChild (Widget *child, bool forceValue)
                   child, forceValue ? "true" : "false");
 
    int width;
+   oof::OutOfFlowMgr *oofm;
 
-   // We do not calculate the column widths at this point, because
-   // this tends to be rather inefficient for tables with many
-   // cells:
-   //
-   // For each of the n cells, some text is added (say, only one word
-   // per cell). Textblock::addText will eventually (via addText0
-   // etc.) call this method, Table::getAvailWidthOfChild. If
-   // calcCellSizes() is called here, this will call
-   // forceCalcCellSizes(), since the last call, sizes have to be
-   // re-calculated (because cells have been added). This will
-   // calculate the extremes for each existing cell, so
-   // Widget::getExtremes is called n * (n + 1) / 2 times. Even if the
-   // extremes are cached (so that getExtremesImpl does not have to be
-   // called in each case), this would make rendering tables with more
-   // than a few hundred cells unacceptably slow.
-   //
-   // Instead, column widths are calculated in Table::sizeRequestImpl.
-   //
-   // An alternative would be incremental resizing for tables; this
-   // approach resembles the behaviour before GROWS.
+   if (isWidgetOOF(child) && (oofm = getWidgetOutOfFlowMgr(child)) &&
+       oofm->dealingWithSizeOfChild (child))
+      width = oofm->getAvailWidthOfChild (child, forceValue);
+   else {
+      // We do not calculate the column widths at this point, because
+      // this tends to be rather inefficient for tables with many
+      // cells:
+      //
+      // For each of the n cells, some text is added (say, only one word
+      // per cell). Textblock::addText will eventually (via addText0
+      // etc.) call this method, Table::getAvailWidthOfChild. If
+      // calcCellSizes() is called here, this will call
+      // forceCalcCellSizes(), since the last call, sizes have to be
+      // re-calculated (because cells have been added). This will
+      // calculate the extremes for each existing cell, so
+      // Widget::getExtremes is called n * (n + 1) / 2 times. Even if the
+      // extremes are cached (so that getExtremesImpl does not have to be
+      // called in each case), this would make rendering tables with more
+      // than a few hundred cells unacceptably slow.
+      //
+      // Instead, column widths are calculated in Table::sizeRequestImpl.
+      //
+      // An alternative would be incremental resizing for tables; this
+      // approach resembles the behaviour before GROWS.
 
-   // TODO Does it still make sence to return -1 when forceValue is
-   // set?
-   if (forceValue)
-      width = calcAvailWidthForDescendant (child);
-   else
-      width = -1;
+      // TODO Does it still make sence to return -1 when forceValue is
+      // set?
+      if (forceValue)
+         width = calcAvailWidthForDescendant (child);
+      else
+         width = -1;
+   }
 
    DBG_OBJ_MSGF ("resize", 1, "=> %d", width);
    DBG_OBJ_LEAVE ();
@@ -266,10 +279,17 @@ int Table::calcAvailWidthForDescendant (Widget *child)
 
    assert (actualChild != NULL);
 
-   // ActualChild->parentRef contains the position in the children
-   // array (see addCell()), so the column can be easily determined.
-   int col = actualChild->parentRef % numCols;
-   int colspanEff = children->get(actualChild->parentRef)->cell.colspanEff;
+   // ActualChild->parentRef contains (indirectly) the position in the
+   // children array (see addCell()), so the column can be easily
+   // determined.
+   int childNo = getParentRefInFlowSubRef (actualChild->parentRef);
+   int col = childNo % numCols;
+   DBG_OBJ_MSGF ("resize", 1, "actualChild = %p, "
+                 "childNo = getParentRefInFlowSubRef (%d) = %d, "
+                 "column = %d %% %d = %d",
+                 actualChild, actualChild->parentRef, childNo, childNo,
+                 numCols, col);
+   int colspanEff = children->get(childNo)->cell.colspanEff;
    DBG_OBJ_MSGF ("resize", 1, "calculated from column %d, colspanEff = %d",
                  col, colspanEff);
 
@@ -318,6 +338,8 @@ void Table::containerSizeChangedForChildren ()
       }
    }
 
+   containerSizeChangedForChildrenOOF ();
+
    DBG_OBJ_LEAVE ();
 }
 
@@ -353,18 +375,21 @@ bool Table::isBlockLevel ()
    return true;
 }
 
-void Table::draw (core::View *view, core::Rectangle *area)
+void Table::drawLevel (core::View *view, core::Rectangle *area, int level,
+                       core::DrawingContext *context)
 {
-   // Can be optimized, by iterating on the lines in area.
-   drawWidgetBox (view, area, false);
+   DBG_OBJ_ENTER ("draw", 0, "Table::drawLevel", "[%d, %d, %d * %d], %s",
+                  area->x, area->y, area->width, area->height,
+                  stackingLevelText (level));
 
 #if 0
+   // This old code belongs perhaps to the background. Check when reactivated.
    int offx = getStyle()->boxOffsetX () + getStyle()->hBorderSpacing;
    int offy = getStyle()->boxOffsetY () + getStyle()->vBorderSpacing;
    int width = getContentWidth ();
-
+   
    // This part seems unnecessary. It also segfaulted sometimes when
-   // cumHeight size was less than numRows. --jcid
+      // cumHeight size was less than numRows. --jcid
    for (int row = 0; row < numRows; row++) {
       if (rowStyle->get (row))
          drawBox (view, rowStyle->get (row), area,
@@ -375,14 +400,58 @@ void Table::draw (core::View *view, core::Rectangle *area)
    }
 #endif
 
-   for (int i = 0; i < children->size (); i++) {
-      if (childDefined (i)) {
-         Widget *child = children->get(i)->cell.widget;
-         core::Rectangle childArea;
-         if (child->intersects (area, &childArea))
-            child->draw (view, &childArea);
+   switch (level) {
+   case SL_IN_FLOW:
+      for (int i = 0; i < children->size (); i++) {
+         if (childDefined (i)) {
+            Widget *child = children->get(i)->cell.widget;
+            core::Rectangle childArea;
+            if (!core::StackingContextMgr::handledByStackingContextMgr (child)
+                && child->intersects (this, area, &childArea))
+               child->draw (view, &childArea, context);
+         }
       }
+      break;
+
+   default:
+      OOFAwareWidget::drawLevel (view, area, level, context);
+      break;
    }
+
+   DBG_OBJ_LEAVE ();
+}
+
+core::Widget *Table::getWidgetAtPointLevel (int x, int y, int level,
+                                            core::GettingWidgetAtPointContext
+                                            *context)
+{
+   DBG_OBJ_ENTER ("events", 0, "Table::getWidgetAtPointLevel", "%d, %d, %s",
+                  x, y, stackingLevelText (level));
+
+   Widget *widgetAtPoint = NULL;
+
+   switch (level) {
+   case SL_IN_FLOW:
+      for (int i = children->size () - 1; widgetAtPoint == NULL && i >= 0;
+           i--) {
+         if (childDefined (i)) {
+            Widget *child = children->get(i)->cell.widget;
+            if (!core::StackingContextMgr::handledByStackingContextMgr (child))
+               widgetAtPoint = child->getWidgetAtPoint (x, y, context);
+         }
+      }
+      break;
+
+   default:
+      widgetAtPoint =
+         OOFAwareWidget::getWidgetAtPointLevel (x, y, level, context);
+      break;
+   }
+
+   DBG_OBJ_MSGF ("events", 1, "=> %p", widgetAtPoint);
+   DBG_OBJ_LEAVE ();
+
+   return widgetAtPoint;
 }
 
 void Table::removeChild (Widget *child)
@@ -475,14 +544,14 @@ void Table::addCell (Widget *widget, int colspan, int rowspan)
    child->cell.rowspan = rowspan;
    children->set (curRow * numCols + curCol, child);
 
-   // The position in the children array is assigned to parentRef,
-   // although incremental resizing is not implemented. Useful, e. g.,
-   // in calcAvailWidthForDescendant(). See also reallocChildren().
-   widget->parentRef = curRow * numCols + curCol;
+   // The position in the children array is (indirectly) assigned to parentRef,
+   // although incremental resizing is not implemented. Useful, e. g., in
+   // calcAvailWidthForDescendant(). See also reallocChildren().
+   widget->parentRef = makeParentRefInFlow (curRow * numCols + curCol);
    DBG_OBJ_SET_NUM_O (widget, "parentRef", widget->parentRef);
 
    curCol += colspanEff;
-
+   
    widget->setParent (this);
    if (rowStyle->get (curRow))
       widget->setBgColor (rowStyle->get(curRow)->backgroundColor);
@@ -722,7 +791,7 @@ void Table::reallocChildren (int newNumCols, int newNumRows)
             int n = row * newNumCols + col;
             Child *child = children->get (n);
             if (child != NULL && child->type == Child::CELL) {
-               child->cell.widget->parentRef = n;
+               child->cell.widget->parentRef = makeParentRefInFlow (n);
                DBG_OBJ_SET_NUM_O (child->cell.widget, "parentRef",
                                   child->cell.widget->parentRef);
             }
@@ -768,6 +837,9 @@ void Table::calcCellSizes (bool calcHeights)
 
 void Table::forceCalcCellSizes (bool calcHeights)
 {
+   DBG_OBJ_ENTER ("resize", 0, "forceCalcCellSizes", "%s",
+                  calcHeights ? "true" : "false");
+
    // Since Table::getAvailWidthOfChild does not calculate the column
    // widths, and so initially a random value (100) is returned, a
    // correction is necessary. The old values are temporary preserved
@@ -822,11 +894,14 @@ void Table::forceCalcCellSizes (bool calcHeights)
          }
       }
    }
+
+   DBG_OBJ_LEAVE ();
 }
 
 void Table::actuallyCalcCellSizes (bool calcHeights)
 {
-   DBG_OBJ_ENTER0 ("resize", 0, "forceCalcCellSizes");
+   DBG_OBJ_ENTER ("resize", 0, "actuallyCalcCellSizes", "%s",
+                  calcHeights ? "true" : "false");
 
    int childHeight;
    core::Extremes extremes;
