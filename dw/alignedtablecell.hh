@@ -23,6 +23,8 @@ protected:
 
    bool getAdjustMinWidth ();
 
+   bool adjustExtraSpaceWhenCorrectingRequisitionByOOF ();
+
    int wordWrap (int wordIndex, bool wrapAll);
 
    int getValue ();
@@ -39,7 +41,7 @@ public:
 
    bool isBlockLevel ();
 
-   bool mustBeWidenedToAvailWidth ();
+   bool usesMaxGeneratorWidth ();
 };
 
 } // namespace dw

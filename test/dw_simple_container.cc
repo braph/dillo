@@ -32,7 +32,7 @@ int SimpleContainer::CLASS_ID = -1;
 // ----------------------------------------------------------------------
 
 SimpleContainer::SimpleContainerIterator::SimpleContainerIterator
-   (SimpleContainer *simpleContainer, Content::Type mask, bool atEnd) :
+(SimpleContainer *simpleContainer, Content::Type mask, bool atEnd) :
    Iterator (simpleContainer, mask, atEnd)
 {
    content.type = atEnd ? Content::END : Content::START;
@@ -63,7 +63,7 @@ int SimpleContainer::SimpleContainerIterator::index ()
 }
 
 int SimpleContainer::SimpleContainerIterator::compareTo
-   (lout::object::Comparable *other)
+(lout::object::Comparable *other)
 {
    return index () - ((SimpleContainerIterator*)other)->index ();
 }
@@ -160,7 +160,7 @@ SimpleContainer::~SimpleContainer ()
       delete child;
 }
 
-void SimpleContainer::sizeRequestImpl (Requisition *requisition)
+void SimpleContainer::sizeRequestSimpl (Requisition *requisition)
 {
    Requisition childReq;
    if (child)
@@ -176,7 +176,7 @@ void SimpleContainer::sizeRequestImpl (Requisition *requisition)
 }
 
 
-void SimpleContainer::getExtremesImpl (Extremes *extremes)
+void SimpleContainer::getExtremesSimpl (Extremes *extremes)
 {
    Extremes childExtr;
    if (child)
@@ -208,12 +208,13 @@ void SimpleContainer::sizeAllocateImpl (Allocation *allocation)
    }
 }
 
-void SimpleContainer::draw (View *view, Rectangle *area)
+void SimpleContainer::draw (View *view, Rectangle *area,
+                            DrawingContext *context)
 {
    drawWidgetBox (view, area, false);
    Rectangle childArea;
-   if (child && child->intersects (area, &childArea))
-      child->draw (view, &childArea);
+   if (child && child->intersects (this, area, &childArea))
+      child->draw (view, &childArea, context);
 }
 
 Iterator *SimpleContainer::iterator (Content::Type mask, bool atEnd)

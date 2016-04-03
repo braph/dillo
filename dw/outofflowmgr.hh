@@ -5,430 +5,145 @@
 
 namespace dw {
 
-class Textblock;
+/**
+ *  \brief Out Of Flow. See \ref dw-out-of-flow.
+ */
+namespace oof {
+
+class OOFAwareWidget;
 
 /**
- * \brief Represents additional data for containing blocks.
+ * \brief Represents additional data for OOF containers.
  */
 class OutOfFlowMgr
 {
-   friend class WidgetInfo;
-
-private:
-   enum Side { LEFT, RIGHT };
-   enum SFVType { GB, CB };
-
-   Textblock *containingBlock;
-
-   // These two values are redundant to TBInfo::wasAllocated and
-   // TBInfo::allocation, for some special cases.
-   bool containingBlockWasAllocated;
-   core::Allocation containingBlockAllocation;
-
-   class WidgetInfo: public lout::object::Object
-   {
-   private:
-      bool wasAllocated;
-      int xCB, yCB; // relative to the containing block
-      int width, height;
-
-      OutOfFlowMgr *oofm;
-      core::Widget *widget;
-
-   protected:
-      OutOfFlowMgr *getOutOfFlowMgr () { return oofm; }
-
-   public:
-      WidgetInfo (OutOfFlowMgr *oofm, core::Widget *widget);
-
-      inline bool wasThenAllocated () { return wasAllocated; }
-      inline int getOldXCB () { return xCB; }
-      inline int getOldYCB () { return yCB; }
-      inline int getOldWidth () { return width; }
-      inline int getOldHeight () { return height; }
-
-
-      void update (bool wasAllocated, int xCB, int yCB, int width, int height);
-
-      inline core::Widget *getWidget () { return widget; }
-   };
-
-   class Float: public WidgetInfo
-   {
-   public:
-      class ComparePosition: public lout::object::Comparator
-      {
-      private:
-         OutOfFlowMgr *oofm;
-         Textblock *refTB;
-         SFVType type; // actually only used for debugging
-
-      public:
-         ComparePosition (OutOfFlowMgr *oofm, Textblock *refTB, SFVType type)
-         { this->oofm = oofm; this->refTB = refTB; this->type = type; }
-         int compare(Object *o1, Object *o2);
-      };
-
-      class CompareSideSpanningIndex: public lout::object::Comparator
-      {
-      public:
-         int compare(Object *o1, Object *o2);
-      };
-
-      class CompareGBAndExtIndex: public lout::object::Comparator
-      {
-      private:
-         OutOfFlowMgr *oofm;
-         SFVType type; // actually only used for debugging
-
-      public:
-         CompareGBAndExtIndex (OutOfFlowMgr *oofm, SFVType type)
-         { this->oofm = oofm; this->type = type; }
-         int compare(Object *o1, Object *o2);
-      };
-
-      Textblock *generatingBlock;
-      int externalIndex;
-      int yReq, yReal; // relative to generator, not container
-      int indexGBList; /* Refers to TBInfo::leftFloatsGB or
-                          TBInfo::rightFloatsGB, respectively. -1
-                          initially. */
-      int indexCBList; /* Refers to leftFloatsCB or rightFloatsCB,
-                          respectively. -1 initially. */
-      int sideSpanningIndex, mark;
-      core::Requisition size;
-      int cbLineBreakWidth; /* On which the calculation of relative sizes
-                               is based. Height not yet used, and probably
-                               not added before size redesign. */
-      bool dirty, sizeChangedSinceLastAllocation;
-
-      Float (OutOfFlowMgr *oofm, core::Widget *widget,
-             Textblock *generatingBlock, int externalIndex);
-
-      inline bool isNowAllocated () { return getWidget()->wasAllocated (); }
-      inline int getNewXCB () { return getWidget()->getAllocation()->x -
-            getOutOfFlowMgr()->containingBlockAllocation.x; }
-      inline int getNewYCB () { return getWidget()->getAllocation()->y -
-            getOutOfFlowMgr()->containingBlockAllocation.y; }
-      inline int getNewWidth () { return getWidget()->getAllocation()->width; }
-      inline int getNewHeight () { return getWidget()->getAllocation()->ascent +
-            getWidget()->getAllocation()->descent; }
-      void updateAllocation ();
-
-      inline int *getIndexRef (SFVType type) {
-         return type == GB ? &indexGBList : &indexCBList; }
-      inline int getIndex (SFVType type) { return *(getIndexRef (type)); }
-      inline void setIndex (SFVType type, int value) {
-         *(getIndexRef (type)) = value; }
-
-      void intoStringBuffer(lout::misc::StringBuffer *sb);
-
-      bool covers (Textblock *textblock, int y, int h);
-   };
-
-   /**
-    * This list is kept sorted.
-    *
-    * To prevent accessing methods of the base class in an
-    * uncontrolled way, the inheritance is private, not public; this
-    * means that all methods must be delegated (see iterator(), size()
-    * etc. below.)
-    *
-    * TODO Update comment: still sorted, but ...
-    *
-    * More: add() and change() may check order again.
-    */
-   class SortedFloatsVector: private lout::container::typed::Vector<Float>
-   {
-   public:
-      SFVType type;
-
-   private:
-      OutOfFlowMgr *oofm;
-      Side side;
-
-   public:
-      inline SortedFloatsVector (OutOfFlowMgr *oofm, Side side, SFVType type) :
-         lout::container::typed::Vector<Float> (1, false)
-      { this->oofm = oofm; this->side = side; this->type = type; }
-
-      int findFloatIndex (Textblock *lastGB, int lastExtIndex);
-      int find (Textblock *textblock, int y, int start, int end);
-      int findFirst (Textblock *textblock, int y, int h, Textblock *lastGB,
-                     int lastExtIndex, int *lastReturn);
-      int findLastBeforeSideSpanningIndex (int sideSpanningIndex);
-      void put (Float *vloat);
-
-      inline lout::container::typed::Iterator<Float> iterator()
-      { return lout::container::typed::Vector<Float>::iterator (); }
-      inline int size ()
-      { return lout::container::typed::Vector<Float>::size (); }
-      inline Float *get (int pos)
-      { return lout::container::typed::Vector<Float>::get (pos); }
-      inline void clear ()
-      { lout::container::typed::Vector<Float>::clear (); }
-   };
-
-   class TBInfo: public WidgetInfo
-   {
-   public:
-      int lineBreakWidth;
-      int index; // position within "tbInfos"
-
-      TBInfo *parent;
-      int parentExtIndex;
-
-      // These two values are set by sizeAllocateStart(), and they are
-      // accessable also within sizeAllocateEnd() for the same
-      // textblock, for which allocation and WAS_ALLOCATED is set
-      // *after* sizeAllocateEnd(). See the two functions
-      // wasAllocated(Widget*) and getAllocation(Widget*) (further
-      // down) for usage.
-      bool wasAllocated;
-      core::Allocation allocation;
-      int clearPosition;
-
-      // These two lists store all floats generated by this textblock,
-      // as long as this textblock is not allocates.
-      SortedFloatsVector *leftFloatsGB, *rightFloatsGB;
-
-      TBInfo (OutOfFlowMgr *oofm, Textblock *textblock,
-              TBInfo *parent, int parentExtIndex);
-      ~TBInfo ();
-
-      inline bool isNowAllocated () {
-         return getOutOfFlowMgr()->wasAllocated (getTextblock ()); }
-      inline int getNewXCB () {
-         return getOutOfFlowMgr()->getAllocation (getTextblock ())->x -
-            getOutOfFlowMgr()->containingBlockAllocation.x; }
-      inline int getNewYCB () {
-         return getOutOfFlowMgr()->getAllocation (getTextblock ())->y -
-            getOutOfFlowMgr()->containingBlockAllocation.y; }
-      inline int getNewWidth () {
-         return getOutOfFlowMgr()->getAllocation (getTextblock ())->width; }
-      inline int getNewHeight () {
-         core::Allocation *allocation =
-            getOutOfFlowMgr()->getAllocation (getTextblock ());
-         return allocation->ascent + allocation->descent; }
-      void updateAllocation ();
-
-      inline Textblock *getTextblock () { return (Textblock*)getWidget (); }
-   };
-
-   // These two lists store all floats, in the order in which they are
-   // defined. Only used for iterators.
-   lout::container::typed::Vector<Float> *leftFloatsAll, *rightFloatsAll;
-
-   // These two lists store all floats whose generators are already
-   // allocated.
-   SortedFloatsVector *leftFloatsCB, *rightFloatsCB;
-
-   // These two attributes are used in the size allocation process;
-   // see sizeAllocateStart and sizeAllocateEnd.
-   int lastAllocatedLeftFloat, lastAllocatedRightFloat;
-
-   lout::container::typed::HashTable<lout::object::TypedPointer
-                                     <dw::core::Widget>, Float> *floatsByWidget;
-
-   lout::container::typed::Vector<TBInfo> *tbInfos;
-   lout::container::typed::HashTable<lout::object::TypedPointer <Textblock>,
-                                     TBInfo> *tbInfosByTextblock;
-
-   int lastLeftTBIndex, lastRightTBIndex, leftFloatsMark, rightFloatsMark;
-
-   /**
-    * Variant of Widget::wasAllocated(), which can also be used within
-    * OOFM::sizeAllocateEnd().
-    */
-   inline bool wasAllocated (Textblock *textblock) {
-      return getTextblock(textblock)->wasAllocated;
-   }
-
-   /**
-    * Variant of Widget::getAllocation(), which can also be used
-    * within OOFM::sizeAllocateEnd().
-    */
-   inline core::Allocation *getAllocation (Textblock *textblock) {
-      return &(getTextblock(textblock)->allocation);
-   }
-
-   void moveExternalIndices (SortedFloatsVector *list, int oldStartIndex,
-                             int diff);
-   Float *findFloatByWidget (core::Widget *widget);
-
-   void moveFromGBToCB (Side side);
-   void sizeAllocateFloats (Side side, int newLastAllocatedFloat);
-   int getGBWidthForAllocation (Float *vloat);
-   int calcFloatX (Float *vloat, Side side, int gbX, int gbWidth);
-
-   bool hasRelationChanged (TBInfo *tbInfo,int *minFloatPos,
-                            core::Widget **minFloat);
-   bool hasRelationChanged (TBInfo *tbInfo, Side side, int *minFloatPos,
-                            core::Widget **minFloat);
-   bool hasRelationChanged (bool oldTBAlloc,
-                            int oldTBx, int oldTBy, int oldTBw, int oldTBh,
-                            int newTBx, int newTBy, int newTBw, int newTBh,
-                            bool oldFlAlloc,
-                            int oldFlx, int oldFly, int oldFlw, int oldFlh,
-                            int newFlx, int newFly, int newFlw, int newFlh,
-                            Side side, int *floatPos);
-
-   void checkAllocatedFloatCollisions (Side side);
-
-   bool doFloatsExceedCB (Side side);
-   bool haveExtremesChanged (Side side);
-
-   void drawFloats (SortedFloatsVector *list, core::View *view,
-                    core::Rectangle *area);
-   core::Widget *getFloatWidgetAtPoint (SortedFloatsVector *list, int x, int y,
-                                        int level);
-
-   bool collidesV (Float *vloat, Float *other, SFVType type, int *yReal,
-                   bool useAllocation);
-   bool collidesH (Float *vloat, Float *other, SFVType type);
-
-   void getFloatsListsAndSide (Float *vloat, SortedFloatsVector **listSame,
-                               SortedFloatsVector **listOpp, Side *side);
-
-   void getFloatsSize (core::Requisition *cbReq, Side side, int *width,
-                       int *height);
-   void getFloatsExtremes (core::Extremes *cbExtr, Side side, int *minWidth,
-                           int *maxWidth);
-
-   TBInfo *getTextblock (Textblock *textblock);
-   int getBorder (Textblock *textblock, Side side, int y, int h,
-                  Textblock *lastGB, int lastExtIndex);
-   SortedFloatsVector *getFloatsListForTextblock (Textblock *textblock,
-                                                  Side side);
-   bool hasFloat (Textblock *textblock, Side side, int y, int h,
-                  Textblock *lastGB, int lastExtIndex);
-
-   int getFloatHeight (Textblock *textblock, Side side, int y, int h,
-                       Textblock *lastGB, int lastExtIndex);
-
-   int calcClearPosition (Textblock *tb, Side side);
-   int calcClearPosition (Textblock *tb);
-
-   void ensureFloatSize (Float *vloat);
-
-   void tellFloatPosition (core::Widget *widget, int yReq);
-
-   static inline bool isStyleFloat (core::style::Style *style)
-   { return style->vloat != core::style::FLOAT_NONE; }
-   static inline bool isWidgetFloat (core::Widget *widget)
-   { return isStyleFloat (widget->getStyle()); }
-
-   /*
-    * Format for parent ref (see also below for isRefOutOfFlow,
-    * createRefNormalFlow, and getLineNoFromRef.
-    *
-    * Widget in flow:
-    *
-    *    +---+ - - - +---+---+- - - - - -+---+---+---+---+
-    *    |                line number                | 0 |
-    *    +---+ - - - +---+---+- - - - - -+---+---+---+---+
-    *
-    * So, anything with the least signifant bit set to 1 is out of flow.
-    *
-    * Floats:
-    *
-    *    +---+ - - - +---+---+- - - - - -+---+---+---+---+
-    *    |          left float index         | 0 | 0 | 1 |
-    *    +---+ - - - +---+---+- - - - - -+---+---+---+---+
-    *
-    *    +---+ - - - +---+---+- - - - - -+---+---+---+---+
-    *    |         right float index         | 1 | 0 | 1 |
-    *    +---+ - - - +---+---+- - - - - -+---+---+---+---+
-    *
-    * Absolutely positioned blocks: solved differently in the
-    * "dillo_grows" repository.
-    */
-
-   inline static bool isRefFloat (int ref)
-   { return ref != -1 && (ref & 3) == 1; }
-   inline static bool isRefLeftFloat (int ref)
-   { return ref != -1 && (ref & 7) == 1; }
-   inline static bool isRefRightFloat (int ref)
-   { return ref != -1 && (ref & 7) == 5; }
-
-   inline static int createRefLeftFloat (int index)
-   { return (index << 3) | 1; }
-   inline static int createRefRightFloat (int index)
-   { return (index << 3) | 5; }
-
-   inline static int getFloatIndexFromRef (int ref)
-   { return ref == -1 ? ref : (ref >> 3); }
-
 public:
-   OutOfFlowMgr (Textblock *containingBlock);
-   ~OutOfFlowMgr ();
+   OutOfFlowMgr ();
+   virtual ~OutOfFlowMgr ();
 
-   void sizeAllocateStart (Textblock *caller, core::Allocation *allocation);
-   void sizeAllocateEnd (Textblock *caller);
-   void containerSizeChangedForChildren ();
-   void draw (core::View *view, core::Rectangle *area);
+   virtual void sizeAllocateStart (OOFAwareWidget *caller,
+                                   core::Allocation *allocation) = 0;
+   virtual void sizeAllocateEnd (OOFAwareWidget *caller) = 0;
+   virtual void containerSizeChangedForChildren () = 0;
+   virtual void draw (core::View *view, core::Rectangle *area,
+                      core::DrawingContext *context) = 0;
 
-   void markSizeChange (int ref);
-   void markExtremesChange (int ref);
-   core::Widget *getWidgetAtPoint (int x, int y, int level);
+   virtual void markSizeChange (int ref) = 0;
+   virtual void markExtremesChange (int ref) = 0;
+   virtual core::Widget *getWidgetAtPoint (int x, int y,
+                                           core::GettingWidgetAtPointContext
+                                           *context) = 0;
 
-   static bool isStyleOutOfFlow (core::style::Style *style)
-   { return isStyleFloat (style); }
-   static inline bool isWidgetOutOfFlow (core::Widget *widget)
-   { return isStyleOutOfFlow (widget->getStyle()); }
+   virtual void addWidgetInFlow (OOFAwareWidget *widget,
+                                 OOFAwareWidget *parent, int externalIndex) = 0;
+   virtual int addWidgetOOF (core::Widget *widget, OOFAwareWidget *generator,
+                             int externalIndex) = 0;
+   virtual void calcWidgetRefSize (core::Widget *widget,
+                                   core::Requisition *size) = 0;
+   virtual void moveExternalIndices (OOFAwareWidget *generator,
+                                     int oldStartIndex, int diff) = 0;
+   
+   /**
+    * \brief Called before tellPosition2, see there for more.
+    */
+   virtual void tellPosition1 (core::Widget *widget, int x, int y) = 0;
 
-   void addWidgetInFlow (Textblock *textblock, Textblock *parentBlock,
-                         int externalIndex);
-   void addWidgetOOF (core::Widget *widget, Textblock *generatingBlock,
-                      int externalIndex);
-   void moveExternalIndices (Textblock *generatingBlock, int oldStartIndex,
-                             int diff);
+   /**
+    * \brief Called after tellPosition1.
+    *
+    * An implementation should only implement either tellPosition1 or
+    * tellPosition2. Coordinates are relative to the *container*.
+    */
+   virtual void tellPosition2 (core::Widget *widget, int x, int y) = 0;
 
-   void tellPosition (core::Widget *widget, int yReq);
+   virtual void tellIncompletePosition1 (core::Widget *generator,
+                                         core::Widget *widget, int x, int y)
+      = 0;
+   virtual void tellIncompletePosition2 (core::Widget *generator,
+                                         core::Widget *widget, int x, int y)
+      = 0;
 
-   void getSize (core::Requisition *cbReq, int *oofWidth, int *oofHeight);
-   void getExtremes (core::Extremes *cbExtr,
-                     int *oofMinWidth, int *oofMaxWidth);
+   virtual void getSize (core::Requisition *containerReq, int *oofWidth,
+                         int *oofHeight) = 0;
+   virtual bool containerMustAdjustExtraSpace ()= 0;
+   virtual void getExtremes (core::Extremes *containerExtr, int *oofMinWidth,
+                             int *oofMaxWidth) = 0;
 
-   int getLeftBorder (Textblock *textblock, int y, int h, Textblock *lastGB,
-                      int lastExtIndex);
-   int getRightBorder (Textblock *textblock, int y, int h, Textblock *lastGB,
-                       int lastExtIndex);
+   /**
+    * Get the left border for the vertical position of *y*, for a height
+    * of *h", based on floats; relative to the *container*.
+    *
+    * The border includes marging/border/padding of the calling textblock
+    * but is 0 if there is no float, so a caller should also consider
+    * other borders.
+    */
+   virtual int getLeftBorder (int y, int h, OOFAwareWidget *lastGen,
+                              int lastExtIndex) = 0;
 
-   bool hasFloatLeft (Textblock *textblock, int y, int h, Textblock *lastGB,
-                      int lastExtIndex);
-   bool hasFloatRight (Textblock *textblock, int y, int h, Textblock *lastGB,
-                       int lastExtIndex);
+   /**
+    * Get the right border for the vertical position of *y*, for a height
+    * of *h*, based on floats; relative to the *container*.
+    *
+    * See also getLeftBorder().
+    */
+   virtual int getRightBorder (int y, int h, OOFAwareWidget *lastGen,
+                               int lastExtIndex) = 0;
 
-   int getLeftFloatHeight (Textblock *textblock, int y, int h,
-                           Textblock *lastGB, int lastExtIndex);
-   int getRightFloatHeight (Textblock *textblock, int y, int h,
-                            Textblock *lastGB, int lastExtIndex);
+   /**
+    * Return whether there is a float on the left side. *y* is
+    * relative to the *container*.
+    *
+    * See also getLeftBorder().
+    */
+   virtual bool hasFloatLeft (int y, int h, OOFAwareWidget *lastGen,
+                              int lastExtIndex) = 0;
 
-   int getClearPosition (Textblock *tb);
+   /**
+    * Return whether there is a float on the right side. *y* is
+    * relative to the *container*.
+    *
+    * See also hasFloatLeft(), getLeftBorder();
+    */
+   virtual bool hasFloatRight (int y, int h, OOFAwareWidget *lastGen,
+                               int lastExtIndex) = 0;
 
-   inline static bool isRefOutOfFlow (int ref)
-   { return ref != -1 && (ref & 1) != 0; }
-   inline static int createRefNormalFlow (int lineNo) { return lineNo << 1; }
-   inline static int getLineNoFromRef (int ref)
-   { return ref == -1 ? ref : (ref >> 1); }
+   /**
+    * Assuming there is a float on the left side, return the rest
+    * height of it. *y* is relative to the *container*.
+    *
+    * See also getLeftBorder().
+    */
+   virtual int getLeftFloatHeight (int y, int h, OOFAwareWidget *lastGen,
+                                   int lastExtIndex) = 0;
 
+   /**
+    * Assuming there is a float on the right side, return the rest
+    * height of it. *y* is relative to the *container*.
+    *
+    * See also getLeftFloatHeight(), getLeftBorder().
+    */
+   virtual int getRightFloatHeight (int y, int h, OOFAwareWidget *lastGen,
+                                    int lastExtIndex) = 0;
+   
+   virtual bool affectsLeftBorder (core::Widget *widget) = 0;
+   virtual bool affectsRightBorder (core::Widget *widget) = 0;
+   virtual bool mayAffectBordersAtAll () = 0;
+
+   /**
+    * Return value is relative to the *calling generator* (not container).
+    */
+   virtual int getClearPosition (OOFAwareWidget *widget) = 0;
+
+   virtual bool dealingWithSizeOfChild (core::Widget *child) = 0;
+   virtual int getAvailWidthOfChild (core::Widget *child, bool forceValue) = 0;
+   virtual int getAvailHeightOfChild (core::Widget *child, bool forceValue) = 0;
+   
    // for iterators
-   inline int getNumWidgets ()
-   { return leftFloatsAll->size() + rightFloatsAll->size(); }
-
-   inline core::Widget *getWidget (int i) {
-      if (i < leftFloatsAll->size())
-         return leftFloatsAll->get(i)->getWidget ();
-      else
-         return rightFloatsAll->get(i - leftFloatsAll->size())->getWidget ();
-   }
-
-   inline bool affectsLeftBorder (core::Widget *widget) {
-      return widget->getStyle()->vloat == core::style::FLOAT_LEFT; }
-   inline bool affectsRightBorder (core::Widget *widget) {
-      return widget->getStyle()->vloat == core::style::FLOAT_RIGHT; }
+   virtual int getNumWidgets () = 0;
+   virtual core::Widget *getWidget (int i) = 0;
 };
+
+} // namespace oof
 
 } // namespace dw
 

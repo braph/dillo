@@ -19,6 +19,8 @@ protected:
 
    bool getAdjustMinWidth ();
 
+   bool adjustExtraSpaceWhenCorrectingRequisitionByOOF ();
+
 public:
    static int CLASS_ID;
 
@@ -30,7 +32,7 @@ public:
 
    bool isBlockLevel ();
 
-   bool mustBeWidenedToAvailWidth ();
+   bool usesMaxGeneratorWidth ();
 };
 
 } // namespace dw

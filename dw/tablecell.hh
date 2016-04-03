@@ -7,7 +7,7 @@ namespace dw {
 
 namespace tablecell {
 
-inline bool mustBeWidenedToAvailWidth () { return true; }
+inline bool usesMaxGeneratorWidth () { return true; }
 
 bool getAdjustMinWidth ();
 bool isBlockLevel ();
@@ -30,6 +30,8 @@ int applyPerWidth (core::Widget *widget, int containerWidth,
                    core::style::Length perWidth);
 int applyPerHeight (core::Widget *widget, int containerHeight,
                     core::style::Length perHeight);
+
+inline bool adjustExtraSpaceWhenCorrectingRequisitionByOOF () { return false; }
 
 } // namespace dw
 

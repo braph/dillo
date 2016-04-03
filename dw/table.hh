@@ -1,7 +1,7 @@
 #ifndef __DW_TABLE_HH__
 #define __DW_TABLE_HH__
 
-#include "core.hh"
+#include "oofawarewidget.hh"
 #include "alignedtablecell.hh"
 #include "../lout/misc.hh"
 
@@ -322,7 +322,7 @@ namespace dw {
  * Here, \em foo-bar refers to the attribute \em bar of the tag \em foo foo.
  * Look at the HTML parser for more details.
  */
-class Table: public core::Widget
+class Table: public oof::OOFAwareWidget
 {
 private:
    struct Child
@@ -342,20 +342,17 @@ private:
       };
    };
 
-   class TableIterator: public core::Iterator
+   class TableIterator: public OOFAwareWidgetIterator
    {
-   private:
-      int index;
+   protected:
+      int numContentsInFlow ();
+      void getContentInFlow (int index, core::Content *content);
 
    public:
       TableIterator (Table *table, core::Content::Type mask, bool atEnd);
-      TableIterator (Table *table, core::Content::Type mask, int index);
 
       lout::object::Object *clone();
-      int compareTo(lout::object::Comparable *other);
 
-      bool next ();
-      bool prev ();
       void highlight (int start, int end, core::HighlightLayer layer);
       void unhighlight (int direction, core::HighlightLayer layer);
       void getAllocation (int start, int end, core::Allocation *allocation);
@@ -464,8 +461,8 @@ private:
    }
 
 protected:
-   void sizeRequestImpl (core::Requisition *requisition);
-   void getExtremesImpl (core::Extremes *extremes);
+   void sizeRequestSimpl (core::Requisition *requisition);
+   void getExtremesSimpl (core::Extremes *extremes);
    void sizeAllocateImpl (core::Allocation *allocation);
    void resizeDrawImpl ();
 
@@ -479,7 +476,11 @@ protected:
 
    bool isBlockLevel ();
 
-   void draw (core::View *view, core::Rectangle *area);
+   void drawLevel (core::View *view, core::Rectangle *area, int level,
+                   core::DrawingContext *context);
+
+   Widget *getWidgetAtPointLevel (int x, int y, int level,
+                                  core::GettingWidgetAtPointContext *context);
 
    //bool buttonPressImpl (core::EventButton *event);
    //bool buttonReleaseImpl (core::EventButton *event);
