@@ -611,7 +611,10 @@ static void Tls_cert_not_valid_yet(const mbedtls_x509_crt *cert, Dstr *ds)
  */
 static void Tls_cert_bad_hash(const mbedtls_x509_crt *cert, Dstr *ds)
 {
-   const char *hash = (cert->sig_md == MBEDTLS_MD_SHA1) ? "SHA1" :
+   const char *hash = (cert->sig_md == MBEDTLS_MD_MD5) ? "MD5" :
+                      (cert->sig_md == MBEDTLS_MD_MD4) ? "MD4" :
+                      (cert->sig_md == MBEDTLS_MD_MD2) ? "MD2" :
+                      (cert->sig_md == MBEDTLS_MD_SHA1) ? "SHA1" :
                       (cert->sig_md == MBEDTLS_MD_SHA224) ? "SHA224" :
                       (cert->sig_md == MBEDTLS_MD_RIPEMD160) ? "RIPEMD160" :
                       (cert->sig_md == MBEDTLS_MD_SHA256) ? "SHA256" :
@@ -947,8 +950,10 @@ static void Tls_connect(int fd, int connkey)
             const char *version = mbedtls_ssl_get_version(ssl),
                        *cipher = mbedtls_ssl_get_ciphersuite(ssl);
 
-            MSG("%s:%d %s, cipher %s\n", URL_AUTHORITY(conn->url),
-                URL_PORT(conn->url), version, cipher);
+            MSG("%s", URL_AUTHORITY(conn->url));
+            if (URL_PORT(conn->url) != URL_HTTPS_PORT)
+               MSG(":%d", URL_PORT(conn->url));
+            MSG(" %s, cipher %s\n", version, cipher);
          }
          if (srv->cert_status == CERT_STATUS_USER_ACCEPTED ||
              (Tls_examine_certificate(conn->ssl, srv) != -1)) {
@@ -1101,10 +1106,11 @@ void a_Tls_close_by_fd(int fd)
 static void Tls_cert_authorities_print_summary()
 {
    const int ca_len = dList_length(cert_authorities);
+   Dstr *ds = dStr_new("");
    int i, j;
 
    if (ca_len)
-      MSG("TLS: Trusted during this session:\n");
+      dStr_append(ds, "TLS: Trusted during this session:\n");
 
    for (i = 0; i < ca_len; i++) {
       CertAuth_t *ca = (CertAuth_t *)dList_nth_data(cert_authorities, i);
@@ -1118,17 +1124,21 @@ static void Tls_cert_authorities_print_summary()
          ca_name += 3;
       else
          ca_name = ca->name;
-      MSG("- %s for: ", ca_name);
+      dStr_sprintfa(ds, "- %s for: ", ca_name);
 
       for (j = 0; j < servers_len; j++) {
          Server_t *s = dList_nth_data(ca->servers, j);
          bool_t ipv6 = a_Url_host_type(s->hostname) == URL_HOST_IPV6;
 
-         MSG("%s%s%s:%d ", ipv6?"[":"", s->hostname, ipv6?"]":"", s->port);
+         dStr_sprintfa(ds, "%s%s%s", ipv6?"[":"", s->hostname, ipv6?"]":"");
+         if (s->port != URL_HTTPS_PORT)
+            dStr_sprintfa(ds, ":%d", s->port);
+         dStr_append_c(ds, ' ');
       }
-      MSG("\n");
+      dStr_append_c(ds, '\n');
    }
-
+   MSG("%s", ds->str);
+   dStr_free(ds, 1);
 }
 
 /*
@@ -1189,7 +1199,8 @@ static void Tls_fd_map_remove_all()
  */
 void a_Tls_freeall(void)
 {
-   Tls_cert_authorities_print_summary();
+   if (prefs.show_msg)
+      Tls_cert_authorities_print_summary();
 
    Tls_fd_map_remove_all();
    Tls_cert_authorities_freeall();
