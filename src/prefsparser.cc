@@ -153,6 +153,7 @@ void PrefsParser::parse(FILE *fp)
       { "contrast_visited_color", &prefs.contrast_visited_color, PREFS_BOOL, 0 },
       { "enterpress_forces_submit", &prefs.enterpress_forces_submit,
         PREFS_BOOL, 0 },
+      { "external_program", &prefs.external_program, PREFS_STRING, 0 },
       { "focus_new_tab", &prefs.focus_new_tab, PREFS_BOOL, 0 },
       { "font_cursive", &prefs.font_cursive, PREFS_STRING, 0 },
       { "font_factor", &prefs.font_factor, PREFS_DOUBLE, 0 },

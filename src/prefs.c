@@ -24,6 +24,7 @@
 #define PREFS_HTTP_REFERER    "host"
 #define PREFS_HTTP_USER_AGENT "Dillo/" VERSION
 #define PREFS_THEME           "none"
+#define PREFS_EXTERNAL_PROGRAM "xdg-open"
 
 /*-----------------------------------------------------------------------------
  * Global Data
@@ -122,6 +123,7 @@ void a_Prefs_init(void)
    prefs.penalty_em_dash_right = 100;
    prefs.penalty_em_dash_right_2 = 800;
    prefs.stretchability_factor = 100;
+   prefs.external_program = dStrdup(PREFS_EXTERNAL_PROGRAM);
 }
 
 /*
@@ -150,4 +152,5 @@ void a_Prefs_freeall(void)
    dList_free(prefs.search_urls);
    a_Url_free(prefs.start_page);
    dFree(prefs.theme);
+   dFree(prefs.external_program);
 }

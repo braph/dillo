@@ -24,6 +24,8 @@
 #include "keys.hh"
 #include "timeout.hh"
 
+#include <unistd.h>
+
 /*
  * Local data types
  */
@@ -115,6 +117,26 @@ static void Menu_open_url_nt_cb(Fl_Widget*, void *user_data)
    int focus = prefs.focus_new_tab ? 1 : 0;
    if (Fl::event_state(FL_SHIFT)) focus = !focus;
    a_UIcmd_open_url_nt(popup_bw, url, focus);
+}
+
+/*
+ * Call external command on link
+ */
+static void Menu_open_url_with_program_cb(Fl_Widget*, void *user_data)
+{
+   DilloUrl *url = (DilloUrl *)user_data;
+   _MSG("Open with program cb: click! :-)\n");
+   int pid = fork();
+   if (pid < 0) {
+      perror("fork");
+      return;
+   }
+   else if (! pid) {
+      if (*URL_STR(url))
+         execlp(prefs.external_program, prefs.external_program, URL_STR(url), NULL);
+      else
+         execlp(prefs.external_program, prefs.external_program, URL_STR(popup_url), NULL);
+   }
 }
 
 /*
@@ -426,6 +448,7 @@ static Fl_Menu_Item link_menu[] = {
    {"Bookmark this link", 0, Menu_add_bookmark_cb,0,0,0,0,0,0},
    {"Copy link location", 0, Menu_copy_urlstr_cb,0,FL_MENU_DIVIDER,0,0,0,0},
    {"Save link as...", 0, Menu_save_link_cb,0,0,0,0,0,0},
+   {"Open link with external program", 0, Menu_open_url_with_program_cb,0,0,0,0,0,0},
    {0,0,0,0,0,0,0,0,0}
 };
 
@@ -474,6 +497,7 @@ void a_Menu_image_popup(BrowserWindow *bw, const DilloUrl *url,
       {"Copy image location", 0,Menu_copy_urlstr_cb,0,FL_MENU_DIVIDER,0,0,0,0},
       {"Save image as...", 0, Menu_save_link_cb, 0, FL_MENU_DIVIDER,0,0,0,0},
       {"Link menu", 0, Menu_nop_cb, link_menu, FL_SUBMENU_POINTER,0,0,0,0},
+      {"Open link with external program", 0, Menu_open_url_with_program_cb,0,0,0,0,0,0},
       {0,0,0,0,0,0,0,0,0}
    };
    static Menu_popup_data_t image_data = {"Image menu", NULL, pm};
