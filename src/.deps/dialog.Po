@@ -1,0 +1,355 @@
+dialog.o: dialog.cc /usr/include/stdc-predef.h \
+ /usr/include/c++/6.2.1/math.h /usr/include/c++/6.2.1/cmath \
+ /usr/include/c++/6.2.1/x86_64-pc-linux-gnu/bits/c++config.h \
+ /usr/include/c++/6.2.1/x86_64-pc-linux-gnu/bits/os_defines.h \
+ /usr/include/features.h /usr/include/sys/cdefs.h \
+ /usr/include/bits/wordsize.h /usr/include/gnu/stubs.h \
+ /usr/include/gnu/stubs-64.h \
+ /usr/include/c++/6.2.1/x86_64-pc-linux-gnu/bits/cpu_defines.h \
+ /usr/include/c++/6.2.1/bits/cpp_type_traits.h \
+ /usr/include/c++/6.2.1/ext/type_traits.h /usr/include/math.h \
+ /usr/include/bits/math-vector.h /usr/include/bits/libm-simd-decl-stubs.h \
+ /usr/include/bits/huge_val.h /usr/include/bits/huge_valf.h \
+ /usr/include/bits/huge_vall.h /usr/include/bits/inf.h \
+ /usr/include/bits/nan.h /usr/include/bits/mathdef.h \
+ /usr/include/bits/mathcalls.h /usr/include/bits/mathinline.h \
+ /usr/include/FL/fl_ask.H /usr/include/FL/Enumerations.H \
+ /usr/include/FL/abi-version.h /usr/include/FL/Fl_Export.H \
+ /usr/include/FL/fl_types.h /usr/include/FL/Fl_Window.H \
+ /usr/include/FL/Fl_Group.H /usr/include/FL/Fl_Widget.H \
+ /usr/include/FL/Fl_Bitmap.H /usr/include/FL/Fl_Image.H \
+ /usr/include/c++/6.2.1/stdlib.h /usr/include/c++/6.2.1/cstdlib \
+ /usr/include/stdlib.h \
+ /usr/lib/gcc/x86_64-pc-linux-gnu/6.2.1/include/stddef.h \
+ /usr/include/bits/waitflags.h /usr/include/bits/waitstatus.h \
+ /usr/include/xlocale.h /usr/include/sys/types.h \
+ /usr/include/bits/types.h /usr/include/bits/typesizes.h \
+ /usr/include/time.h /usr/include/endian.h /usr/include/bits/endian.h \
+ /usr/include/bits/byteswap.h /usr/include/bits/byteswap-16.h \
+ /usr/include/sys/select.h /usr/include/bits/select.h \
+ /usr/include/bits/sigset.h /usr/include/bits/time.h \
+ /usr/include/sys/sysmacros.h /usr/include/bits/pthreadtypes.h \
+ /usr/include/alloca.h /usr/include/bits/stdlib-bsearch.h \
+ /usr/include/bits/stdlib-float.h /usr/include/FL/Fl_File_Chooser.H \
+ /usr/include/FL/Fl.H /usr/include/FL/Fl_Export.H \
+ /usr/include/FL/fl_utf8.h /usr/include/stdio.h /usr/include/libio.h \
+ /usr/include/_G_config.h /usr/include/wchar.h \
+ /usr/lib/gcc/x86_64-pc-linux-gnu/6.2.1/include/stdarg.h \
+ /usr/include/bits/stdio_lim.h /usr/include/bits/sys_errlist.h \
+ /usr/include/bits/stdio.h /usr/include/string.h /usr/include/sys/stat.h \
+ /usr/include/bits/stat.h /usr/include/locale.h \
+ /usr/include/bits/locale.h /usr/include/FL/Fl_Double_Window.H \
+ /usr/include/FL/Fl_Window.H /usr/include/FL/Fl_Group.H \
+ /usr/include/FL/Fl_Choice.H /usr/include/FL/Fl_Menu_.H \
+ /usr/include/FL/Fl_Menu_Item.H /usr/include/FL/Fl_Menu_Button.H \
+ /usr/include/FL/Fl_Button.H /usr/include/FL/Fl_Preferences.H \
+ /usr/include/FL/Fl_Tile.H /usr/include/FL/Fl_File_Browser.H \
+ /usr/include/FL/Fl_Browser.H /usr/include/FL/Fl_Browser_.H \
+ /usr/include/FL/Fl_Scrollbar.H /usr/include/FL/Fl_Slider.H \
+ /usr/include/FL/Fl_Valuator.H /usr/include/FL/Fl_File_Icon.H \
+ /usr/include/FL/Fl.H /usr/include/FL/filename.H /usr/include/dirent.h \
+ /usr/include/bits/dirent.h /usr/include/bits/posix1_lim.h \
+ /usr/include/bits/local_lim.h /usr/include/linux/limits.h \
+ /usr/include/FL/Fl_Box.H /usr/include/FL/Fl_Check_Button.H \
+ /usr/include/FL/Fl_Light_Button.H /usr/include/FL/Fl_Button.H \
+ /usr/include/FL/Fl_File_Input.H /usr/include/FL/Fl_Input.H \
+ /usr/include/FL/Fl_Input_.H /usr/include/FL/Fl_Return_Button.H \
+ /usr/include/FL/Fl_Text_Display.H /usr/include/FL/fl_draw.H \
+ /usr/include/FL/x.H /usr/include/X11/Xlib.h /usr/include/X11/X.h \
+ /usr/include/X11/Xfuncproto.h /usr/include/X11/Xosdefs.h \
+ /usr/include/X11/Xutil.h /usr/include/X11/keysym.h \
+ /usr/include/X11/keysymdef.h /usr/include/X11/Xatom.h \
+ /usr/include/FL/Enumerations.H /usr/include/FL/Fl_Device.H \
+ /usr/include/FL/Fl_Plugin.H /usr/include/FL/Fl_Preferences.H \
+ /usr/include/FL/Fl_Image.H /usr/include/FL/Fl_Bitmap.H \
+ /usr/include/FL/Fl_Pixmap.H /usr/include/FL/Fl_RGB_Image.H \
+ /usr/include/FL/Fl_Text_Buffer.H /usr/include/FL/Fl_Output.H \
+ /usr/include/FL/Fl_Input.H /usr/include/FL/Fl_Secret_Input.H \
+ /usr/include/FL/Fl_Menu_Item.H msg.h prefs.h url.h ../d_size.h \
+ ../config.h /usr/lib/gcc/x86_64-pc-linux-gnu/6.2.1/include/stdint.h \
+ /usr/include/stdint.h /usr/include/bits/wchar.h ../dlib/dlib.h dialog.hh \
+ misc.h
+
+/usr/include/stdc-predef.h:
+
+/usr/include/c++/6.2.1/math.h:
+
+/usr/include/c++/6.2.1/cmath:
+
+/usr/include/c++/6.2.1/x86_64-pc-linux-gnu/bits/c++config.h:
+
+/usr/include/c++/6.2.1/x86_64-pc-linux-gnu/bits/os_defines.h:
+
+/usr/include/features.h:
+
+/usr/include/sys/cdefs.h:
+
+/usr/include/bits/wordsize.h:
+
+/usr/include/gnu/stubs.h:
+
+/usr/include/gnu/stubs-64.h:
+
+/usr/include/c++/6.2.1/x86_64-pc-linux-gnu/bits/cpu_defines.h:
+
+/usr/include/c++/6.2.1/bits/cpp_type_traits.h:
+
+/usr/include/c++/6.2.1/ext/type_traits.h:
+
+/usr/include/math.h:
+
+/usr/include/bits/math-vector.h:
+
+/usr/include/bits/libm-simd-decl-stubs.h:
+
+/usr/include/bits/huge_val.h:
+
+/usr/include/bits/huge_valf.h:
+
+/usr/include/bits/huge_vall.h:
+
+/usr/include/bits/inf.h:
+
+/usr/include/bits/nan.h:
+
+/usr/include/bits/mathdef.h:
+
+/usr/include/bits/mathcalls.h:
+
+/usr/include/bits/mathinline.h:
+
+/usr/include/FL/fl_ask.H:
+
+/usr/include/FL/Enumerations.H:
+
+/usr/include/FL/abi-version.h:
+
+/usr/include/FL/Fl_Export.H:
+
+/usr/include/FL/fl_types.h:
+
+/usr/include/FL/Fl_Window.H:
+
+/usr/include/FL/Fl_Group.H:
+
+/usr/include/FL/Fl_Widget.H:
+
+/usr/include/FL/Fl_Bitmap.H:
+
+/usr/include/FL/Fl_Image.H:
+
+/usr/include/c++/6.2.1/stdlib.h:
+
+/usr/include/c++/6.2.1/cstdlib:
+
+/usr/include/stdlib.h:
+
+/usr/lib/gcc/x86_64-pc-linux-gnu/6.2.1/include/stddef.h:
+
+/usr/include/bits/waitflags.h:
+
+/usr/include/bits/waitstatus.h:
+
+/usr/include/xlocale.h:
+
+/usr/include/sys/types.h:
+
+/usr/include/bits/types.h:
+
+/usr/include/bits/typesizes.h:
+
+/usr/include/time.h:
+
+/usr/include/endian.h:
+
+/usr/include/bits/endian.h:
+
+/usr/include/bits/byteswap.h:
+
+/usr/include/bits/byteswap-16.h:
+
+/usr/include/sys/select.h:
+
+/usr/include/bits/select.h:
+
+/usr/include/bits/sigset.h:
+
+/usr/include/bits/time.h:
+
+/usr/include/sys/sysmacros.h:
+
+/usr/include/bits/pthreadtypes.h:
+
+/usr/include/alloca.h:
+
+/usr/include/bits/stdlib-bsearch.h:
+
+/usr/include/bits/stdlib-float.h:
+
+/usr/include/FL/Fl_File_Chooser.H:
+
+/usr/include/FL/Fl.H:
+
+/usr/include/FL/Fl_Export.H:
+
+/usr/include/FL/fl_utf8.h:
+
+/usr/include/stdio.h:
+
+/usr/include/libio.h:
+
+/usr/include/_G_config.h:
+
+/usr/include/wchar.h:
+
+/usr/lib/gcc/x86_64-pc-linux-gnu/6.2.1/include/stdarg.h:
+
+/usr/include/bits/stdio_lim.h:
+
+/usr/include/bits/sys_errlist.h:
+
+/usr/include/bits/stdio.h:
+
+/usr/include/string.h:
+
+/usr/include/sys/stat.h:
+
+/usr/include/bits/stat.h:
+
+/usr/include/locale.h:
+
+/usr/include/bits/locale.h:
+
+/usr/include/FL/Fl_Double_Window.H:
+
+/usr/include/FL/Fl_Window.H:
+
+/usr/include/FL/Fl_Group.H:
+
+/usr/include/FL/Fl_Choice.H:
+
+/usr/include/FL/Fl_Menu_.H:
+
+/usr/include/FL/Fl_Menu_Item.H:
+
+/usr/include/FL/Fl_Menu_Button.H:
+
+/usr/include/FL/Fl_Button.H:
+
+/usr/include/FL/Fl_Preferences.H:
+
+/usr/include/FL/Fl_Tile.H:
+
+/usr/include/FL/Fl_File_Browser.H:
+
+/usr/include/FL/Fl_Browser.H:
+
+/usr/include/FL/Fl_Browser_.H:
+
+/usr/include/FL/Fl_Scrollbar.H:
+
+/usr/include/FL/Fl_Slider.H:
+
+/usr/include/FL/Fl_Valuator.H:
+
+/usr/include/FL/Fl_File_Icon.H:
+
+/usr/include/FL/Fl.H:
+
+/usr/include/FL/filename.H:
+
+/usr/include/dirent.h:
+
+/usr/include/bits/dirent.h:
+
+/usr/include/bits/posix1_lim.h:
+
+/usr/include/bits/local_lim.h:
+
+/usr/include/linux/limits.h:
+
+/usr/include/FL/Fl_Box.H:
+
+/usr/include/FL/Fl_Check_Button.H:
+
+/usr/include/FL/Fl_Light_Button.H:
+
+/usr/include/FL/Fl_Button.H:
+
+/usr/include/FL/Fl_File_Input.H:
+
+/usr/include/FL/Fl_Input.H:
+
+/usr/include/FL/Fl_Input_.H:
+
+/usr/include/FL/Fl_Return_Button.H:
+
+/usr/include/FL/Fl_Text_Display.H:
+
+/usr/include/FL/fl_draw.H:
+
+/usr/include/FL/x.H:
+
+/usr/include/X11/Xlib.h:
+
+/usr/include/X11/X.h:
+
+/usr/include/X11/Xfuncproto.h:
+
+/usr/include/X11/Xosdefs.h:
+
+/usr/include/X11/Xutil.h:
+
+/usr/include/X11/keysym.h:
+
+/usr/include/X11/keysymdef.h:
+
+/usr/include/X11/Xatom.h:
+
+/usr/include/FL/Enumerations.H:
+
+/usr/include/FL/Fl_Device.H:
+
+/usr/include/FL/Fl_Plugin.H:
+
+/usr/include/FL/Fl_Preferences.H:
+
+/usr/include/FL/Fl_Image.H:
+
+/usr/include/FL/Fl_Bitmap.H:
+
+/usr/include/FL/Fl_Pixmap.H:
+
+/usr/include/FL/Fl_RGB_Image.H:
+
+/usr/include/FL/Fl_Text_Buffer.H:
+
+/usr/include/FL/Fl_Output.H:
+
+/usr/include/FL/Fl_Input.H:
+
+/usr/include/FL/Fl_Secret_Input.H:
+
+/usr/include/FL/Fl_Menu_Item.H:
+
+msg.h:
+
+prefs.h:
+
+url.h:
+
+../d_size.h:
+
+../config.h:
+
+/usr/lib/gcc/x86_64-pc-linux-gnu/6.2.1/include/stdint.h:
+
+/usr/include/stdint.h:
+
+/usr/include/bits/wchar.h:
+
+../dlib/dlib.h:
+
+dialog.hh:
+
+misc.h:

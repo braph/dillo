@@ -101,11 +101,14 @@ static int btn_cmp(const void *p1, const void *p2)
            (*(CustTabButton * const *)p2)->focus_num() );
 }
 
+#define TAB_HIST 10
 /*
  * Allows fine control of the tabbed interface
  */
 class CustTabs : public Fl_Group {
    uint_t focus_counter; // An increasing counter
+   char **closedUrls;
+   uint_t closedUrls_last;
    int tab_w, tab_h, ctab_h, btn_w, ctl_w;
    Fl_Wizard *Wizard;
    Fl_Scroll *Scroll;
@@ -169,6 +172,9 @@ public:
       Wizard = new Fl_Wizard(0,ctab_h,ww,wh-ctab_h);
       Wizard->box(FL_NO_BOX);
       Wizard->end();
+
+      closedUrls = dNew0(char *, TAB_HIST);
+      closedUrls_last = 0;
    };
    int handle(int e);
    UI *add_new_tab(UI *old_ui, int focus);
@@ -179,6 +185,7 @@ public:
    void prev_tab(void);
    void next_tab(void);
    void set_tab_label(UI *ui, const char *title);
+   DilloUrl *pop_last_closed_url(void);
 };
 
 /*
@@ -243,6 +250,9 @@ int CustTabs::handle(int e)
          ret = 1;
       } else if (cmd == KEYS_CLOSE_ALL) {
          a_Timeout_add(0.0, a_UIcmd_close_all_bw, NULL);
+         ret = 1;
+      } else if (cmd == KEYS_RESTORE_TAB) {
+         a_UIcmd_restore_tab(bw, 1);
          ret = 1;
       }
    }
@@ -313,6 +323,21 @@ UI *CustTabs::add_new_tab(UI *old_ui, int focus)
 void CustTabs::remove_tab(UI *ui)
 {
    CustTabButton *btn;
+
+   if (num_tabs() == 1) { // our last tab is closed, clear our old urls
+      for (int i = 0; i < TAB_HIST; ++i)
+         if (closedUrls[i])
+            dFree(closedUrls[i]);
+   }
+   else if (! closedUrls[closedUrls_last]) {
+      closedUrls[closedUrls_last] = (char *) dStrdup(ui->get_location());
+   }
+   else {
+      closedUrls_last = (closedUrls_last + 1) % TAB_HIST;
+      if (closedUrls[closedUrls_last])
+         dFree(closedUrls[closedUrls_last]);
+      closedUrls[closedUrls_last] = (char *) dStrdup(ui->get_location());
+   }
 
    // get active tab idx
    int act_idx = get_btn_idx((UI*)Wizard->value());
@@ -456,6 +481,22 @@ void CustTabs::next_tab()
 
    if ((idx = get_btn_idx((UI*)Wizard->value())) != -1)
       switch_tab((CustTabButton*)Pack->child((idx+1<num_tabs()) ? idx+1 : 0));
+}
+
+DilloUrl *CustTabs :: pop_last_closed_url(void)
+{
+   char *last_url = closedUrls[closedUrls_last];
+
+   if (! last_url)
+      return NULL;
+
+   closedUrls[closedUrls_last] = NULL;
+   closedUrls_last = (closedUrls_last - 1 + TAB_HIST) % TAB_HIST;
+   
+   DilloUrl *url = a_Url_new(last_url, NULL);
+   dFree(last_url);
+
+   return url;
 }
 
 /*
@@ -788,6 +829,24 @@ void a_UIcmd_open_url_nt(void *vbw, const DilloUrl *url, int focus)
 {
    BrowserWindow *bw = (BrowserWindow *)vbw;
    BrowserWindow *new_bw = UIcmd_tab_new(BW2UI(bw)->tabs(),
+                                         bw ? BW2UI(bw) : NULL, focus);
+   UIcmd_open_url_nbw(new_bw, url);
+}
+
+/*
+ * Restore tab
+ */
+void a_UIcmd_restore_tab(void *vbw, int focus)
+{
+   BrowserWindow *bw = (BrowserWindow *)vbw;
+   UI *ui = BW2UI(bw);
+   CustTabs *tabs = ui->tabs();
+
+   DilloUrl *url = tabs->pop_last_closed_url();
+   if (! url)
+      return;
+
+   BrowserWindow *new_bw = UIcmd_tab_new(tabs, 
                                          bw ? BW2UI(bw) : NULL, focus);
    UIcmd_open_url_nbw(new_bw, url);
 }
