@@ -1,0 +1,109 @@
+nav.o: nav.c /usr/include/stdc-predef.h /usr/include/stdio.h \
+ /usr/include/features.h /usr/include/sys/cdefs.h \
+ /usr/include/bits/wordsize.h /usr/include/gnu/stubs.h \
+ /usr/include/gnu/stubs-64.h \
+ /usr/lib/gcc/x86_64-pc-linux-gnu/6.2.1/include/stddef.h \
+ /usr/include/bits/types.h /usr/include/bits/typesizes.h \
+ /usr/include/libio.h /usr/include/_G_config.h /usr/include/wchar.h \
+ /usr/lib/gcc/x86_64-pc-linux-gnu/6.2.1/include/stdarg.h \
+ /usr/include/bits/stdio_lim.h /usr/include/bits/sys_errlist.h \
+ /usr/include/bits/stdio.h /usr/include/sys/stat.h /usr/include/time.h \
+ /usr/include/bits/stat.h msg.h prefs.h url.h ../d_size.h ../config.h \
+ /usr/lib/gcc/x86_64-pc-linux-gnu/6.2.1/include/stdint.h \
+ /usr/include/stdint.h /usr/include/bits/wchar.h ../dlib/dlib.h \
+ /usr/include/string.h /usr/include/xlocale.h /usr/include/bits/string.h \
+ /usr/include/bits/string2.h /usr/include/stdlib.h nav.h bw.h history.h \
+ web.hh cache.h chain.h image.hh bitvec.h uicmd.hh dialog.hh capi.h \
+ timeout.hh
+
+/usr/include/stdc-predef.h:
+
+/usr/include/stdio.h:
+
+/usr/include/features.h:
+
+/usr/include/sys/cdefs.h:
+
+/usr/include/bits/wordsize.h:
+
+/usr/include/gnu/stubs.h:
+
+/usr/include/gnu/stubs-64.h:
+
+/usr/lib/gcc/x86_64-pc-linux-gnu/6.2.1/include/stddef.h:
+
+/usr/include/bits/types.h:
+
+/usr/include/bits/typesizes.h:
+
+/usr/include/libio.h:
+
+/usr/include/_G_config.h:
+
+/usr/include/wchar.h:
+
+/usr/lib/gcc/x86_64-pc-linux-gnu/6.2.1/include/stdarg.h:
+
+/usr/include/bits/stdio_lim.h:
+
+/usr/include/bits/sys_errlist.h:
+
+/usr/include/bits/stdio.h:
+
+/usr/include/sys/stat.h:
+
+/usr/include/time.h:
+
+/usr/include/bits/stat.h:
+
+msg.h:
+
+prefs.h:
+
+url.h:
+
+../d_size.h:
+
+../config.h:
+
+/usr/lib/gcc/x86_64-pc-linux-gnu/6.2.1/include/stdint.h:
+
+/usr/include/stdint.h:
+
+/usr/include/bits/wchar.h:
+
+../dlib/dlib.h:
+
+/usr/include/string.h:
+
+/usr/include/xlocale.h:
+
+/usr/include/bits/string.h:
+
+/usr/include/bits/string2.h:
+
+/usr/include/stdlib.h:
+
+nav.h:
+
+bw.h:
+
+history.h:
+
+web.hh:
+
+cache.h:
+
+chain.h:
+
+image.hh:
+
+bitvec.h:
+
+uicmd.hh:
+
+dialog.hh:
+
+capi.h:
+
+timeout.hh:

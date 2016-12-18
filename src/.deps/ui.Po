@@ -1,0 +1,285 @@
+ui.o: ui.cc /usr/include/stdc-predef.h /usr/include/unistd.h \
+ /usr/include/features.h /usr/include/sys/cdefs.h \
+ /usr/include/bits/wordsize.h /usr/include/gnu/stubs.h \
+ /usr/include/gnu/stubs-64.h /usr/include/bits/posix_opt.h \
+ /usr/include/bits/environments.h /usr/include/bits/types.h \
+ /usr/include/bits/typesizes.h \
+ /usr/lib/gcc/x86_64-pc-linux-gnu/6.2.1/include/stddef.h \
+ /usr/include/bits/confname.h /usr/include/getopt.h /usr/include/stdio.h \
+ /usr/include/libio.h /usr/include/_G_config.h /usr/include/wchar.h \
+ /usr/lib/gcc/x86_64-pc-linux-gnu/6.2.1/include/stdarg.h \
+ /usr/include/bits/stdio_lim.h /usr/include/bits/sys_errlist.h \
+ /usr/include/bits/stdio.h /usr/include/c++/6.2.1/math.h \
+ /usr/include/c++/6.2.1/cmath \
+ /usr/include/c++/6.2.1/x86_64-pc-linux-gnu/bits/c++config.h \
+ /usr/include/c++/6.2.1/x86_64-pc-linux-gnu/bits/os_defines.h \
+ /usr/include/c++/6.2.1/x86_64-pc-linux-gnu/bits/cpu_defines.h \
+ /usr/include/c++/6.2.1/bits/cpp_type_traits.h \
+ /usr/include/c++/6.2.1/ext/type_traits.h /usr/include/math.h \
+ /usr/include/bits/math-vector.h /usr/include/bits/libm-simd-decl-stubs.h \
+ /usr/include/bits/huge_val.h /usr/include/bits/huge_valf.h \
+ /usr/include/bits/huge_vall.h /usr/include/bits/inf.h \
+ /usr/include/bits/nan.h /usr/include/bits/mathdef.h \
+ /usr/include/bits/mathcalls.h /usr/include/bits/mathinline.h keys.hh \
+ ui.hh /usr/include/FL/Fl_Window.H /usr/include/FL/Fl_Group.H \
+ /usr/include/FL/Fl_Widget.H /usr/include/FL/Enumerations.H \
+ /usr/include/FL/abi-version.h /usr/include/FL/Fl_Export.H \
+ /usr/include/FL/fl_types.h /usr/include/FL/Fl_Bitmap.H \
+ /usr/include/FL/Fl_Image.H /usr/include/c++/6.2.1/stdlib.h \
+ /usr/include/c++/6.2.1/cstdlib /usr/include/stdlib.h \
+ /usr/include/bits/waitflags.h /usr/include/bits/waitstatus.h \
+ /usr/include/xlocale.h /usr/include/sys/types.h /usr/include/time.h \
+ /usr/include/endian.h /usr/include/bits/endian.h \
+ /usr/include/bits/byteswap.h /usr/include/bits/byteswap-16.h \
+ /usr/include/sys/select.h /usr/include/bits/select.h \
+ /usr/include/bits/sigset.h /usr/include/bits/time.h \
+ /usr/include/sys/sysmacros.h /usr/include/bits/pthreadtypes.h \
+ /usr/include/alloca.h /usr/include/bits/stdlib-bsearch.h \
+ /usr/include/bits/stdlib-float.h /usr/include/FL/Fl_Widget.H \
+ /usr/include/FL/Fl_Button.H /usr/include/FL/Fl_Input.H \
+ /usr/include/FL/Fl_Input_.H /usr/include/FL/Fl_Output.H \
+ /usr/include/FL/Fl_Input.H /usr/include/FL/Fl_Image.H \
+ /usr/include/FL/Fl_Tabs.H tipwin.hh /usr/include/FL/Fl_Menu_Window.H \
+ /usr/include/FL/Fl_Single_Window.H /usr/include/FL/Fl_Window.H \
+ findbar.hh /usr/include/FL/Fl_Pixmap.H /usr/include/FL/Fl_Group.H \
+ /usr/include/FL/Fl_Check_Button.H /usr/include/FL/Fl_Light_Button.H \
+ /usr/include/FL/Fl_Button.H msg.h prefs.h url.h ../d_size.h ../config.h \
+ /usr/lib/gcc/x86_64-pc-linux-gnu/6.2.1/include/stdint.h \
+ /usr/include/stdint.h /usr/include/bits/wchar.h ../dlib/dlib.h \
+ /usr/include/string.h timeout.hh utf8.hh /usr/include/FL/Fl.H \
+ /usr/include/FL/Fl_Export.H /usr/include/FL/fl_utf8.h \
+ /usr/include/sys/stat.h /usr/include/bits/stat.h /usr/include/locale.h \
+ /usr/include/bits/locale.h /usr/include/FL/Fl_Box.H \
+ /usr/include/FL/names.h pixmaps.h uicmd.hh bw.h history.h nav.h
+
+/usr/include/stdc-predef.h:
+
+/usr/include/unistd.h:
+
+/usr/include/features.h:
+
+/usr/include/sys/cdefs.h:
+
+/usr/include/bits/wordsize.h:
+
+/usr/include/gnu/stubs.h:
+
+/usr/include/gnu/stubs-64.h:
+
+/usr/include/bits/posix_opt.h:
+
+/usr/include/bits/environments.h:
+
+/usr/include/bits/types.h:
+
+/usr/include/bits/typesizes.h:
+
+/usr/lib/gcc/x86_64-pc-linux-gnu/6.2.1/include/stddef.h:
+
+/usr/include/bits/confname.h:
+
+/usr/include/getopt.h:
+
+/usr/include/stdio.h:
+
+/usr/include/libio.h:
+
+/usr/include/_G_config.h:
+
+/usr/include/wchar.h:
+
+/usr/lib/gcc/x86_64-pc-linux-gnu/6.2.1/include/stdarg.h:
+
+/usr/include/bits/stdio_lim.h:
+
+/usr/include/bits/sys_errlist.h:
+
+/usr/include/bits/stdio.h:
+
+/usr/include/c++/6.2.1/math.h:
+
+/usr/include/c++/6.2.1/cmath:
+
+/usr/include/c++/6.2.1/x86_64-pc-linux-gnu/bits/c++config.h:
+
+/usr/include/c++/6.2.1/x86_64-pc-linux-gnu/bits/os_defines.h:
+
+/usr/include/c++/6.2.1/x86_64-pc-linux-gnu/bits/cpu_defines.h:
+
+/usr/include/c++/6.2.1/bits/cpp_type_traits.h:
+
+/usr/include/c++/6.2.1/ext/type_traits.h:
+
+/usr/include/math.h:
+
+/usr/include/bits/math-vector.h:
+
+/usr/include/bits/libm-simd-decl-stubs.h:
+
+/usr/include/bits/huge_val.h:
+
+/usr/include/bits/huge_valf.h:
+
+/usr/include/bits/huge_vall.h:
+
+/usr/include/bits/inf.h:
+
+/usr/include/bits/nan.h:
+
+/usr/include/bits/mathdef.h:
+
+/usr/include/bits/mathcalls.h:
+
+/usr/include/bits/mathinline.h:
+
+keys.hh:
+
+ui.hh:
+
+/usr/include/FL/Fl_Window.H:
+
+/usr/include/FL/Fl_Group.H:
+
+/usr/include/FL/Fl_Widget.H:
+
+/usr/include/FL/Enumerations.H:
+
+/usr/include/FL/abi-version.h:
+
+/usr/include/FL/Fl_Export.H:
+
+/usr/include/FL/fl_types.h:
+
+/usr/include/FL/Fl_Bitmap.H:
+
+/usr/include/FL/Fl_Image.H:
+
+/usr/include/c++/6.2.1/stdlib.h:
+
+/usr/include/c++/6.2.1/cstdlib:
+
+/usr/include/stdlib.h:
+
+/usr/include/bits/waitflags.h:
+
+/usr/include/bits/waitstatus.h:
+
+/usr/include/xlocale.h:
+
+/usr/include/sys/types.h:
+
+/usr/include/time.h:
+
+/usr/include/endian.h:
+
+/usr/include/bits/endian.h:
+
+/usr/include/bits/byteswap.h:
+
+/usr/include/bits/byteswap-16.h:
+
+/usr/include/sys/select.h:
+
+/usr/include/bits/select.h:
+
+/usr/include/bits/sigset.h:
+
+/usr/include/bits/time.h:
+
+/usr/include/sys/sysmacros.h:
+
+/usr/include/bits/pthreadtypes.h:
+
+/usr/include/alloca.h:
+
+/usr/include/bits/stdlib-bsearch.h:
+
+/usr/include/bits/stdlib-float.h:
+
+/usr/include/FL/Fl_Widget.H:
+
+/usr/include/FL/Fl_Button.H:
+
+/usr/include/FL/Fl_Input.H:
+
+/usr/include/FL/Fl_Input_.H:
+
+/usr/include/FL/Fl_Output.H:
+
+/usr/include/FL/Fl_Input.H:
+
+/usr/include/FL/Fl_Image.H:
+
+/usr/include/FL/Fl_Tabs.H:
+
+tipwin.hh:
+
+/usr/include/FL/Fl_Menu_Window.H:
+
+/usr/include/FL/Fl_Single_Window.H:
+
+/usr/include/FL/Fl_Window.H:
+
+findbar.hh:
+
+/usr/include/FL/Fl_Pixmap.H:
+
+/usr/include/FL/Fl_Group.H:
+
+/usr/include/FL/Fl_Check_Button.H:
+
+/usr/include/FL/Fl_Light_Button.H:
+
+/usr/include/FL/Fl_Button.H:
+
+msg.h:
+
+prefs.h:
+
+url.h:
+
+../d_size.h:
+
+../config.h:
+
+/usr/lib/gcc/x86_64-pc-linux-gnu/6.2.1/include/stdint.h:
+
+/usr/include/stdint.h:
+
+/usr/include/bits/wchar.h:
+
+../dlib/dlib.h:
+
+/usr/include/string.h:
+
+timeout.hh:
+
+utf8.hh:
+
+/usr/include/FL/Fl.H:
+
+/usr/include/FL/Fl_Export.H:
+
+/usr/include/FL/fl_utf8.h:
+
+/usr/include/sys/stat.h:
+
+/usr/include/bits/stat.h:
+
+/usr/include/locale.h:
+
+/usr/include/bits/locale.h:
+
+/usr/include/FL/Fl_Box.H:
+
+/usr/include/FL/names.h:
+
+pixmaps.h:
+
+uicmd.hh:
+
+bw.h:
+
+history.h:
+
+nav.h:

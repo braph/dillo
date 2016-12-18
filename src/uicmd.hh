@@ -16,6 +16,7 @@ void a_UIcmd_open_urlstr(void *vbw, const char *urlstr);
 void a_UIcmd_open_url(BrowserWindow *bw, const DilloUrl *url);
 void a_UIcmd_open_url_nw(BrowserWindow *bw, const DilloUrl *url);
 void a_UIcmd_open_url_nt(void *vbw, const DilloUrl *url, int focus);
+void a_UIcmd_restore_tab(void *vbw, int focus);
 void a_UIcmd_back(void *vbw);
 void a_UIcmd_back_popup(void *vbw, int x, int y);
 void a_UIcmd_forw(void *vbw);
